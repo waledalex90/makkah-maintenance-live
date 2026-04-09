@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { LiveRadarMap } from "@/components/live-radar-map";
+import { TicketDetailLiveMap } from "@/components/ticket-detail-live-map";
 import { TicketCreateForm } from "@/components/ticket-create-form";
 
 type Zone = {
@@ -50,6 +52,22 @@ type TicketAttachmentRow = {
   created_at: string;
 };
 
+type DetailStaffRow = {
+  user_id: string;
+  latitude: number;
+  longitude: number;
+  last_updated: string;
+  profiles?: {
+    full_name: string;
+    role: string;
+    availability_status?: "available" | "busy" | "offline" | null;
+  } | {
+    full_name: string;
+    role: string;
+    availability_status?: "available" | "busy" | "offline" | null;
+  }[] | null;
+};
+
 type TicketChatRow = {
   ticket_id: string;
   sent_at: string;
@@ -64,6 +82,8 @@ const IN_PROGRESS_STATUSES: TicketStatus[] = ["assigned", "on_the_way", "arrived
 const PAGE_SIZE = 10;
 const LAST_READ_STORAGE_KEY = "admin_ticket_last_read_map";
 const OVERDUE_HOURS = 4;
+const ONLINE_WINDOW_MS = 2 * 60 * 1000;
+const NEARBY_RADIUS_METERS = 3000;
 
 function statusBadgeVariant(status: TicketStatus): "red" | "yellow" | "green" | "muted" {
   if (status === "new") return "red";
@@ -107,6 +127,18 @@ function statusText(status: TicketStatus): string {
   return "مغلق";
 }
 
+function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const r = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return r * c;
+}
+
 export function AdminDashboardContent({ role = "admin", tableOnly = false }: AdminDashboardContentProps) {
   const [zones, setZones] = useState<Zone[]>([]);
   const [allTickets, setAllTickets] = useState<TicketRow[]>([]);
@@ -121,6 +153,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailAttachments, setDetailAttachments] = useState<TicketAttachmentRow[]>([]);
+  const [detailNearbyStaff, setDetailNearbyStaff] = useState<DetailStaffRow[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [latestChatMap, setLatestChatMap] = useState<Record<string, string>>({});
@@ -290,7 +323,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     setDetailModalOpen(true);
     setDetailLoading(true);
     setLastReadMap((prev) => ({ ...prev, [ticket.id]: new Date().toISOString() }));
-    const [ticketRes, attachmentsRes] = await Promise.all([
+    const [ticketRes, attachmentsRes, staffRes] = await Promise.all([
       supabase
         .from("tickets")
         .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
@@ -301,6 +334,9 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         .select("id, file_url, file_type, created_at")
         .eq("ticket_id", ticket.id)
         .order("created_at", { ascending: false }),
+      supabase
+        .from("live_locations")
+        .select("user_id, latitude, longitude, last_updated, profiles(full_name, role, availability_status)"),
     ]);
     if (ticketRes.error) {
       toast.error("تعذر تحميل تفاصيل البلاغ.");
@@ -308,6 +344,26 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       setSelectedTicket(ticketRes.data as TicketRow);
     }
     setDetailAttachments((attachmentsRes.data as TicketAttachmentRow[]) ?? []);
+    const ticketData = (ticketRes.data as TicketRow | null) ?? ticket;
+    const ticketZoneCenter = ticketData.zone_id
+      ? (() => {
+          const zone = zoneMap.get(ticketData.zone_id);
+          if (!zone) return null;
+          const lat = zone.center_latitude ?? zone.latitude ?? null;
+          const lng = zone.center_longitude ?? zone.longitude ?? null;
+          return lat !== null && lng !== null ? ([lat, lng] as [number, number]) : null;
+        })()
+      : null;
+    const focusLat = ticketData.latitude ?? ticketZoneCenter?.[0] ?? null;
+    const focusLng = ticketData.longitude ?? ticketZoneCenter?.[1] ?? null;
+    const rows = ((staffRes.data as DetailStaffRow[]) ?? []).filter((row) => {
+      const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+      if (!profile) return false;
+      if (!["technician", "supervisor", "engineer"].includes(profile.role)) return false;
+      if (focusLat === null || focusLng === null) return true;
+      return distanceMeters(row.latitude, row.longitude, focusLat, focusLng) <= NEARBY_RADIUS_METERS;
+    });
+    setDetailNearbyStaff(rows);
     setDetailLoading(false);
     toast.success("تم فتح تفاصيل البلاغ.");
   };
@@ -457,6 +513,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           </button>
         </section>
       ) : null}
+
+      {!tableOnly ? <LiveRadarMap zoneFilter={zoneFilter} /> : null}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
@@ -652,28 +710,58 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
               <p className="text-sm text-slate-500">جاري تحميل التفاصيل...</p>
             ) : (
               <div className="space-y-4 text-sm">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div><span className="font-semibold">رقم البلاغ:</span> {selectedTicket.external_ticket_number || selectedTicket.ticket_number || selectedTicket.id}</div>
-                  <div><span className="font-semibold">التصنيف:</span> {normalizeCategoryName(selectedTicket.ticket_categories)}</div>
-                  <div><span className="font-semibold">المنطقة:</span> {selectedTicket.zone_id ? zoneMap.get(selectedTicket.zone_id)?.name ?? "-" : "-"}</div>
-                  <div><span className="font-semibold">مقدم البلاغ:</span> {selectedTicket.reporter_name || "-"}</div>
-                  <div><span className="font-semibold">الموقع:</span> {selectedTicket.location || "-"}</div>
-                  <div><span className="font-semibold">GPS:</span> {selectedTicket.latitude && selectedTicket.longitude ? `${selectedTicket.latitude}, ${selectedTicket.longitude}` : "غير متاح"}</div>
-                </div>
-                <div>
-                  <p className="mb-1 font-semibold">الوصف</p>
-                  <p className="rounded-md border border-slate-200 bg-slate-50 p-3">{selectedTicket.description || "-"}</p>
-                </div>
-                <div>
-                  <p className="mb-1 font-semibold">ملاحظات شاخص الفنية</p>
-                  <p className="rounded-md border border-slate-200 bg-slate-50 p-3">{selectedTicket.shaqes_notes || "لا توجد ملاحظات"}</p>
+                <TicketDetailLiveMap
+                  focusPoint={
+                    selectedTicket.latitude && selectedTicket.longitude
+                      ? [selectedTicket.latitude, selectedTicket.longitude]
+                      : (() => {
+                          const zone = selectedTicket.zone_id ? zoneMap.get(selectedTicket.zone_id) : null;
+                          const lat = zone?.center_latitude ?? zone?.latitude ?? 21.4225;
+                          const lng = zone?.center_longitude ?? zone?.longitude ?? 39.8262;
+                          return [lat, lng] as [number, number];
+                        })()
+                  }
+                  ticketLabel={selectedTicket.external_ticket_number || String(selectedTicket.ticket_number || selectedTicket.id.slice(0, 8))}
+                  staffPins={detailNearbyStaff.map((staff) => {
+                    const profile = Array.isArray(staff.profiles) ? staff.profiles[0] : staff.profiles;
+                    const liveStatus = profile?.availability_status ?? (nowTs - new Date(staff.last_updated).getTime() > ONLINE_WINDOW_MS ? "offline" : "available");
+                    return {
+                      user_id: staff.user_id,
+                      full_name: profile?.full_name ?? "موظف",
+                      role: profile?.role ?? "staff",
+                      status: liveStatus,
+                      latitude: staff.latitude,
+                      longitude: staff.longitude,
+                    };
+                  })}
+                />
+
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div><span className="font-semibold">رقم البلاغ:</span> {selectedTicket.external_ticket_number || selectedTicket.ticket_number || selectedTicket.id}</div>
+                    <div><span className="font-semibold">التصنيف:</span> {normalizeCategoryName(selectedTicket.ticket_categories)}</div>
+                    <div><span className="font-semibold">المنطقة:</span> {selectedTicket.zone_id ? zoneMap.get(selectedTicket.zone_id)?.name ?? "-" : "-"}</div>
+                    <div><span className="font-semibold">مقدم البلاغ:</span> {selectedTicket.reporter_name || "-"}</div>
+                    <div><span className="font-semibold">الموقع:</span> {selectedTicket.location || "-"}</div>
+                    <div><span className="font-semibold">GPS:</span> {selectedTicket.latitude && selectedTicket.longitude ? `${selectedTicket.latitude}, ${selectedTicket.longitude}` : "غير متاح"}</div>
+                  </div>
+                  <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div>
+                      <p className="mb-1 font-semibold">الوصف</p>
+                      <p className="rounded-md bg-white p-3">{selectedTicket.description || "-"}</p>
+                    </div>
+                    <div>
+                      <p className="mb-1 font-semibold">ملاحظات شاخص الفنية</p>
+                      <p className="rounded-md bg-white p-3">{selectedTicket.shaqes_notes || "لا توجد ملاحظات"}</p>
+                    </div>
+                  </div>
                 </div>
                 <div>
                   <p className="mb-2 font-semibold">الصور المرفقة</p>
                   {detailAttachments.length === 0 ? (
                     <p className="text-slate-500">لا توجد مرفقات.</p>
                   ) : (
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                       {detailAttachments.map((att) => (
                         <a key={att.id} href={att.file_url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg border border-slate-200">
                           <img src={att.file_url} alt="ticket attachment" className="h-36 w-full object-cover" />

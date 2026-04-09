@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { TechnicianWorkList } from "@/components/technician-work-list";
+import { LiveLocationTracker } from "@/components/live-location-tracker";
 
 export default async function MyWorkPage() {
   const supabase = await createSupabaseServerClient();
@@ -25,6 +26,7 @@ export default async function MyWorkPage() {
 
   return (
     <main className="min-h-screen bg-slate-100 p-6">
+      <LiveLocationTracker />
       <div className="mx-auto max-w-4xl">
         <TechnicianWorkList />
       </div>

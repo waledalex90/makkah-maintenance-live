@@ -14,6 +14,8 @@ type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
 type TicketRow = {
   id: string;
   ticket_number: number | null;
+  external_ticket_number: string | null;
+  reporter_name: string | null;
   title: string | null;
   location: string;
   description: string;
@@ -31,12 +33,6 @@ type ZoneRow = {
 type CategoryRow = {
   id: number;
   name: string;
-};
-
-type ProfileRow = {
-  id: string;
-  full_name: string;
-  role: string;
 };
 
 type TicketsWorkspaceContentProps = {
@@ -60,10 +56,8 @@ function statusLabel(status: TicketStatus): string {
 
 export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) {
   const [myUserId, setMyUserId] = useState<string | null>(null);
-  const [myName, setMyName] = useState("");
   const [zones, setZones] = useState<ZoneRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
-  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -73,6 +67,8 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [externalTicketNumber, setExternalTicketNumber] = useState("");
+  const [reporterNameInput, setReporterNameInput] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [zoneId, setZoneId] = useState("");
   const [gpsEnabled, setGpsEnabled] = useState(false);
@@ -80,9 +76,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
-  const [assignedSupervisorId, setAssignedSupervisorId] = useState("");
-  const [assignedTechnicianId, setAssignedTechnicianId] = useState("");
-  const [assignedEngineerId, setAssignedEngineerId] = useState("");
+  const [shaqesNotes, setShaqesNotes] = useState("");
 
   const zoneNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -91,9 +85,6 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
   }, [zones]);
 
   const canRouteTicket = role !== "reporter";
-  const supervisors = profiles.filter((p) => p.role === "supervisor");
-  const technicians = profiles.filter((p) => p.role === "technician");
-  const engineers = profiles.filter((p) => p.role === "engineer");
 
   const loadData = async () => {
     setLoading(true);
@@ -102,34 +93,22 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     } = await supabase.auth.getUser();
     setMyUserId(user?.id ?? null);
 
-    if (user?.id) {
-      const { data: me } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
-      setMyName(me?.full_name ?? "");
-    }
-
-    const [zonesRes, categoriesRes, profilesRes, ticketsRes] = await Promise.all([
+    const [zonesRes, categoriesRes, ticketsRes] = await Promise.all([
       supabase.from("zones").select("id, name").order("name"),
       supabase.from("ticket_categories").select("id, name").eq("is_active", true).order("id"),
       supabase
-        .from("profiles")
-        .select("id, full_name, role")
-        .in("role", ["engineer", "supervisor", "technician"])
-        .order("full_name"),
-      supabase
         .from("tickets")
-        .select("id, ticket_number, title, location, description, status, zone_id, assigned_engineer_id, created_at")
+        .select("id, ticket_number, external_ticket_number, reporter_name, title, location, description, status, zone_id, assigned_engineer_id, created_at")
         .order("created_at", { ascending: false })
         .limit(100),
     ]);
 
     if (zonesRes.error) toast.error(zonesRes.error.message);
     if (categoriesRes.error) toast.error(categoriesRes.error.message);
-    if (profilesRes.error) toast.error(profilesRes.error.message);
     if (ticketsRes.error) toast.error(ticketsRes.error.message);
 
     setZones((zonesRes.data as ZoneRow[]) ?? []);
     setCategories((categoriesRes.data as CategoryRow[]) ?? []);
-    setProfiles((profilesRes.data as ProfileRow[]) ?? []);
     setTickets((ticketsRes.data as TicketRow[]) ?? []);
     setLoading(false);
   };
@@ -162,6 +141,8 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
   const resetForm = () => {
     setTitle("");
     setDescription("");
+    setExternalTicketNumber("");
+    setReporterNameInput("");
     setCategoryId("");
     setZoneId("");
     setGpsEnabled(false);
@@ -169,9 +150,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     setLatitude(null);
     setLongitude(null);
     setAttachments([]);
-    setAssignedSupervisorId("");
-    setAssignedTechnicianId("");
-    setAssignedEngineerId("");
+    setShaqesNotes("");
     setShowShaqes(false);
   };
 
@@ -180,7 +159,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
       toast.error("تعذر تحديد المستخدم الحالي.");
       return;
     }
-    if (!title.trim() || !description.trim() || !zoneId || !categoryId) {
+    if (!externalTicketNumber.trim() || !reporterNameInput.trim() || !title.trim() || !description.trim() || !zoneId || !categoryId) {
       toast.error("يرجى تعبئة الحقول الأساسية.");
       return;
     }
@@ -191,6 +170,8 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     const insertPayload = {
       title: title.trim(),
       description: description.trim(),
+      external_ticket_number: externalTicketNumber.trim(),
+      reporter_name: reporterNameInput.trim(),
       category_id: Number(categoryId),
       zone_id: zoneId,
       location: locationValue,
@@ -198,9 +179,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
       latitude: gpsEnabled ? latitude : null,
       longitude: gpsEnabled ? longitude : null,
       created_by: myUserId,
-      assigned_supervisor_id: canRouteTicket && showShaqes ? assignedSupervisorId || null : null,
-      assigned_technician_id: canRouteTicket && showShaqes ? assignedTechnicianId || null : null,
-      assigned_engineer_id: canRouteTicket && showShaqes ? assignedEngineerId || null : null,
+      shaqes_notes: showShaqes ? shaqesNotes.trim() || null : null,
       status: "new" as const,
     };
 
@@ -262,11 +241,19 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <div>
             <p className="mb-1 text-xs text-slate-500">رقم البلاغ</p>
-            <Input value="سيتم إنشاؤه تلقائيًا" readOnly />
+            <Input
+              value={externalTicketNumber}
+              onChange={(e) => setExternalTicketNumber(e.target.value)}
+              placeholder="اكتب رقم البلاغ القادم من النظام الخارجي"
+            />
           </div>
           <div>
             <p className="mb-1 text-xs text-slate-500">مقدم البلاغ</p>
-            <Input value={myName || "..."} readOnly />
+            <Input
+              value={reporterNameInput}
+              onChange={(e) => setReporterNameInput(e.target.value)}
+              placeholder="اكتب اسم مقدم البلاغ من الموقع الخارجي"
+            />
           </div>
           <div>
             <p className="mb-1 text-xs text-slate-500">تصنيف البلاغ</p>
@@ -356,39 +343,12 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
 
           {showShaqes && canRouteTicket ? (
             <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3">
-              <p className="mb-2 text-sm font-semibold text-indigo-900">توجيه البلاغ للمسؤول</p>
-              <div className="grid gap-2 md:grid-cols-3">
-                <select
-                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
-                  value={assignedEngineerId}
-                  onChange={(e) => setAssignedEngineerId(e.target.value)}
-                >
-                  <option value="">مهندس (اختياري)</option>
-                  {engineers.map((row) => (
-                    <option key={row.id} value={row.id}>{row.full_name}</option>
-                  ))}
-                </select>
-                <select
-                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
-                  value={assignedSupervisorId}
-                  onChange={(e) => setAssignedSupervisorId(e.target.value)}
-                >
-                  <option value="">مشرف (اختياري)</option>
-                  {supervisors.map((row) => (
-                    <option key={row.id} value={row.id}>{row.full_name}</option>
-                  ))}
-                </select>
-                <select
-                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
-                  value={assignedTechnicianId}
-                  onChange={(e) => setAssignedTechnicianId(e.target.value)}
-                >
-                  <option value="">فني (اختياري)</option>
-                  {technicians.map((row) => (
-                    <option key={row.id} value={row.id}>{row.full_name}</option>
-                  ))}
-                </select>
-              </div>
+              <p className="mb-2 text-sm font-semibold text-indigo-900">شاخص - أرقام وملاحظات فنية</p>
+              <Textarea
+                value={shaqesNotes}
+                onChange={(e) => setShaqesNotes(e.target.value)}
+                placeholder="اكتب أرقام المرجع والملاحظات الفنية الخاصة بالتوجيه..."
+              />
             </div>
           ) : null}
         </div>
@@ -426,7 +386,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
                       setDrawerOpen(true);
                     }}
                   >
-                    <td className="px-3 py-2">#{ticket.ticket_number ?? "-"}</td>
+                    <td className="px-3 py-2">{ticket.external_ticket_number ?? `#${ticket.ticket_number ?? "-"}`}</td>
                     <td className="px-3 py-2">{ticket.title ?? "-"}</td>
                     <td className="px-3 py-2">{ticket.location}</td>
                     <td className="px-3 py-2">

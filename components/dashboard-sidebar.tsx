@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, MapPinned, Settings, Ticket, Users } from "lucide-react";
+import { BarChart3, LayoutDashboard, MapPinned, Settings, Ticket, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "@/components/logout-button";
 
@@ -33,6 +33,7 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
             : role;
   const navItems: NavItem[] = (() => {
     const common: NavItem[] = [
+      { href: "/dashboard", label: "لوحة التحكم", icon: LayoutDashboard },
       { href: "/dashboard/tickets", label: "البلاغات", icon: Ticket },
       { href: "/dashboard/settings", label: "الإعدادات", icon: Settings },
     ];
@@ -69,6 +70,7 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
               href={item.href}
               className={cn(
                 "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition",
+                item.href === "/dashboard" ? "border border-sky-200 bg-sky-50 text-sky-800" : "",
                 active ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100",
               )}
             >

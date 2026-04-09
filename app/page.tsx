@@ -21,5 +21,5 @@ export default async function HomePage() {
     redirect("/tasks/my-work");
   }
 
-  redirect("/dashboard/admin");
+  redirect("/dashboard");
 }

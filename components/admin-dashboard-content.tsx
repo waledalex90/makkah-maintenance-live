@@ -55,6 +55,11 @@ type TicketChatRow = {
   sent_at: string;
 };
 
+type AdminDashboardContentProps = {
+  role?: string;
+  tableOnly?: boolean;
+};
+
 const IN_PROGRESS_STATUSES: TicketStatus[] = ["assigned", "on_the_way", "arrived"];
 const PAGE_SIZE = 10;
 const LAST_READ_STORAGE_KEY = "admin_ticket_last_read_map";
@@ -102,7 +107,7 @@ function statusText(status: TicketStatus): string {
   return "مغلق";
 }
 
-export function AdminDashboardContent() {
+export function AdminDashboardContent({ role = "admin", tableOnly = false }: AdminDashboardContentProps) {
   const [zones, setZones] = useState<Zone[]>([]);
   const [allTickets, setAllTickets] = useState<TicketRow[]>([]);
   const [pageTickets, setPageTickets] = useState<TicketRow[]>([]);
@@ -436,20 +441,22 @@ export function AdminDashboardContent() {
 
   return (
     <div className="relative space-y-6" dir="rtl" lang="ar">
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "active" ? "all" : "active"))}>
-          <Card className={statFilter === "active" ? "ring-2 ring-sky-500" : ""}><CardHeader><CardTitle>البلاغات النشطة (Active)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-sky-700">{stats.active}</p></CardContent></Card>
-        </button>
-        <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "pending" ? "all" : "pending"))}>
-          <Card className={statFilter === "pending" ? "ring-2 ring-amber-500" : ""}><CardHeader><CardTitle>البلاغات المعلقة (Pending)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-amber-600">{stats.pending}</p></CardContent></Card>
-        </button>
-        <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "completed" ? "all" : "completed"))}>
-          <Card className={statFilter === "completed" ? "ring-2 ring-green-500" : ""}><CardHeader><CardTitle>البلاغات المنتهية (Completed)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-green-600">{stats.completed}</p></CardContent></Card>
-        </button>
-        <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "overdue" ? "all" : "overdue"))}>
-          <Card className={statFilter === "overdue" ? "ring-2 ring-red-500" : ""}><CardHeader><CardTitle>البلاغات المتأخرة (Overdue)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-red-600">{stats.overdue}</p></CardContent></Card>
-        </button>
-      </section>
+      {!tableOnly ? (
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "active" ? "all" : "active"))}>
+            <Card className={statFilter === "active" ? "ring-2 ring-sky-500" : ""}><CardHeader><CardTitle>البلاغات النشطة (Active)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-sky-700">{stats.active}</p></CardContent></Card>
+          </button>
+          <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "pending" ? "all" : "pending"))}>
+            <Card className={statFilter === "pending" ? "ring-2 ring-amber-500" : ""}><CardHeader><CardTitle>البلاغات المعلقة (Pending)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-amber-600">{stats.pending}</p></CardContent></Card>
+          </button>
+          <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "completed" ? "all" : "completed"))}>
+            <Card className={statFilter === "completed" ? "ring-2 ring-green-500" : ""}><CardHeader><CardTitle>البلاغات المنتهية (Completed)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-green-600">{stats.completed}</p></CardContent></Card>
+          </button>
+          <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "overdue" ? "all" : "overdue"))}>
+            <Card className={statFilter === "overdue" ? "ring-2 ring-red-500" : ""}><CardHeader><CardTitle>البلاغات المتأخرة (Overdue)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-red-600">{stats.overdue}</p></CardContent></Card>
+          </button>
+        </section>
+      ) : null}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
@@ -617,7 +624,7 @@ export function AdminDashboardContent() {
               </button>
             </div>
             <TicketCreateForm
-              role="admin"
+              role={role}
               onCancel={() => setCreateModalOpen(false)}
               onCreated={async () => {
                 await Promise.all([loadStats(), loadPage()]);

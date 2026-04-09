@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { TicketsWorkspaceContent } from "@/components/tickets-workspace-content";
+import { AdminDashboardContent } from "@/components/admin-dashboard-content";
 
 export default async function DashboardTicketsPage() {
   const supabase = await createSupabaseServerClient();
@@ -22,5 +22,5 @@ export default async function DashboardTicketsPage() {
     redirect("/tasks/my-work");
   }
 
-  return <TicketsWorkspaceContent role={profile?.role ?? "reporter"} />;
+  return <AdminDashboardContent role={profile?.role ?? "reporter"} tableOnly />;
 }

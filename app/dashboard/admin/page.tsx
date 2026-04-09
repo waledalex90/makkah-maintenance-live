@@ -22,5 +22,13 @@ export default async function AdminDashboardPage() {
     redirect("/tasks/my-work");
   }
 
+  if (profile?.role === "reporter") {
+    redirect("/dashboard/tickets");
+  }
+
+  if (!profile?.role || !["admin", "project_manager", "projects_director", "engineer", "supervisor"].includes(profile.role)) {
+    redirect("/tasks/my-work");
+  }
+
   return <AdminDashboardContent />;
 }

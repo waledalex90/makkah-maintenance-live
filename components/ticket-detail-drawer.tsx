@@ -18,6 +18,8 @@ type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
 
 type TicketRow = {
   id: string;
+  ticket_number?: number | null;
+  title?: string | null;
   location: string;
   description: string;
   status: TicketStatus;
@@ -316,9 +318,11 @@ export function TicketDetailDrawer({
 
   const title = useMemo(() => {
     if (!ticket) return "تفاصيل البلاغ";
+    if (ticket.ticket_number) return `بلاغ #${ticket.ticket_number}`;
     return `بلاغ ${ticket.id.slice(0, 8)}`;
   }, [ticket]);
-  const canUpdateStatus = myRole === "admin" || myRole === "supervisor" || myRole === "technician";
+  const canUpdateStatus = myRole === "admin" || myRole === "supervisor" || myRole === "technician" || myRole === "reporter";
+  const allowedStatusOptions = myRole === "reporter" ? (["fixed"] as TicketStatus[]) : STATUS_OPTIONS;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -347,6 +351,8 @@ export function TicketDetailDrawer({
 
             {activeTab === "details" ? (
               <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-sm"><span className="font-medium">رقم البلاغ:</span> {ticket.ticket_number ?? "-"}</p>
+                <p className="text-sm"><span className="font-medium">العنوان:</span> {ticket.title ?? "-"}</p>
                 <p className="text-sm"><span className="font-medium">الموقع:</span> {ticket.location}</p>
                 <p className="text-sm"><span className="font-medium">المنطقة:</span> {zoneName || "-"}</p>
                 <p className="text-sm"><span className="font-medium">الوصف:</span> {ticket.description}</p>
@@ -369,7 +375,7 @@ export function TicketDetailDrawer({
                       value={statusDraft}
                       onChange={(e) => setStatusDraft(e.target.value as TicketStatus)}
                     >
-                      {STATUS_OPTIONS.map((status) => (
+                      {allowedStatusOptions.map((status) => (
                         <option key={status} value={status}>{statusLabel(status)}</option>
                       ))}
                     </select>

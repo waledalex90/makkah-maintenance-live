@@ -24,6 +24,9 @@ export default async function AdminZonesPage() {
   if (profile?.role === "reporter") {
     redirect("/dashboard/tickets");
   }
+  if (!profile?.role || !["admin", "project_manager", "projects_director"].includes(profile.role)) {
+    redirect("/dashboard/tickets");
+  }
 
   return <ZonesManagementContent />;
 }

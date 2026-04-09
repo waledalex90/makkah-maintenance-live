@@ -6,7 +6,14 @@ type ProfileRow = {
   id: string;
   full_name: string;
   mobile: string;
-  role: "admin" | "engineer" | "supervisor" | "technician" | "reporter";
+  role:
+    | "admin"
+    | "projects_director"
+    | "project_manager"
+    | "engineer"
+    | "supervisor"
+    | "technician"
+    | "reporter";
 };
 
 async function ensureAdminAccess() {
@@ -82,7 +89,14 @@ type InvitePayload = {
   email?: string;
   full_name?: string;
   mobile?: string;
-  role?: "admin" | "engineer" | "supervisor" | "technician" | "reporter";
+  role?:
+    | "admin"
+    | "projects_director"
+    | "project_manager"
+    | "engineer"
+    | "supervisor"
+    | "technician"
+    | "reporter";
 };
 
 export async function POST(request: Request) {

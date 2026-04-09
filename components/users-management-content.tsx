@@ -4,7 +4,14 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 
-type UserRole = "admin" | "engineer" | "supervisor" | "technician" | "reporter";
+type UserRole =
+  | "admin"
+  | "projects_director"
+  | "project_manager"
+  | "engineer"
+  | "supervisor"
+  | "technician"
+  | "reporter";
 
 type UserRow = {
   id: string;
@@ -17,6 +24,8 @@ type UserRow = {
 
 const ROLE_OPTIONS: Array<{ value: UserRole; label: string }> = [
   { value: "admin", label: "مدير النظام" },
+  { value: "projects_director", label: "مدير المشاريع" },
+  { value: "project_manager", label: "مدير مشروع" },
   { value: "reporter", label: "مدخل بيانات" },
   { value: "engineer", label: "مهندس" },
   { value: "supervisor", label: "مشرف" },
@@ -63,6 +72,7 @@ export function UsersManagementContent() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadUsers();
   }, []);
 

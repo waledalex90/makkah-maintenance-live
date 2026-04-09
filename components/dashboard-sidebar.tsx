@@ -18,6 +18,10 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
   const roleLabel =
     role === "admin"
       ? "مدير النظام"
+      : role === "projects_director"
+        ? "مدير المشاريع"
+      : role === "project_manager"
+        ? "مدير مشروع"
       : role === "engineer"
         ? "مهندس"
         : role === "reporter"
@@ -32,7 +36,7 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
       { href: "/dashboard/tickets", label: "البلاغات", icon: Ticket },
       { href: "/dashboard/settings", label: "الإعدادات", icon: Settings },
     ];
-    if (role === "admin") {
+    if (role === "admin" || role === "project_manager" || role === "projects_director") {
       return [
         { href: "/dashboard/map", label: "الخريطة", icon: MapPinned },
         ...common,

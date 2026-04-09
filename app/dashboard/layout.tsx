@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
-import { ZoneNotificationsListener } from "@/components/zone-notifications-listener";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createSupabaseServerClient();
@@ -28,7 +27,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex min-h-screen bg-slate-100">
-      <ZoneNotificationsListener />
       <DashboardSidebar fullName={fullName} role={role} />
       <main className="flex-1 p-6">{children}</main>
     </div>

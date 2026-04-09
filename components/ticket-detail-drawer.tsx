@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Sheet,
   SheetContent,
@@ -13,36 +12,34 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { TicketChatPanel } from "@/components/ticket-chat-panel";
 
-type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
+export type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
 
-type TicketRow = {
+export type TicketDetailRow = {
   id: string;
   ticket_number?: number | null;
+  external_ticket_number?: string | null;
   title?: string | null;
   location: string;
   description: string;
   status: TicketStatus;
   assigned_engineer_id: string | null;
+  assigned_supervisor_id?: string | null;
+  assigned_technician_id?: string | null;
   claimed_at?: string | null;
   zone_id: string | null;
+  category_id?: number | null;
+  ticket_categories?: { name: string } | { name: string }[] | null;
   created_at: string;
 };
 
-type ChatMessage = {
-  id: number;
-  ticket_id: string;
-  sender_id: string;
-  content: string;
-  image_url: string | null;
-  audio_url: string | null;
-  created_at: string;
-};
+type StaffOption = { staff_id: string; full_name: string };
 
 type TicketDetailDrawerProps = {
   open: boolean;
   onOpenChange: (next: boolean) => void;
-  ticket: TicketRow | null;
+  ticket: TicketDetailRow | null;
   zoneName: string;
   onTicketUpdated: () => Promise<void>;
   onMarkTicketRead: (ticketId: string, readAt: string) => void;
@@ -65,6 +62,12 @@ function statusLabel(status: TicketStatus): string {
   return "تم الإصلاح";
 }
 
+function categoryLabel(cat: TicketDetailRow["ticket_categories"]): string {
+  if (!cat) return "-";
+  if (Array.isArray(cat)) return cat[0]?.name ?? "-";
+  return cat.name;
+}
+
 export function TicketDetailDrawer({
   open,
   onOpenChange,
@@ -73,27 +76,27 @@ export function TicketDetailDrawer({
   onTicketUpdated,
   onMarkTicketRead,
 }: TicketDetailDrawerProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [senderNameMap, setSenderNameMap] = useState<Record<string, string>>({});
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [statusDraft, setStatusDraft] = useState<TicketStatus | "">("");
-  const [activeTab, setActiveTab] = useState<"details" | "followup">("details");
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [uploadingAudio, setUploadingAudio] = useState(false);
-  const [attachmentImageFile, setAttachmentImageFile] = useState<File | null>(null);
-  const [attachmentAudioFile, setAttachmentAudioFile] = useState<File | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<string | null>(null);
+  const [supervisorOptions, setSupervisorOptions] = useState<StaffOption[]>([]);
+  const [technicianOptions, setTechnicianOptions] = useState<StaffOption[]>([]);
+  const [supervisorPick, setSupervisorPick] = useState("");
+  const [technicianPick, setTechnicianPick] = useState("");
+  const [dispatching, setDispatching] = useState(false);
+  const [actingField, setActingField] = useState(false);
+  const fixedUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const ticketId = ticket?.id;
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatusDraft(ticket?.status ?? "");
-    setActiveTab("details");
-  }, [ticket?.id, ticket?.status]);
+    setSupervisorPick(ticket?.assigned_supervisor_id ?? "");
+    setTechnicianPick(ticket?.assigned_technician_id ?? "");
+  }, [ticket?.id, ticket?.status, ticket?.assigned_supervisor_id, ticket?.assigned_technician_id]);
 
   useEffect(() => {
     const loadMe = async () => {
@@ -115,47 +118,46 @@ export function TicketDetailDrawer({
     void loadMe();
   }, []);
 
-  const loadMessages = async () => {
+  const loadAssignable = async () => {
     if (!ticketId) return;
-
-    const { data, error } = await supabase
-      .from("ticket_messages")
-      .select("id, ticket_id, sender_id, content, image_url, audio_url, created_at")
-      .eq("ticket_id", ticketId)
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      toast.error(error.message);
-      return;
+    const { data: supData, error: supErr } = await supabase.rpc("assignable_staff_for_ticket", {
+      p_ticket_id: ticketId,
+      p_target_role: "supervisor",
+    });
+    if (!supErr && supData) {
+      setSupervisorOptions((supData as StaffOption[]) ?? []);
     }
-
-    const chatRows = (data as ChatMessage[]) ?? [];
-    setMessages(chatRows);
-
-    if (chatRows.length > 0) {
-      const latest = chatRows[chatRows.length - 1]?.created_at ?? new Date().toISOString();
-      onMarkTicketRead(ticketId, latest);
-    } else {
-      onMarkTicketRead(ticketId, new Date().toISOString());
+    const { data: techData, error: techErr } = await supabase.rpc("assignable_staff_for_ticket", {
+      p_ticket_id: ticketId,
+      p_target_role: "technician",
+    });
+    if (!techErr && techData) {
+      setTechnicianOptions((techData as StaffOption[]) ?? []);
     }
+  };
 
+  useEffect(() => {
+    if (!open || !ticketId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load RPC options when drawer opens
+    void loadAssignable();
+  }, [open, ticketId]);
+
+  const loadRoleNameMap = async () => {
+    if (!ticketId || !ticket) return;
     const senderIds = Array.from(
-      new Set([
-        ...chatRows.map((row) => row.sender_id),
-        ...(ticket?.assigned_engineer_id ? [ticket.assigned_engineer_id] : []),
-      ]),
+      new Set(
+        [
+          ticket.assigned_engineer_id,
+          ticket.assigned_supervisor_id,
+          ticket.assigned_technician_id,
+        ].filter(Boolean) as string[],
+      ),
     );
-    if (senderIds.length === 0) return;
-
-    const { data: profiles, error: profilesError } = await supabase
-      .from("profiles")
-      .select("id, full_name")
-      .in("id", senderIds);
-
-    if (profilesError) {
+    if (senderIds.length === 0) {
+      setSenderNameMap({});
       return;
     }
-
+    const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", senderIds);
     const map: Record<string, string> = {};
     (profiles ?? []).forEach((profile) => {
       map[profile.id] = profile.full_name;
@@ -164,129 +166,45 @@ export function TicketDetailDrawer({
   };
 
   useEffect(() => {
-    if (!open || !ticketId) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadMessages();
-  }, [open, ticketId]);
+    if (!open || !ticketId || !ticket) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resolve assignee display names
+    void loadRoleNameMap();
+  }, [open, ticketId, ticket?.assigned_engineer_id, ticket?.assigned_supervisor_id, ticket?.assigned_technician_id]);
 
   useEffect(() => {
     if (!open || !ticketId) return;
-
     const channel = supabase
-      .channel(`ticket-chat-${ticketId}`)
+      .channel(`ticket-drawer-ticket-${ticketId}`)
       .on(
         "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "ticket_messages",
-          filter: `ticket_id=eq.${ticketId}`,
-        },
-        () => {
-          void loadMessages();
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "tickets",
-          filter: `id=eq.${ticketId}`,
-        },
+        { event: "UPDATE", schema: "public", table: "tickets", filter: `id=eq.${ticketId}` },
         async () => {
           await onTicketUpdated();
+          void loadAssignable();
+          void loadRoleNameMap();
         },
       )
       .subscribe();
-
     return () => {
       void supabase.removeChannel(channel);
     };
   }, [open, ticketId, onTicketUpdated]);
 
-  const sendMessage = async () => {
-    if (!ticketId) return;
-    const content = draft.trim();
-    if (!content && !attachmentImageFile && !attachmentAudioFile) return;
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      toast.error("يرجى تسجيل الدخول مرة أخرى.");
-      return;
-    }
-
-    setSending(true);
-    let imageUrl: string | null = null;
-    let audioUrl: string | null = null;
-
-    if (attachmentImageFile) {
-      setUploadingImage(true);
-      const ext = attachmentImageFile.name.split(".").pop() ?? "jpg";
-      const filePath = `${ticketId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error: uploadError } = await supabase.storage
-        .from("ticket-message-attachments")
-        .upload(filePath, attachmentImageFile, { upsert: false });
-
-      setUploadingImage(false);
-
-      if (uploadError) {
-        toast.error("فشل رفع الصورة. تأكد من وجود bucket باسم ticket-message-attachments.");
-        setSending(false);
-        return;
-      }
-
-      const { data: publicData } = supabase.storage.from("ticket-message-attachments").getPublicUrl(filePath);
-      imageUrl = publicData.publicUrl;
-    }
-
-    if (attachmentAudioFile) {
-      setUploadingAudio(true);
-      const ext = attachmentAudioFile.name.split(".").pop() ?? "webm";
-      const filePath = `${ticketId}/voice-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error: uploadAudioError } = await supabase.storage
-        .from("ticket-message-attachments")
-        .upload(filePath, attachmentAudioFile, { upsert: false });
-      setUploadingAudio(false);
-
-      if (uploadAudioError) {
-        toast.error("فشل رفع الرسالة الصوتية.");
-        setSending(false);
-        return;
-      }
-
-      const { data: publicAudioData } = supabase.storage.from("ticket-message-attachments").getPublicUrl(filePath);
-      audioUrl = publicAudioData.publicUrl;
-    }
-
-    const { error } = await supabase.from("ticket_messages").insert({
-      ticket_id: ticketId,
-      sender_id: user.id,
-      content: content || (audioUrl ? "رسالة صوتية" : "مرفق صورة"),
-      image_url: imageUrl,
-      audio_url: audioUrl,
-    });
-
-    if (error) {
-      toast.error(error.message);
-      setSending(false);
-      return;
-    }
-
-    setDraft("");
-    setAttachmentImageFile(null);
-    setAttachmentAudioFile(null);
-    setSending(false);
-  };
-
   const claimTask = async () => {
-    if (!ticketId) return;
+    if (!ticketId || !myUserId || !ticket) return;
     setStatusUpdating(true);
-    const { error } = await supabase.rpc("claim_ticket", { p_ticket_id: ticketId });
+    const { error: rpcError } = await supabase.rpc("claim_ticket", { p_ticket_id: ticketId });
+    if (!rpcError) {
+      toast.success("تم استلام المهمة بنجاح.");
+      await onTicketUpdated();
+      setStatusUpdating(false);
+      return;
+    }
+    const nextStatus: TicketStatus = ticket.status === "new" ? "assigned" : ticket.status;
+    const { error } = await supabase
+      .from("tickets")
+      .update({ assigned_engineer_id: myUserId, status: nextStatus })
+      .eq("id", ticketId);
     setStatusUpdating(false);
     if (error) {
       toast.error(error.message);
@@ -316,141 +234,345 @@ export function TicketDetailDrawer({
     setStatusUpdating(false);
   };
 
+  const saveSupervisor = async () => {
+    if (!ticketId || !ticket) return;
+    setDispatching(true);
+    const supId = supervisorPick || null;
+    const nextStatus: TicketStatus = ticket.status === "new" && supId ? "assigned" : ticket.status;
+    const { error } = await supabase
+      .from("tickets")
+      .update({ assigned_supervisor_id: supId, status: nextStatus })
+      .eq("id", ticketId);
+    setDispatching(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(supId ? "تم تعيين المشرف." : "تم إلغاء تعيين المشرف.");
+    await onTicketUpdated();
+  };
+
+  const saveTechnician = async () => {
+    if (!ticketId || !ticket) return;
+    setDispatching(true);
+    const techId = technicianPick || null;
+    const nextStatus: TicketStatus = techId && ticket.status === "new" ? "assigned" : ticket.status;
+    const { error } = await supabase
+      .from("tickets")
+      .update({ assigned_technician_id: techId, status: nextStatus })
+      .eq("id", ticketId);
+    setDispatching(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(techId ? "تم تكليف الفني المنفذ." : "تم إلغاء تكليف الفني.");
+    await onTicketUpdated();
+  };
+
+  const pushCurrentGps = async () => {
+    if (!myUserId || !navigator.geolocation) return;
+    return new Promise<void>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const latitude = Number(position.coords.latitude.toFixed(6));
+          const longitude = Number(position.coords.longitude.toFixed(6));
+          const nowIso = new Date().toISOString();
+          await Promise.all([
+            supabase.from("live_locations").upsert({
+              user_id: myUserId,
+              latitude,
+              longitude,
+              last_updated: nowIso,
+            }),
+            supabase
+              .from("profiles")
+              .update({
+                current_latitude: latitude,
+                current_longitude: longitude,
+                last_location_at: nowIso,
+                availability_status: "busy",
+              })
+              .eq("id", myUserId),
+          ]);
+          resolve();
+        },
+        () => resolve(),
+        { enableHighAccuracy: true, timeout: 8000 },
+      );
+    });
+  };
+
+  const fieldUpdateStatus = async (next: TicketStatus) => {
+    if (!ticketId) return;
+    setActingField(true);
+    const { error } = await supabase.from("tickets").update({ status: next }).eq("id", ticketId);
+    setActingField(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("تم تحديث حالة البلاغ.");
+    await onTicketUpdated();
+  };
+
+  const onStartDriving = async () => {
+    await pushCurrentGps();
+    await fieldUpdateStatus("on_the_way");
+  };
+
+  const onFixedPickPhoto = () => fixedUploadInputRef.current?.click();
+
+  const onFixedImageSelected = async (file: File | null) => {
+    if (!file || !ticketId || !myUserId) return;
+    setActingField(true);
+    const ext = file.name.split(".").pop() ?? "jpg";
+    const filePath = `tickets/${ticketId}/after-fix-${Date.now()}.${ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from("ticket-attachments")
+      .upload(filePath, file, { upsert: false });
+    if (uploadError) {
+      toast.error(uploadError.message);
+      setActingField(false);
+      return;
+    }
+    const { data: publicData } = supabase.storage.from("ticket-attachments").getPublicUrl(filePath);
+    await supabase.from("ticket_attachments").insert({
+      ticket_id: ticketId,
+      uploaded_by: myUserId,
+      file_url: publicData.publicUrl,
+      file_type: "image",
+    });
+    const { error } = await supabase.from("tickets").update({ status: "fixed" }).eq("id", ticketId);
+    setActingField(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("تم إغلاق البلاغ مع صورة بعد الإصلاح.");
+    await onTicketUpdated();
+  };
+
   const title = useMemo(() => {
     if (!ticket) return "تفاصيل البلاغ";
+    if (ticket.external_ticket_number) return `بلاغ ${ticket.external_ticket_number}`;
     if (ticket.ticket_number) return `بلاغ #${ticket.ticket_number}`;
     return `بلاغ ${ticket.id.slice(0, 8)}`;
   }, [ticket]);
-  const canUpdateStatus = myRole === "admin" || myRole === "supervisor" || myRole === "technician" || myRole === "reporter";
+
+  const canUpdateStatus =
+    myRole === "admin" ||
+    myRole === "project_manager" ||
+    myRole === "projects_director" ||
+    myRole === "supervisor" ||
+    myRole === "technician" ||
+    myRole === "reporter";
   const allowedStatusOptions = myRole === "reporter" ? (["fixed"] as TicketStatus[]) : STATUS_OPTIONS;
+
+  const canUseChat =
+    myRole === "technician" ||
+    myRole === "supervisor" ||
+    myRole === "engineer" ||
+    myRole === "admin" ||
+    myRole === "project_manager" ||
+    myRole === "projects_director";
+
+  const canDispatchSupervisor =
+    myRole === "engineer" || myRole === "admin" || myRole === "project_manager" || myRole === "projects_director";
+
+  const canDispatchTechnician =
+    myRole === "admin" ||
+    myRole === "project_manager" ||
+    myRole === "projects_director" ||
+    (myRole === "supervisor" && ticket?.assigned_supervisor_id === myUserId);
+
+  const showTechnicianQuickActions =
+    myRole === "technician" && ticket?.assigned_technician_id === myUserId && ticket.status !== "fixed";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent dir="rtl">
+      <SheetContent dir="rtl" className="flex w-full flex-col overflow-hidden sm:max-w-lg">
         {ticket ? (
-          <div className="flex h-full flex-col">
-            <SheetHeader>
+          <div className="flex h-full min-h-0 flex-col gap-4">
+            <SheetHeader className="shrink-0 space-y-1 text-right">
               <SheetTitle>{title}</SheetTitle>
-              <SheetDescription>تفاصيل البلاغ كاملة مع تحديثات المحادثة المباشرة.</SheetDescription>
+              <SheetDescription>
+                إدارة التوجيه ومركز التواصل والمرفقات لنفس البلاغ.
+              </SheetDescription>
             </SheetHeader>
 
-            <div className="mb-3 flex items-center gap-2">
-              <button
-                className={`rounded-md px-3 py-1.5 text-sm ${activeTab === "details" ? "bg-slate-900 text-white" : "border border-slate-200 text-slate-700"}`}
-                onClick={() => setActiveTab("details")}
-              >
-                تفاصيل البلاغ
-              </button>
-              <button
-                className={`rounded-md px-3 py-1.5 text-sm ${activeTab === "followup" ? "bg-slate-900 text-white" : "border border-slate-200 text-slate-700"}`}
-                onClick={() => setActiveTab("followup")}
-              >
-                المتابعة الفورية
-              </button>
-            </div>
-
-            {activeTab === "details" ? (
-              <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <p className="text-sm"><span className="font-medium">رقم البلاغ:</span> {ticket.ticket_number ?? "-"}</p>
-                <p className="text-sm"><span className="font-medium">العنوان:</span> {ticket.title ?? "-"}</p>
-                <p className="text-sm"><span className="font-medium">الموقع:</span> {ticket.location}</p>
-                <p className="text-sm"><span className="font-medium">المنطقة:</span> {zoneName || "-"}</p>
-                <p className="text-sm"><span className="font-medium">الوصف:</span> {ticket.description}</p>
-                <p className="text-sm">
-                  <span className="font-medium">المهندس المسؤول حالياً:</span>{" "}
-                  {ticket.assigned_engineer_id
-                    ? senderNameMap[ticket.assigned_engineer_id] ?? ticket.assigned_engineer_id.slice(0, 8)
-                    : "غير محدد"}
-                </p>
-
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="font-medium">الحالة:</span>
-                  <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabel(ticket.status)}</Badge>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+              <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <h3 className="mb-3 text-sm font-semibold text-slate-900">إدارة التوجيه والبيانات</h3>
+                <div className="space-y-2 text-sm">
+                  <p>
+                    <span className="font-medium">التصنيف:</span> {categoryLabel(ticket.ticket_categories)}
+                  </p>
+                  <p>
+                    <span className="font-medium">المنطقة:</span> {zoneName || "-"}
+                  </p>
+                  <p>
+                    <span className="font-medium">رقم البلاغ:</span>{" "}
+                    {ticket.external_ticket_number || ticket.ticket_number || ticket.id.slice(0, 8)}
+                  </p>
+                  <p>
+                    <span className="font-medium">العنوان:</span> {ticket.title ?? "-"}
+                  </p>
+                  <p>
+                    <span className="font-medium">الموقع:</span> {ticket.location}
+                  </p>
+                  <p>
+                    <span className="font-medium">الوصف:</span> {ticket.description}
+                  </p>
+                  <p>
+                    <span className="font-medium">المهندس المسؤول:</span>{" "}
+                    {ticket.assigned_engineer_id
+                      ? senderNameMap[ticket.assigned_engineer_id] ?? ticket.assigned_engineer_id.slice(0, 8)
+                      : "غير محدد"}
+                  </p>
+                  <p>
+                    <span className="font-medium">المشرف:</span>{" "}
+                    {ticket.assigned_supervisor_id
+                      ? senderNameMap[ticket.assigned_supervisor_id] ?? ticket.assigned_supervisor_id.slice(0, 8)
+                      : "غير مُكلّف"}
+                  </p>
+                  <p>
+                    <span className="font-medium">الفني المنفذ:</span>{" "}
+                    {ticket.assigned_technician_id
+                      ? senderNameMap[ticket.assigned_technician_id] ?? ticket.assigned_technician_id.slice(0, 8)
+                      : "غير مُكلّف"}
+                  </p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="font-medium">الحالة:</span>
+                    <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabel(ticket.status)}</Badge>
+                  </div>
                 </div>
 
-                {canUpdateStatus ? (
-                  <div className="flex items-center gap-2">
+                {canDispatchSupervisor ? (
+                  <div className="mt-4 space-y-2 rounded-lg border border-indigo-200 bg-white p-3">
+                    <p className="text-xs font-semibold text-indigo-900">تعيين المشرف / المراقب</p>
                     <select
-                      className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                      value={statusDraft}
-                      onChange={(e) => setStatusDraft(e.target.value as TicketStatus)}
+                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      value={supervisorPick}
+                      onChange={(e) => setSupervisorPick(e.target.value)}
                     >
-                      {allowedStatusOptions.map((status) => (
-                        <option key={status} value={status}>{statusLabel(status)}</option>
+                      <option value="">— بدون —</option>
+                      {supervisorOptions.map((o) => (
+                        <option key={o.staff_id} value={o.staff_id}>
+                          {o.full_name}
+                        </option>
                       ))}
                     </select>
-                    <Button onClick={() => void updateStatus()} disabled={statusUpdating || statusDraft === ticket.status}>
-                      {statusUpdating ? "جاري التحديث..." : "تحديث"}
+                    <Button className="w-full" disabled={dispatching} onClick={() => void saveSupervisor()}>
+                      {dispatching ? "جاري الحفظ..." : "حفظ تعيين المشرف"}
+                    </Button>
+                  </div>
+                ) : null}
+
+                {canDispatchTechnician ? (
+                  <div className="mt-3 space-y-2 rounded-lg border border-emerald-200 bg-white p-3">
+                    <p className="text-xs font-semibold text-emerald-900">تكليف الفني المنفذ</p>
+                    <select
+                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      value={technicianPick}
+                      onChange={(e) => setTechnicianPick(e.target.value)}
+                    >
+                      <option value="">— بدون —</option>
+                      {technicianOptions.map((o) => (
+                        <option key={o.staff_id} value={o.staff_id}>
+                          {o.full_name}
+                        </option>
+                      ))}
+                    </select>
+                    <Button className="w-full" variant="outline" disabled={dispatching} onClick={() => void saveTechnician()}>
+                      {dispatching ? "جاري الحفظ..." : "حفظ تكليف الفني"}
                     </Button>
                   </div>
                 ) : null}
 
                 {myRole === "engineer" ? (
-                  <Button
-                    onClick={() => void claimTask()}
-                    disabled={statusUpdating || ticket.assigned_engineer_id === myUserId}
-                  >
-                    {ticket.assigned_engineer_id === myUserId ? "تم الاستلام" : "استلام المهمة"}
-                  </Button>
+                  <div className="mt-3">
+                    <Button
+                      onClick={() => void claimTask()}
+                      disabled={statusUpdating || ticket.assigned_engineer_id === myUserId}
+                    >
+                      {ticket.assigned_engineer_id === myUserId ? "تم الاستلام" : "استلام المهمة"}
+                    </Button>
+                  </div>
                 ) : null}
-              </div>
-            ) : (
-              <div className="mt-1 flex-1 rounded-lg border border-slate-200 p-3">
-                <h3 className="mb-3 text-sm font-semibold">المتابعة الفورية للبلاغ</h3>
-                <div className="h-[320px] space-y-2 overflow-y-auto rounded-md bg-slate-50 p-2">
-                  {messages.map((msg) => (
-                    <div key={msg.id} className="rounded-md border border-slate-200 bg-white p-2 text-sm">
-                      <p className="text-xs text-slate-500">
-                        {senderNameMap[msg.sender_id] ?? msg.sender_id.slice(0, 8)} - {new Date(msg.created_at).toLocaleString()}
-                      </p>
-                      <p className="mt-1 whitespace-pre-wrap">{msg.content}</p>
-                      {msg.image_url ? (
-                        <a href={msg.image_url} target="_blank" rel="noreferrer" className="mt-2 block">
-                          <img src={msg.image_url} alt="صورة الدليل" className="max-h-48 rounded-md border border-slate-200" />
-                        </a>
-                      ) : null}
-                      {msg.audio_url ? (
-                        <audio className="mt-2 w-full" controls preload="none" src={msg.audio_url}>
-                          متصفحك لا يدعم تشغيل الصوت.
-                        </audio>
-                      ) : null}
-                    </div>
-                  ))}
-                  {messages.length === 0 ? (
-                    <p className="p-2 text-sm text-slate-500">لا توجد تعليقات حتى الآن.</p>
-                  ) : null}
-                </div>
 
-                <div className="mt-3 space-y-2">
-                  <Textarea
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    placeholder="اكتب رسالتك هنا.."
-                  />
-                  <div className="space-y-1">
+                {canUpdateStatus ? (
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <select
+                      className="h-10 flex-1 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      value={statusDraft}
+                      onChange={(e) => setStatusDraft(e.target.value as TicketStatus)}
+                    >
+                      {allowedStatusOptions.map((status) => (
+                        <option key={status} value={status}>
+                          {statusLabel(status)}
+                        </option>
+                      ))}
+                    </select>
+                    <Button onClick={() => void updateStatus()} disabled={statusUpdating || statusDraft === ticket.status}>
+                      {statusUpdating ? "جاري التحديث..." : "تحديث الحالة"}
+                    </Button>
+                  </div>
+                ) : null}
+
+                {showTechnicianQuickActions ? (
+                  <div className="mt-4 space-y-2">
                     <input
+                      ref={fixedUploadInputRef}
                       type="file"
                       accept="image/*"
-                      onChange={(e) => setAttachmentImageFile(e.target.files?.[0] ?? null)}
-                      className="block w-full text-xs"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) => void onFixedImageSelected(e.target.files?.[0] ?? null)}
                     />
-                    <input
-                      type="file"
-                      accept="audio/*"
-                      onChange={(e) => setAttachmentAudioFile(e.target.files?.[0] ?? null)}
-                      className="block w-full text-xs"
-                    />
-                    {attachmentImageFile ? <p className="text-xs text-slate-500">الصورة: {attachmentImageFile.name}</p> : null}
-                    {attachmentAudioFile ? <p className="text-xs text-slate-500">الصوت: {attachmentAudioFile.name}</p> : null}
-                    {uploadingImage ? <p className="text-xs text-slate-500">جاري رفع الصورة...</p> : null}
-                    {uploadingAudio ? <p className="text-xs text-slate-500">جاري رفع الصوت...</p> : null}
+                    <p className="text-xs font-medium text-slate-600">تنفيذ سريع (ميداني)</p>
+                    <div className="grid grid-cols-1 gap-2">
+                      {ticket.status === "new" || ticket.status === "assigned" ? (
+                        <Button
+                          className="h-12 bg-amber-600 text-base hover:bg-amber-700"
+                          disabled={actingField}
+                          onClick={() => void onStartDriving()}
+                        >
+                          في الطريق 🚗
+                        </Button>
+                      ) : null}
+                      {ticket.status === "assigned" || ticket.status === "on_the_way" ? (
+                        <Button
+                          className="h-12 bg-sky-600 text-base hover:bg-sky-700"
+                          disabled={actingField}
+                          onClick={() => void fieldUpdateStatus("arrived")}
+                        >
+                          وصلت الموقع 📍
+                        </Button>
+                      ) : null}
+                      {ticket.status !== "fixed" ? (
+                        <Button
+                          className="h-12 bg-emerald-600 text-base hover:bg-emerald-700"
+                          disabled={actingField}
+                          onClick={onFixedPickPhoto}
+                        >
+                          تم الإصلاح ✅
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
-                  <Button onClick={() => void sendMessage()} disabled={sending}>
-                    {sending ? "جاري الكتابة..." : "إرسال الرسالة"}
-                  </Button>
-                </div>
-              </div>
-            )}
+                ) : null}
+              </section>
+
+              {ticketId ? (
+                <TicketChatPanel
+                  ticketId={ticketId}
+                  canPost={Boolean(canUseChat)}
+                  onTicketUpdated={onTicketUpdated}
+                  onMarkTicketRead={onMarkTicketRead}
+                />
+              ) : null}
+            </div>
           </div>
         ) : null}
       </SheetContent>

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { LiveRadarMap } from "@/components/live-radar-map";
 import { TicketDetailLiveMap } from "@/components/ticket-detail-live-map";
 import { TicketCreateForm } from "@/components/ticket-create-form";
+import { TicketChatPanel } from "@/components/ticket-chat-panel";
 
 type Zone = {
   id: string;
@@ -51,6 +52,8 @@ type TicketAttachmentRow = {
   file_type: string;
   created_at: string;
 };
+
+type StaffOptionRow = { staff_id: string; full_name: string };
 
 type DetailStaffRow = {
   user_id: string;
@@ -154,6 +157,11 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailAttachments, setDetailAttachments] = useState<TicketAttachmentRow[]>([]);
   const [detailNearbyStaff, setDetailNearbyStaff] = useState<DetailStaffRow[]>([]);
+  const [modalSupervisorOptions, setModalSupervisorOptions] = useState<StaffOptionRow[]>([]);
+  const [modalTechnicianOptions, setModalTechnicianOptions] = useState<StaffOptionRow[]>([]);
+  const [modalSupervisorPick, setModalSupervisorPick] = useState("");
+  const [modalTechnicianPick, setModalTechnicianPick] = useState("");
+  const [modalDispatching, setModalDispatching] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [latestChatMap, setLatestChatMap] = useState<Record<string, string>>({});
@@ -170,7 +178,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     try {
       const stored = window.localStorage.getItem(LAST_READ_STORAGE_KEY);
       if (stored) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setLastReadMap(JSON.parse(stored) as Record<string, string>);
       }
     } catch {
@@ -188,7 +195,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   }, []);
 
   const loadZones = async () => {
-    const { data, error } = await supabase.from("zones").select("id, name").order("name");
+    const { data, error } = await supabase
+      .from("zones")
+      .select("id, name, center_latitude, center_longitude, latitude, longitude")
+      .order("name");
     if (error) {
       toast.error(error.message);
       return;
@@ -309,12 +319,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentPage(1);
   }, [zoneFilter, statusFilter, statFilter, searchTerm]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadPage();
   }, [zoneFilter, statusFilter, statFilter, searchTerm, currentPage]);
 
@@ -323,7 +331,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     setDetailModalOpen(true);
     setDetailLoading(true);
     setLastReadMap((prev) => ({ ...prev, [ticket.id]: new Date().toISOString() }));
-    const [ticketRes, attachmentsRes, staffRes] = await Promise.all([
+    const [ticketRes, attachmentsRes, staffRes, supRpc, techRpc] = await Promise.all([
       supabase
         .from("tickets")
         .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
@@ -337,6 +345,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       supabase
         .from("live_locations")
         .select("user_id, latitude, longitude, last_updated, profiles(full_name, role, availability_status)"),
+      supabase.rpc("assignable_staff_for_ticket", { p_ticket_id: ticket.id, p_target_role: "supervisor" }),
+      supabase.rpc("assignable_staff_for_ticket", { p_ticket_id: ticket.id, p_target_role: "technician" }),
     ]);
     if (ticketRes.error) {
       toast.error("تعذر تحميل تفاصيل البلاغ.");
@@ -345,15 +355,15 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     }
     setDetailAttachments((attachmentsRes.data as TicketAttachmentRow[]) ?? []);
     const ticketData = (ticketRes.data as TicketRow | null) ?? ticket;
-    const ticketZoneCenter = ticketData.zone_id
-      ? (() => {
-          const zone = zoneMap.get(ticketData.zone_id);
-          if (!zone) return null;
-          const lat = zone.center_latitude ?? zone.latitude ?? null;
-          const lng = zone.center_longitude ?? zone.longitude ?? null;
-          return lat !== null && lng !== null ? ([lat, lng] as [number, number]) : null;
-        })()
-      : null;
+    let ticketZoneCenter: [number, number] | null = null;
+    if (ticketData.zone_id) {
+      const zone = zones.find((z) => z.id === ticketData.zone_id);
+      if (zone) {
+        const lat = zone.center_latitude ?? zone.latitude ?? null;
+        const lng = zone.center_longitude ?? zone.longitude ?? null;
+        if (lat !== null && lng !== null) ticketZoneCenter = [lat, lng];
+      }
+    }
     const focusLat = ticketData.latitude ?? ticketZoneCenter?.[0] ?? null;
     const focusLng = ticketData.longitude ?? ticketZoneCenter?.[1] ?? null;
     const rows = ((staffRes.data as DetailStaffRow[]) ?? []).filter((row) => {
@@ -364,8 +374,56 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       return distanceMeters(row.latitude, row.longitude, focusLat, focusLng) <= NEARBY_RADIUS_METERS;
     });
     setDetailNearbyStaff(rows);
+    if (!supRpc.error && supRpc.data) {
+      setModalSupervisorOptions((supRpc.data as StaffOptionRow[]) ?? []);
+    } else {
+      setModalSupervisorOptions([]);
+    }
+    if (!techRpc.error && techRpc.data) {
+      setModalTechnicianOptions((techRpc.data as StaffOptionRow[]) ?? []);
+    } else {
+      setModalTechnicianOptions([]);
+    }
+    setModalSupervisorPick(ticketData.assigned_supervisor_id ?? "");
+    setModalTechnicianPick(ticketData.assigned_technician_id ?? "");
     setDetailLoading(false);
     toast.success("تم فتح تفاصيل البلاغ.");
+  };
+
+  const saveModalSupervisor = async () => {
+    if (!selectedTicket) return;
+    setModalDispatching(true);
+    const supId = modalSupervisorPick || null;
+    const nextStatus = selectedTicket.status === "new" && supId ? "assigned" : selectedTicket.status;
+    const { error } = await supabase
+      .from("tickets")
+      .update({ assigned_supervisor_id: supId, status: nextStatus })
+      .eq("id", selectedTicket.id);
+    setModalDispatching(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(supId ? "تم تعيين المشرف." : "تم إلغاء تعيين المشرف.");
+    await refreshAfterDetailAction();
+  };
+
+  const saveModalTechnician = async () => {
+    if (!selectedTicket) return;
+    setModalDispatching(true);
+    const techId = modalTechnicianPick || null;
+    const nextStatus = selectedTicket.status === "new" && techId ? "assigned" : selectedTicket.status;
+    const { error } = await supabase
+      .from("tickets")
+      .update({ assigned_technician_id: techId, status: nextStatus })
+      .eq("id", selectedTicket.id);
+    setModalDispatching(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(techId ? "تم تكليف الفني." : "تم إلغاء تكليف الفني.");
+    await refreshAfterDetailAction();
   };
 
   const openTicketById = async (ticketId: string) => {
@@ -394,6 +452,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
       if (data) {
         setSelectedTicket(data as TicketRow);
+        setModalSupervisorPick(data.assigned_supervisor_id ?? "");
+        setModalTechnicianPick(data.assigned_technician_id ?? "");
       }
     }
   };
@@ -425,7 +485,9 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           const updated = payload.new as TicketRow;
           setPageTickets((prev) => prev.map((t) => (t.id === updated.id ? { ...t, status: updated.status } : t)));
           if (selectedTicket?.id === updated.id) {
-            setSelectedTicket((prev) => (prev ? { ...prev, status: updated.status } : prev));
+            setSelectedTicket((prev) => (prev ? { ...prev, ...updated } : prev));
+            setModalSupervisorPick(updated.assigned_supervisor_id ?? "");
+            setModalTechnicianPick(updated.assigned_technician_id ?? "");
           }
           await Promise.all([loadStats(), loadPage(), refreshAfterDetailAction()]);
         },
@@ -448,6 +510,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   useEffect(() => {
     if (statFilter !== "overdue") return;
     void loadPage();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: avoid loadPage identity churn
   }, [nowTs, statFilter]);
 
   const stats = useMemo(() => {
@@ -468,6 +531,17 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     zones.forEach((zone) => map.set(zone.id, zone));
     return map;
   }, [zones]);
+
+  const canSetSupervisorInModal = ["engineer", "admin", "project_manager", "projects_director"].includes(role);
+  const canSetTechnicianInModal = ["admin", "project_manager", "projects_director"].includes(role);
+  const canPostChatInModal = [
+    "engineer",
+    "supervisor",
+    "technician",
+    "admin",
+    "project_manager",
+    "projects_director",
+  ].includes(role);
 
   const exportCurrentView = () => {
     const headers = ["رقم البلاغ", "التصنيف", "المنطقة", "مقدم البلاغ", "الوصف", "الحالة", "العمر الزمني"];
@@ -756,6 +830,63 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                     </div>
                   </div>
                 </div>
+
+                {canSetSupervisorInModal ? (
+                  <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+                    <p className="mb-2 text-sm font-semibold text-indigo-900">توجيه هرمي — تعيين المشرف</p>
+                    <select
+                      className="mb-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      value={modalSupervisorPick}
+                      onChange={(e) => setModalSupervisorPick(e.target.value)}
+                    >
+                      <option value="">— بدون —</option>
+                      {modalSupervisorOptions.map((o) => (
+                        <option key={o.staff_id} value={o.staff_id}>
+                          {o.full_name}
+                        </option>
+                      ))}
+                    </select>
+                    <Button className="w-full sm:w-auto" disabled={modalDispatching} onClick={() => void saveModalSupervisor()}>
+                      {modalDispatching ? "جاري الحفظ..." : "حفظ المشرف"}
+                    </Button>
+                  </div>
+                ) : null}
+
+                {canSetTechnicianInModal ? (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+                    <p className="mb-2 text-sm font-semibold text-emerald-900">توجيه هرمي — تكليف الفني (إدارة)</p>
+                    <select
+                      className="mb-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      value={modalTechnicianPick}
+                      onChange={(e) => setModalTechnicianPick(e.target.value)}
+                    >
+                      <option value="">— بدون —</option>
+                      {modalTechnicianOptions.map((o) => (
+                        <option key={o.staff_id} value={o.staff_id}>
+                          {o.full_name}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      className="w-full sm:w-auto"
+                      variant="outline"
+                      disabled={modalDispatching}
+                      onClick={() => void saveModalTechnician()}
+                    >
+                      {modalDispatching ? "جاري الحفظ..." : "حفظ الفني"}
+                    </Button>
+                  </div>
+                ) : null}
+
+                {selectedTicket.id ? (
+                  <TicketChatPanel
+                    ticketId={selectedTicket.id}
+                    canPost={canPostChatInModal}
+                    onTicketUpdated={refreshAfterDetailAction}
+                    onMarkTicketRead={(ticketId, readAt) => setLastReadMap((prev) => ({ ...prev, [ticketId]: readAt }))}
+                  />
+                ) : null}
+
                 <div>
                   <p className="mb-2 font-semibold">الصور المرفقة</p>
                   {detailAttachments.length === 0 ? (

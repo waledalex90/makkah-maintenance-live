@@ -20,10 +20,18 @@ type Zone = {
 
 type TicketRow = {
   id: string;
+  ticket_number?: number | null;
+  external_ticket_number?: string | null;
+  title?: string | null;
   location: string;
   description: string;
   status: TicketStatus;
   zone_id: string | null;
+  category_id?: number | null;
+  ticket_categories?: { name: string } | { name: string }[] | null;
+  assigned_engineer_id: string | null;
+  assigned_supervisor_id?: string | null;
+  assigned_technician_id?: string | null;
   created_at: string;
 };
 
@@ -157,7 +165,9 @@ export function OperationsMap() {
   const loadTickets = async () => {
     const { data, error } = await supabase
       .from("tickets")
-      .select("id, location, description, status, zone_id, created_at")
+      .select(
+        "id, ticket_number, external_ticket_number, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at",
+      )
       .neq("status", "fixed")
       .order("created_at", { ascending: false });
 
@@ -255,7 +265,9 @@ export function OperationsMap() {
 
     const { data } = await supabase
       .from("tickets")
-      .select("id, location, description, status, zone_id, created_at")
+      .select(
+        "id, ticket_number, external_ticket_number, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at",
+      )
       .eq("id", selectedTicket.id)
       .single();
 
@@ -351,8 +363,8 @@ export function OperationsMap() {
         ticket={selectedTicket}
         zoneName={selectedTicket?.zone_id ? zoneMap.get(selectedTicket.zone_id)?.name ?? "-" : "-"}
         onTicketUpdated={refreshTicketAfterAction}
-        onMarkTicketRead={() => {
-          // Unread tracking is handled in admin tickets table screen.
+        onMarkTicketRead={(_ticketId, _readAt) => {
+          /* unread counts not shown on map */
         }}
       />
     </section>

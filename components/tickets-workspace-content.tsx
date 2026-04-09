@@ -21,7 +21,11 @@ type TicketRow = {
   description: string;
   status: TicketStatus;
   zone_id: string | null;
+  category_id: number | null;
+  ticket_categories?: { name: string } | { name: string }[] | null;
   assigned_engineer_id: string | null;
+  assigned_supervisor_id: string | null;
+  assigned_technician_id: string | null;
   created_at: string;
 };
 
@@ -98,7 +102,9 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
       supabase.from("ticket_categories").select("id, name").eq("is_active", true).order("id"),
       supabase
         .from("tickets")
-        .select("id, ticket_number, external_ticket_number, reporter_name, title, location, description, status, zone_id, assigned_engineer_id, created_at")
+        .select(
+          "id, ticket_number, external_ticket_number, reporter_name, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at",
+        )
         .order("created_at", { ascending: false })
         .limit(100),
     ]);

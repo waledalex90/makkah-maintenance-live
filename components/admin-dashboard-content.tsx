@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { TicketCreateForm } from "@/components/ticket-create-form";
-import { TicketDetailDrawer } from "@/components/ticket-detail-drawer";
 
 type Zone = {
   id: string;
@@ -20,6 +19,8 @@ type Zone = {
 };
 
 type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
+type StatFilter = "all" | "active" | "pending" | "completed" | "overdue";
+type CategoryJoin = { name: string } | { name: string }[] | null;
 
 type TicketRow = {
   id: string;
@@ -27,13 +28,25 @@ type TicketRow = {
   external_ticket_number?: string | null;
   reporter_name?: string | null;
   title?: string | null;
+  category_id?: number | null;
+  shaqes_notes?: string | null;
+  ticket_categories?: CategoryJoin;
   location: string;
   description: string;
+  latitude?: number | null;
+  longitude?: number | null;
   status: TicketStatus;
   assigned_engineer_id: string | null;
   assigned_supervisor_id: string | null;
   assigned_technician_id: string | null;
   zone_id: string | null;
+  created_at: string;
+};
+
+type TicketAttachmentRow = {
+  id: string;
+  file_url: string;
+  file_type: string;
   created_at: string;
 };
 
@@ -54,17 +67,55 @@ function statusBadgeVariant(status: TicketStatus): "red" | "yellow" | "green" | 
   return "muted";
 }
 
+function categoryBadgeColor(categoryName: string): string {
+  const lower = categoryName.toLowerCase();
+  if (lower.includes("حريق") || lower.includes("fire")) return "bg-red-100 text-red-700 border-red-200";
+  if (lower.includes("كهرباء") || lower.includes("electric")) return "bg-amber-100 text-amber-700 border-amber-200";
+  if (lower.includes("تكييف") || lower.includes("ac")) return "bg-sky-100 text-sky-700 border-sky-200";
+  if (lower.includes("مدني") || lower.includes("civil")) return "bg-stone-100 text-stone-700 border-stone-200";
+  if (lower.includes("مطابخ") || lower.includes("kitchen")) return "bg-violet-100 text-violet-700 border-violet-200";
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function relativeAgeLabel(createdAt: string, nowTs: number): string {
+  const deltaMs = Math.max(0, nowTs - new Date(createdAt).getTime());
+  const minutes = Math.floor(deltaMs / 60_000);
+  if (minutes < 1) return "الآن";
+  if (minutes < 60) return `منذ ${minutes} دقيقة`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `منذ ${hours} ساعة`;
+  const days = Math.floor(hours / 24);
+  return `منذ ${days} يوم`;
+}
+
+function normalizeCategoryName(category: CategoryJoin | undefined): string {
+  if (!category) return "-";
+  if (Array.isArray(category)) return category[0]?.name ?? "-";
+  return category.name;
+}
+
+function statusText(status: TicketStatus): string {
+  if (status === "new") return "جديد";
+  if (status === "assigned") return "تم التعيين";
+  if (status === "on_the_way") return "في الطريق";
+  if (status === "arrived") return "وصل";
+  return "مغلق";
+}
+
 export function AdminDashboardContent() {
   const [zones, setZones] = useState<Zone[]>([]);
   const [allTickets, setAllTickets] = useState<TicketRow[]>([]);
   const [pageTickets, setPageTickets] = useState<TicketRow[]>([]);
   const [zoneFilter, setZoneFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [statFilter, setStatFilter] = useState<StatFilter>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailAttachments, setDetailAttachments] = useState<TicketAttachmentRow[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [latestChatMap, setLatestChatMap] = useState<Record<string, string>>({});
@@ -110,7 +161,7 @@ export function AdminDashboardContent() {
   const loadStats = async () => {
     const { data, error } = await supabase
       .from("tickets")
-      .select("id, ticket_number, external_ticket_number, reporter_name, title, location, description, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
+      .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -152,7 +203,7 @@ export function AdminDashboardContent() {
 
     let query = supabase
       .from("tickets")
-      .select("id, ticket_number, external_ticket_number, reporter_name, title, location, description, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at", { count: "exact" })
+      .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(from, to);
 
@@ -163,10 +214,36 @@ export function AdminDashboardContent() {
     if (statusFilter !== "all") {
       query = query.eq("status", statusFilter);
     }
+    if (statFilter === "active") {
+      query = query.in("status", IN_PROGRESS_STATUSES);
+    } else if (statFilter === "pending") {
+      query = query.eq("status", "new");
+    } else if (statFilter === "completed") {
+      query = query.eq("status", "fixed");
+    } else if (statFilter === "overdue") {
+      const overdueCutoff = new Date(nowTs - OVERDUE_HOURS * 60 * 60 * 1000).toISOString();
+      query = query.neq("status", "fixed").lt("created_at", overdueCutoff);
+    }
 
     const q = searchTerm.trim();
     if (q) {
-      query = query.or(`external_ticket_number.ilike.%${q}%,ticket_number.ilike.%${q}%,location.ilike.%${q}%,id.ilike.%${q}%`);
+      const matchedZoneIds = zones.filter((zone) => zone.name.toLowerCase().includes(q.toLowerCase())).map((zone) => zone.id);
+      const matchedCategoryIds = allTickets
+        .filter((ticket) => normalizeCategoryName(ticket.ticket_categories).toLowerCase().includes(q.toLowerCase()))
+        .map((ticket) => ticket.category_id)
+        .filter((value): value is number => typeof value === "number");
+
+      const orParts = [
+        `external_ticket_number.ilike.%${q}%`,
+        `ticket_number.ilike.%${q}%`,
+      ];
+      if (matchedZoneIds.length > 0) {
+        orParts.push(`zone_id.in.(${matchedZoneIds.join(",")})`);
+      }
+      if (matchedCategoryIds.length > 0) {
+        orParts.push(`category_id.in.(${Array.from(new Set(matchedCategoryIds)).join(",")})`);
+      }
+      query = query.or(orParts.join(","));
     }
 
     const { data, error, count } = await query;
@@ -196,23 +273,44 @@ export function AdminDashboardContent() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentPage(1);
-  }, [zoneFilter, statusFilter, searchTerm]);
+  }, [zoneFilter, statusFilter, statFilter, searchTerm]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadPage();
-  }, [zoneFilter, statusFilter, searchTerm, currentPage]);
+  }, [zoneFilter, statusFilter, statFilter, searchTerm, currentPage]);
 
-  const openTicketDrawer = async (ticket: TicketRow) => {
+  const openTicketModal = async (ticket: TicketRow) => {
     setSelectedTicket(ticket);
-    setDrawerOpen(true);
+    setDetailModalOpen(true);
+    setDetailLoading(true);
     setLastReadMap((prev) => ({ ...prev, [ticket.id]: new Date().toISOString() }));
+    const [ticketRes, attachmentsRes] = await Promise.all([
+      supabase
+        .from("tickets")
+        .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
+        .eq("id", ticket.id)
+        .single(),
+      supabase
+        .from("ticket_attachments")
+        .select("id, file_url, file_type, created_at")
+        .eq("ticket_id", ticket.id)
+        .order("created_at", { ascending: false }),
+    ]);
+    if (ticketRes.error) {
+      toast.error("تعذر تحميل تفاصيل البلاغ.");
+    } else if (ticketRes.data) {
+      setSelectedTicket(ticketRes.data as TicketRow);
+    }
+    setDetailAttachments((attachmentsRes.data as TicketAttachmentRow[]) ?? []);
+    setDetailLoading(false);
+    toast.success("تم فتح تفاصيل البلاغ.");
   };
 
   const openTicketById = async (ticketId: string) => {
     const { data, error } = await supabase
       .from("tickets")
-      .select("id, ticket_number, external_ticket_number, reporter_name, title, location, description, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
+      .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
       .eq("id", ticketId)
       .single();
 
@@ -221,15 +319,15 @@ export function AdminDashboardContent() {
       return;
     }
 
-    await openTicketDrawer(data as TicketRow);
+    await openTicketModal(data as TicketRow);
   };
 
-  const refreshAfterDrawerAction = async () => {
+  const refreshAfterDetailAction = async () => {
     await Promise.all([loadStats(), loadPage()]);
     if (selectedTicket) {
       const { data } = await supabase
         .from("tickets")
-        .select("id, ticket_number, external_ticket_number, reporter_name, title, location, description, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
+        .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
         .eq("id", selectedTicket.id)
         .single();
 
@@ -268,7 +366,7 @@ export function AdminDashboardContent() {
           if (selectedTicket?.id === updated.id) {
             setSelectedTicket((prev) => (prev ? { ...prev, status: updated.status } : prev));
           }
-          await Promise.all([loadStats(), loadPage()]);
+          await Promise.all([loadStats(), loadPage(), refreshAfterDetailAction()]);
         },
       )
       .on(
@@ -285,6 +383,11 @@ export function AdminDashboardContent() {
       void supabase.removeChannel(channel);
     };
   }, [selectedTicket?.id]);
+
+  useEffect(() => {
+    if (statFilter !== "overdue") return;
+    void loadPage();
+  }, [nowTs, statFilter]);
 
   const stats = useMemo(() => {
     const active = allTickets.filter((t) => IN_PROGRESS_STATUSES.includes(t.status)).length;
@@ -305,13 +408,47 @@ export function AdminDashboardContent() {
     return map;
   }, [zones]);
 
+  const exportCurrentView = () => {
+    const headers = ["رقم البلاغ", "التصنيف", "المنطقة", "مقدم البلاغ", "الوصف", "الحالة", "العمر الزمني"];
+    const rows = pageTickets.map((ticket) => [
+      String(ticket.external_ticket_number || ticket.ticket_number || ticket.id.slice(0, 8)),
+      normalizeCategoryName(ticket.ticket_categories),
+      ticket.zone_id ? zoneNameMap.get(ticket.zone_id) ?? "-" : "-",
+      ticket.reporter_name || "-",
+      (ticket.description || ticket.title || ticket.location || "-").replace(/\r?\n/g, " "),
+      statusText(ticket.status),
+      relativeAgeLabel(ticket.created_at, nowTs),
+    ]);
+    const csv = [headers, ...rows]
+      .map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `tickets-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("تم تصدير البلاغات المعروضة بنجاح.");
+  };
+
   return (
     <div className="relative space-y-6" dir="rtl" lang="ar">
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card><CardHeader><CardTitle>البلاغات النشطة (Active)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-sky-700">{stats.active}</p></CardContent></Card>
-        <Card><CardHeader><CardTitle>البلاغات المعلقة (Pending)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-amber-600">{stats.pending}</p></CardContent></Card>
-        <Card><CardHeader><CardTitle>البلاغات المنتهية (Completed)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-green-600">{stats.completed}</p></CardContent></Card>
-        <Card><CardHeader><CardTitle>البلاغات المتأخرة (Overdue)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-red-600">{stats.overdue}</p></CardContent></Card>
+        <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "active" ? "all" : "active"))}>
+          <Card className={statFilter === "active" ? "ring-2 ring-sky-500" : ""}><CardHeader><CardTitle>البلاغات النشطة (Active)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-sky-700">{stats.active}</p></CardContent></Card>
+        </button>
+        <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "pending" ? "all" : "pending"))}>
+          <Card className={statFilter === "pending" ? "ring-2 ring-amber-500" : ""}><CardHeader><CardTitle>البلاغات المعلقة (Pending)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-amber-600">{stats.pending}</p></CardContent></Card>
+        </button>
+        <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "completed" ? "all" : "completed"))}>
+          <Card className={statFilter === "completed" ? "ring-2 ring-green-500" : ""}><CardHeader><CardTitle>البلاغات المنتهية (Completed)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-green-600">{stats.completed}</p></CardContent></Card>
+        </button>
+        <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "overdue" ? "all" : "overdue"))}>
+          <Card className={statFilter === "overdue" ? "ring-2 ring-red-500" : ""}><CardHeader><CardTitle>البلاغات المتأخرة (Overdue)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-red-600">{stats.overdue}</p></CardContent></Card>
+        </button>
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -320,7 +457,7 @@ export function AdminDashboardContent() {
           <p className="text-xs text-slate-500">يعرض أحدث البلاغات مع فلاتر مباشرة</p>
         </div>
 
-        <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <div className="mb-4 grid gap-3 sm:grid-cols-4">
           <div>
             <p className="mb-2 text-sm font-medium">المنطقة</p>
             <select
@@ -356,9 +493,18 @@ export function AdminDashboardContent() {
             <Input
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="ابحث برقم البلاغ أو المنطقة أو الحالة"
+              placeholder="ابحث برقم البلاغ أو المنطقة أو التصنيف"
             />
           </div>
+          <div className="flex items-end">
+            <Button variant="outline" className="w-full" onClick={exportCurrentView}>
+              تصدير Excel
+            </Button>
+          </div>
+        </div>
+
+        <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          عرض {pageTickets.length} بلاغ من {totalCount} بعد الفلترة (الإجمالي العام: {allTickets.length})
         </div>
 
         <p className="mb-2 text-xs text-slate-500">مرتبة من الأحدث إلى الأقدم</p>
@@ -371,11 +517,12 @@ export function AdminDashboardContent() {
               <thead className="border-b border-slate-200 bg-slate-50 text-slate-600">
                 <tr>
                   <th className="px-3 py-2">رقم البلاغ</th>
-                  <th className="px-3 py-2">العنوان/الموقع</th>
+                  <th className="px-3 py-2">التصنيف</th>
                   <th className="px-3 py-2">المنطقة</th>
-                  <th className="px-3 py-2">الحالة</th>
                   <th className="px-3 py-2">مقدم البلاغ</th>
                   <th className="px-3 py-2">الوصف</th>
+                  <th className="px-3 py-2">الحالة</th>
+                  <th className="px-3 py-2">العمر الزمني</th>
                 </tr>
               </thead>
               <tbody>
@@ -390,30 +537,37 @@ export function AdminDashboardContent() {
                     <tr
                       key={ticket.id}
                       className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
-                      onClick={() => void openTicketDrawer(ticket)}
+                      onClick={() => void openTicketModal(ticket)}
                     >
                       <td className="px-3 py-2 font-medium">
                         {ticket.external_ticket_number || ticket.ticket_number || ticket.id.slice(0, 8)}
                       </td>
                       <td className="px-3 py-2">
-                        <p className="font-medium text-slate-800">{ticket.title || "-"}</p>
-                        <p className="text-xs text-slate-500">{ticket.location}</p>
+                        <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-medium ${categoryBadgeColor(normalizeCategoryName(ticket.ticket_categories))}`}>
+                          {normalizeCategoryName(ticket.ticket_categories)}
+                        </span>
                       </td>
                       <td className="px-3 py-2">{ticket.zone_id ? zoneNameMap.get(ticket.zone_id) ?? "-" : "-"}</td>
+                      <td className="px-3 py-2">{ticket.reporter_name || "-"}</td>
+                      <td className="max-w-xs truncate px-3 py-2">{ticket.description || ticket.title || ticket.location}</td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
+                          <span
+                            className={`inline-block h-2.5 w-2.5 rounded-full ${
+                              ticket.status === "fixed" ? "bg-green-500" : ticket.status === "new" ? "bg-red-500" : "bg-amber-500"
+                            }`}
+                          />
                           <Badge variant={statusBadgeVariant(ticket.status)}>{ticket.status}</Badge>
                           {hasUnread ? <span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> : null}
                         </div>
                       </td>
-                      <td className="px-3 py-2">{ticket.reporter_name || "-"}</td>
-                      <td className="max-w-xs truncate px-3 py-2">{ticket.description}</td>
+                      <td className="px-3 py-2 text-xs text-slate-600">{relativeAgeLabel(ticket.created_at, nowTs)}</td>
                     </tr>
                   );
                 })}
                 {pageTickets.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-6 text-center text-slate-500">لا توجد بلاغات مطابقة للفلاتر الحالية.</td>
+                    <td colSpan={7} className="px-3 py-6 text-center text-slate-500">لا توجد بلاغات مطابقة للفلاتر الحالية.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -450,8 +604,8 @@ export function AdminDashboardContent() {
       </Button>
 
       {createModalOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-5 shadow-2xl">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setCreateModalOpen(false)}>
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">إنشاء بلاغ جديد</h3>
               <button
@@ -467,20 +621,65 @@ export function AdminDashboardContent() {
               onCancel={() => setCreateModalOpen(false)}
               onCreated={async () => {
                 await Promise.all([loadStats(), loadPage()]);
+                toast.success("تم حفظ البلاغ وتحديث الجدول.");
               }}
             />
           </div>
         </div>
       ) : null}
 
-      <TicketDetailDrawer
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        ticket={selectedTicket}
-        zoneName={selectedTicket?.zone_id ? zoneMap.get(selectedTicket.zone_id)?.name ?? "-" : "-"}
-        onTicketUpdated={refreshAfterDrawerAction}
-        onMarkTicketRead={(ticketId, readAt) => setLastReadMap((prev) => ({ ...prev, [ticketId]: readAt }))}
-      />
+      {detailModalOpen ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setDetailModalOpen(false)}>
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">تفاصيل البلاغ</h3>
+              <button
+                type="button"
+                className="rounded-md border border-slate-200 px-3 py-1 text-sm"
+                onClick={() => setDetailModalOpen(false)}
+              >
+                إغلاق
+              </button>
+            </div>
+            {detailLoading || !selectedTicket ? (
+              <p className="text-sm text-slate-500">جاري تحميل التفاصيل...</p>
+            ) : (
+              <div className="space-y-4 text-sm">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div><span className="font-semibold">رقم البلاغ:</span> {selectedTicket.external_ticket_number || selectedTicket.ticket_number || selectedTicket.id}</div>
+                  <div><span className="font-semibold">التصنيف:</span> {normalizeCategoryName(selectedTicket.ticket_categories)}</div>
+                  <div><span className="font-semibold">المنطقة:</span> {selectedTicket.zone_id ? zoneMap.get(selectedTicket.zone_id)?.name ?? "-" : "-"}</div>
+                  <div><span className="font-semibold">مقدم البلاغ:</span> {selectedTicket.reporter_name || "-"}</div>
+                  <div><span className="font-semibold">الموقع:</span> {selectedTicket.location || "-"}</div>
+                  <div><span className="font-semibold">GPS:</span> {selectedTicket.latitude && selectedTicket.longitude ? `${selectedTicket.latitude}, ${selectedTicket.longitude}` : "غير متاح"}</div>
+                </div>
+                <div>
+                  <p className="mb-1 font-semibold">الوصف</p>
+                  <p className="rounded-md border border-slate-200 bg-slate-50 p-3">{selectedTicket.description || "-"}</p>
+                </div>
+                <div>
+                  <p className="mb-1 font-semibold">ملاحظات شاخص الفنية</p>
+                  <p className="rounded-md border border-slate-200 bg-slate-50 p-3">{selectedTicket.shaqes_notes || "لا توجد ملاحظات"}</p>
+                </div>
+                <div>
+                  <p className="mb-2 font-semibold">الصور المرفقة</p>
+                  {detailAttachments.length === 0 ? (
+                    <p className="text-slate-500">لا توجد مرفقات.</p>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {detailAttachments.map((att) => (
+                        <a key={att.id} href={att.file_url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg border border-slate-200">
+                          <img src={att.file_url} alt="ticket attachment" className="h-36 w-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

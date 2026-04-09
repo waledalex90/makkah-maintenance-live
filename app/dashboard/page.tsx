@@ -18,7 +18,7 @@ export default async function DashboardHomePage() {
     .eq("id", user.id)
     .single();
 
-  if (profile?.role === "technician") {
+  if (profile?.role === "technician" || profile?.role === "supervisor") {
     redirect("/tasks/my-work");
   }
 

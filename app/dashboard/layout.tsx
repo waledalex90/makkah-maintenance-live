@@ -19,7 +19,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .eq("id", user.id)
     .single();
 
-  if (profile?.role === "technician") {
+  if (profile?.role === "technician" || profile?.role === "supervisor") {
     redirect("/tasks/my-work");
   }
 

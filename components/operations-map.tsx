@@ -97,6 +97,13 @@ function normalizeProfile(profile: LiveLocationRow["profiles"]): ProfileJoin | n
   return profile;
 }
 
+function shortDisplayName(fullName: string): string {
+  const cleaned = fullName.trim().split(/\s+/).filter(Boolean);
+  if (cleaned.length === 0) return "";
+  if (cleaned.length === 1) return cleaned[0];
+  return `${cleaned[0]} ${cleaned[1].charAt(0)}.`;
+}
+
 type FitMapBoundsProps = {
   points: Array<[number, number]>;
 };
@@ -209,15 +216,38 @@ export function OperationsMap() {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "live_locations" },
-        () => {
-          void loadLiveLocations();
+        async (payload) => {
+          const row = payload.new as LiveLocationRow;
+          const { data: profileData } = await supabase
+            .from("profiles")
+            .select("full_name, role, specialty, mobile")
+            .eq("id", row.user_id)
+            .single();
+          const profile = profileData as ProfileJoin | null;
+          if (!profile || (profile.role !== "technician" && profile.role !== "supervisor")) return;
+          setLiveLocations((prev) => {
+            const exists = prev.some((item) => item.user_id === row.user_id);
+            const nextRow: LiveLocationRow = { ...row, profiles: profile };
+            if (exists) return prev.map((item) => (item.user_id === row.user_id ? nextRow : item));
+            return [nextRow, ...prev];
+          });
         },
       )
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "live_locations" },
-        () => {
-          void loadLiveLocations();
+        async (payload) => {
+          const row = payload.new as LiveLocationRow;
+          const { data: profileData } = await supabase
+            .from("profiles")
+            .select("full_name, role, specialty, mobile")
+            .eq("id", row.user_id)
+            .single();
+          const profile = profileData as ProfileJoin | null;
+          if (!profile || (profile.role !== "technician" && profile.role !== "supervisor")) return;
+          setLiveLocations((prev) =>
+            prev.map((item) => (item.user_id === row.user_id ? { ...item, ...row, profiles: profile } : item)),
+          );
         },
       )
       .on(
@@ -288,8 +318,12 @@ export function OperationsMap() {
       <div className="relative h-[72vh] overflow-hidden rounded-lg border border-slate-200">
         <MapContainer center={MAKKAH_CENTER} zoom={DEFAULT_ZOOM} scrollWheelZoom className="h-full w-full">
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution="Tiles &copy; Esri"
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+          />
+          <TileLayer
+            attribution="Labels &copy; Esri"
+            url="https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
           />
 
           <FitMapBounds points={fitPoints} />
@@ -305,8 +339,13 @@ export function OperationsMap() {
                   position={[loc.latitude, loc.longitude]}
                   icon={circleIcon(roleColor(profile.role))}
                 >
-                  <Tooltip permanent direction="top" offset={[0, -10]} className="!border-slate-200 !bg-white/95 !text-slate-900 !shadow-sm">
-                    {profile.full_name}
+                  <Tooltip
+                    permanent
+                    direction="top"
+                    offset={[0, -10]}
+                    className="!rounded-full !border-0 !bg-slate-900/85 !px-2 !py-0.5 !text-[10px] !font-semibold !text-white !shadow"
+                  >
+                    {shortDisplayName(profile.full_name)}
                   </Tooltip>
                   <Popup>
                     <div className="space-y-1 text-sm">

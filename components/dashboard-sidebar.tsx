@@ -100,7 +100,7 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
             aria-label="إغلاق القائمة"
             onClick={() => setMobileOpen(false)}
           />
-          <aside className="absolute right-0 top-0 flex h-full w-72 max-w-[86vw] flex-col border-l border-slate-200 bg-slate-100 p-4 shadow-2xl">
+          <aside className="absolute right-0 top-0 flex h-full w-72 max-w-[86vw] flex-col border-l border-slate-200 bg-slate-100 p-4 pb-20 shadow-2xl">
             <div className="mb-2 flex items-center justify-between">
               <button
                 type="button"
@@ -116,8 +116,8 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
               <p className="text-xs text-slate-500">تسجيل الدخول باسم</p>
               <p className="mt-1 text-sm font-semibold text-slate-900">{roleLabel}: {fullName}</p>
             </div>
-            {navList}
-            <div className="mt-auto pt-4">
+            <div className="min-h-0 flex-1 overflow-y-auto pb-4">{navList}</div>
+            <div className="absolute bottom-4 left-4 right-4">
               <LogoutButton />
             </div>
           </aside>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { LatLngBounds, divIcon, latLng } from "leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
-import { MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { LayersControl, MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
 import { toast } from "sonner";
 import { TicketDetailDrawer } from "@/components/ticket-detail-drawer";
 import { Badge } from "@/components/ui/badge";
@@ -316,15 +316,35 @@ export function OperationsMap() {
       </div>
 
       <div className="relative h-[72vh] overflow-hidden rounded-lg border border-slate-200">
-        <MapContainer center={MAKKAH_CENTER} zoom={DEFAULT_ZOOM} scrollWheelZoom className="h-full w-full">
-          <TileLayer
-            attribution="Tiles &copy; Esri"
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-          />
-          <TileLayer
-            attribution="Labels &copy; Esri"
-            url="https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
-          />
+        <MapContainer center={MAKKAH_CENTER} zoom={DEFAULT_ZOOM} maxZoom={21} scrollWheelZoom className="h-full w-full">
+          <LayersControl position="topleft">
+            <LayersControl.BaseLayer checked name="خريطة الشوارع">
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, HOT'
+                url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png"
+                maxNativeZoom={19}
+                maxZoom={21}
+              />
+            </LayersControl.BaseLayer>
+
+            <LayersControl.BaseLayer name="الأقمار الصناعية">
+              <TileLayer
+                attribution="Tiles &copy; Esri"
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                maxNativeZoom={20}
+                maxZoom={21}
+              />
+            </LayersControl.BaseLayer>
+
+            <LayersControl.Overlay checked name="الأسماء والمعالم">
+              <TileLayer
+                attribution="Labels &copy; Esri"
+                url="https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+                maxNativeZoom={20}
+                maxZoom={21}
+              />
+            </LayersControl.Overlay>
+          </LayersControl>
 
           <FitMapBounds points={fitPoints} />
 
@@ -342,7 +362,7 @@ export function OperationsMap() {
                   <Tooltip
                     permanent
                     direction="top"
-                    offset={[0, -10]}
+                    offset={[0, -16]}
                     className="!rounded-full !border-0 !bg-slate-900/85 !px-2 !py-0.5 !text-[10px] !font-semibold !text-white !shadow"
                   >
                     {shortDisplayName(profile.full_name)}

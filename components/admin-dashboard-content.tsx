@@ -690,18 +690,18 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </div>
       </div>
       {!tableOnly ? (
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
           <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "active" ? "all" : "active"))}>
-            <Card className={statFilter === "active" ? "ring-2 ring-sky-500" : ""}><CardHeader><CardTitle>البلاغات النشطة (Active)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-sky-700">{stats.active}</p></CardContent></Card>
+            <Card className={statFilter === "active" ? "ring-2 ring-sky-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">البلاغات النشطة (Active)</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-sky-700 md:text-3xl">{stats.active}</p></CardContent></Card>
           </button>
           <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "pending" ? "all" : "pending"))}>
-            <Card className={statFilter === "pending" ? "ring-2 ring-amber-500" : ""}><CardHeader><CardTitle>البلاغات المعلقة (Pending)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-amber-600">{stats.pending}</p></CardContent></Card>
+            <Card className={statFilter === "pending" ? "ring-2 ring-amber-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">البلاغات المعلقة (Pending)</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-amber-600 md:text-3xl">{stats.pending}</p></CardContent></Card>
           </button>
           <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "completed" ? "all" : "completed"))}>
-            <Card className={statFilter === "completed" ? "ring-2 ring-green-500" : ""}><CardHeader><CardTitle>البلاغات المنتهية (Completed)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-green-600">{stats.completed}</p></CardContent></Card>
+            <Card className={statFilter === "completed" ? "ring-2 ring-green-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">البلاغات المنتهية (Completed)</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-green-600 md:text-3xl">{stats.completed}</p></CardContent></Card>
           </button>
           <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "overdue" ? "all" : "overdue"))}>
-            <Card className={statFilter === "overdue" ? "ring-2 ring-red-500" : ""}><CardHeader><CardTitle>البلاغات المتأخرة (Overdue)</CardTitle></CardHeader><CardContent><p className="text-3xl font-semibold text-red-600">{stats.overdue}</p></CardContent></Card>
+            <Card className={statFilter === "overdue" ? "ring-2 ring-red-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">البلاغات المتأخرة (Overdue)</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-red-600 md:text-3xl">{stats.overdue}</p></CardContent></Card>
           </button>
         </section>
       ) : null}
@@ -767,8 +767,9 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         {loading ? (
           <p className="text-sm text-slate-500">Loading tickets...</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+          <>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="min-w-full text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-slate-600">
                 <tr>
                   <th className="px-3 py-2">رقم البلاغ</th>
@@ -826,22 +827,65 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                   </tr>
                 ) : null}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+            <div className="space-y-3 md:hidden">
+              {pageTickets.map((ticket) => {
+                const latestChatAt = latestChatMap[ticket.id];
+                const lastReadAt = lastReadMap[ticket.id];
+                const hasUnread = Boolean(
+                  latestChatAt && (!lastReadAt || new Date(latestChatAt).getTime() > new Date(lastReadAt).getTime()),
+                );
+                return (
+                  <button
+                    key={ticket.id}
+                    type="button"
+                    className="w-full rounded-xl border border-slate-200 bg-white p-4 text-right shadow-sm"
+                    onClick={() => void openTicketModal(ticket)}
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-base font-semibold text-slate-900">
+                        {ticket.external_ticket_number || ticket.ticket_number || ticket.id.slice(0, 8)}
+                      </p>
+                      <Badge variant={statusBadgeVariant(ticket.status)}>{statusText(ticket.status)}</Badge>
+                    </div>
+                    <p className="mb-2 text-sm text-slate-700">
+                      {ticket.description || ticket.title || ticket.location}
+                    </p>
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <span>{ticket.zone_id ? zoneNameMap.get(ticket.zone_id) ?? "-" : "-"}</span>
+                      <span>{relativeAgeLabel(ticket.created_at, nowTs)}</span>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-medium ${categoryBadgeColor(normalizeCategoryName(ticket.ticket_categories))}`}>
+                        {normalizeCategoryName(ticket.ticket_categories)}
+                      </span>
+                      {hasUnread ? <span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> : null}
+                    </div>
+                  </button>
+                );
+              })}
+              {pageTickets.length === 0 ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-6 text-center text-slate-500">
+                  لا توجد بلاغات مطابقة للفلاتر الحالية.
+                </div>
+              ) : null}
+            </div>
+          </>
         )}
 
         <div className="mt-4 flex items-center justify-between">
           <p className="text-sm text-slate-500">الصفحة {currentPage} من {totalPages}</p>
           <div className="flex items-center gap-2">
             <button
-              className="rounded-md border border-slate-200 px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+              className="min-h-11 rounded-md border border-slate-200 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
               disabled={currentPage === 1}
             >
               السابق
             </button>
             <button
-              className="rounded-md border border-slate-200 px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+              className="min-h-11 rounded-md border border-slate-200 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
               disabled={currentPage === totalPages}
             >
@@ -852,7 +896,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       </section>
 
       <Button
-        className="fixed bottom-8 left-8 z-30 h-12 rounded-full px-5 text-base shadow-lg"
+        className="fixed bottom-24 left-4 z-30 min-h-12 rounded-full px-5 text-base shadow-lg md:bottom-8 md:left-8"
         onClick={() => setCreateModalOpen(true)}
       >
         + إنشاء بلاغ جديد

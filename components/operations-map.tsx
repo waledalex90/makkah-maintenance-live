@@ -91,6 +91,22 @@ function circleIcon(color: string) {
   });
 }
 
+function liveStaffIcon(role: ProfileRole) {
+  const tint = role === "supervisor" ? "#7c3aed" : "#2563eb";
+  return divIcon({
+    className: "",
+    html: `
+      <div class="live-staff-marker" style="--pulse-color:${tint}">
+        <span class="live-staff-pulse"></span>
+        <span class="live-staff-core">👷</span>
+      </div>
+    `,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    popupAnchor: [0, -16],
+  });
+}
+
 function normalizeProfile(profile: LiveLocationRow["profiles"]): ProfileJoin | null {
   if (!profile) return null;
   if (Array.isArray(profile)) return profile[0] ?? null;
@@ -132,6 +148,8 @@ export function OperationsMap() {
   const [liveLocations, setLiveLocations] = useState<LiveLocationRow[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const hereTrafficKey = process.env.NEXT_PUBLIC_HERE_TRAFFIC_API_KEY;
 
   const zoneMap = useMemo(() => {
     const map = new Map<string, Zone>();
@@ -208,6 +226,14 @@ export function OperationsMap() {
 
   useEffect(() => {
     void Promise.all([loadZones(), loadTickets(), loadLiveLocations()]);
+  }, []);
+
+  useEffect(() => {
+    const syncDark = () => setIsDarkMode(document.documentElement.classList.contains("dark"));
+    syncDark();
+    const observer = new MutationObserver(syncDark);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -318,10 +344,10 @@ export function OperationsMap() {
       <div className="relative h-[72vh] overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
         <MapContainer center={MAKKAH_CENTER} zoom={DEFAULT_ZOOM} maxZoom={20} scrollWheelZoom className="h-full w-full">
           <LayersControl position="topleft">
-            <LayersControl.BaseLayer checked name="خريطة الشوارع">
+            <LayersControl.BaseLayer checked={!isDarkMode} name="خريطة الشوارع المتقدمة">
               <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, HOT'
-                url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; CARTO'
+                url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
                 maxNativeZoom={19}
                 maxZoom={20}
               />
@@ -336,6 +362,15 @@ export function OperationsMap() {
               />
             </LayersControl.BaseLayer>
 
+            <LayersControl.BaseLayer checked={isDarkMode} name="الوضع الليلي">
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; CARTO'
+                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                maxNativeZoom={20}
+                maxZoom={20}
+              />
+            </LayersControl.BaseLayer>
+
             <LayersControl.Overlay checked name="الأسماء والمعالم">
               <TileLayer
                 attribution="Labels &copy; Esri"
@@ -344,6 +379,26 @@ export function OperationsMap() {
                 maxZoom={20}
               />
             </LayersControl.Overlay>
+
+            <LayersControl.Overlay checked name="المعالم المحلية (POIs)">
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, HOT'
+                url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png"
+                maxNativeZoom={19}
+                maxZoom={20}
+              />
+            </LayersControl.Overlay>
+
+            {hereTrafficKey ? (
+              <LayersControl.Overlay checked name="حركة المرور الحية">
+                <TileLayer
+                  attribution="Traffic &copy; HERE"
+                  url={`https://{s}.traffic.maps.ls.hereapi.com/traffic/6.2/flowtile/newest/normal.day/{z}/{x}/{y}/512/png8?apiKey=${hereTrafficKey}`}
+                  maxNativeZoom={20}
+                  maxZoom={20}
+                />
+              </LayersControl.Overlay>
+            ) : null}
           </LayersControl>
 
           <FitMapBounds points={fitPoints} />
@@ -357,13 +412,13 @@ export function OperationsMap() {
                 <Marker
                   key={`staff-${loc.user_id}`}
                   position={[loc.latitude, loc.longitude]}
-                  icon={circleIcon(roleColor(profile.role))}
+                  icon={liveStaffIcon(profile.role)}
                 >
                   <Tooltip
                     permanent
                     direction="top"
-                    offset={[0, -16]}
-                    className="!rounded-full !border-0 !bg-slate-900/85 !px-2 !py-0.5 !text-[10px] !font-semibold !text-white !shadow"
+                    offset={[0, -20]}
+                    className="!rounded-full !border !border-slate-300 !bg-white/95 !px-2 !py-0.5 !text-[10px] !font-semibold !text-slate-800 !shadow"
                   >
                     {shortDisplayName(profile.full_name)}
                   </Tooltip>

@@ -426,7 +426,7 @@ export function TicketDetailDrawer({
       initialQuality: 0.8,
     });
     const ext = compressedImage.name.split(".").pop() ?? "jpg";
-    const filePath = `tickets/${ticketId}/after-fix-${Date.now()}.${ext}`;
+    const filePath = `${ticketId}-after-fix-${Date.now()}.${ext}`;
     const { error: uploadError } = await supabase.storage
       .from("tickets")
       .upload(filePath, compressedImage, { upsert: false });

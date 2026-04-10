@@ -163,7 +163,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
         setUploadProgress((prev) => (prev >= 90 ? 90 : prev + 8));
       }, 220);
       const ext = compressedImage.name.split(".").pop() ?? "jpg";
-      const filePath = `${ticketId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const filePath = `${ticketId}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from("tickets")
         .upload(filePath, compressedImage, { upsert: false });
@@ -183,7 +183,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
     if (attachmentAudioFile) {
       setUploadingAudio(true);
       const ext = attachmentAudioFile.name.split(".").pop() ?? "webm";
-      const filePath = `${ticketId}/voice-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const filePath = `${ticketId}-voice-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error: uploadAudioError } = await supabase.storage
         .from("tickets")
         .upload(filePath, attachmentAudioFile, { upsert: false });

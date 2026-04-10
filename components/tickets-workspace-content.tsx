@@ -214,7 +214,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     if (attachments.length > 0) {
       for (const file of attachments) {
         const ext = file.name.split(".").pop() ?? "jpg";
-        const filePath = `tickets/${ticketData.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const filePath = `${ticketData.id}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
         const { error: uploadError } = await supabase.storage
           .from("tickets")
           .upload(filePath, file, { upsert: false });

@@ -26,6 +26,13 @@ type MyProfile = {
   specialty?: string | null;
 };
 
+type ZoneNotificationRow = {
+  id: number;
+  ticket_id: string;
+  title: string;
+  body: string;
+};
+
 function normalizeCategoryName(category: TechnicianTicket["ticket_categories"]): string {
   if (!category) return "";
   if (Array.isArray(category)) return category[0]?.name ?? "";
@@ -79,38 +86,26 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
     }
     setMyUserId(user.id);
 
-    const filterKey = role === "supervisor" ? "assigned_supervisor_id" : "assigned_technician_id";
-    const { data: assignedRows, error } = await supabase
-      .from("tickets")
-      .select("id, ticket_number, external_ticket_number, location, description, status, created_at, assigned_technician_id, assigned_supervisor_id, zone_id, ticket_categories(name)")
-      .eq(filterKey, user.id)
-      .order("created_at", { ascending: false });
+    const res = await fetch("/api/tasks/zone-tickets", { cache: "no-store" });
+    const payload = (await res.json()) as { tickets?: TechnicianTicket[]; error?: string };
 
-    if (error) {
-      toast.error(error.message);
+    if (!res.ok) {
+      toast.error(payload.error ?? "تعذر تحميل المهام.");
       setLoading(false);
       return;
     }
-
-    const rows = (assignedRows as TechnicianTicket[]) ?? [];
-
-    if (role === "technician") {
-      const [{ data: zoneLinks }, { data: profile }] = await Promise.all([
-        supabase.from("zone_profiles").select("zone_id").eq("profile_id", user.id),
-        supabase.from("profiles").select("specialty").eq("id", user.id).maybeSingle(),
-      ]);
-      const allowedZoneIds = new Set((zoneLinks ?? []).map((row) => row.zone_id as string));
-      const mySpecialty = (profile as MyProfile | null)?.specialty ?? null;
-      const filtered = rows.filter((ticket) => {
-        const zoneOk = ticket.zone_id ? allowedZoneIds.has(ticket.zone_id) : false;
-        const ticketSpecialty = mapCategoryToSpecialty(normalizeCategoryName(ticket.ticket_categories));
-        const specialtyOk = mySpecialty ? ticketSpecialty === mySpecialty : true;
-        return zoneOk && specialtyOk;
-      });
-      setTickets(filtered);
-    } else {
-      setTickets(rows);
-    }
+    const rows = payload.tickets ?? [];
+    const mySpecialty = role === "technician"
+      ? ((
+          await supabase.from("profiles").select("specialty").eq("id", user.id).maybeSingle()
+        ).data as MyProfile | null)?.specialty ?? null
+      : null;
+    const filtered = rows.filter((ticket) => {
+      if (role !== "technician") return true;
+      const ticketSpecialty = mapCategoryToSpecialty(normalizeCategoryName(ticket.ticket_categories));
+      return mySpecialty ? ticketSpecialty === mySpecialty : true;
+    });
+    setTickets(filtered);
     setLoading(false);
   };
 
@@ -175,12 +170,55 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
         },
       )
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "tickets" }, () => void loadTickets())
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "zone_notifications", filter: `recipient_id=eq.${myUserId}` },
+        (payload) => {
+          const row = payload.new as ZoneNotificationRow;
+          toast.success(row.title);
+          if ("Notification" in window && Notification.permission === "granted" && "serviceWorker" in navigator) {
+            void navigator.serviceWorker.ready.then((registration) => {
+              if (registration.active) {
+                registration.active.postMessage({
+                  type: "SHOW_NOTIFICATION",
+                  title: row.title,
+                  options: {
+                    body: row.body,
+                    data: { url: "/tasks/my-work" },
+                  },
+                });
+              }
+            });
+          }
+          void loadTickets();
+        },
+      )
       .subscribe();
 
     return () => {
       void supabase.removeChannel(channel);
     };
   }, [myUserId, role]);
+
+  useEffect(() => {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      void Notification.requestPermission();
+    }
+  }, []);
+
+  const claimTicket = async (ticketId: string) => {
+    const res = await fetch(`/api/tasks/zone-tickets/${ticketId}/claim`, {
+      method: "PATCH",
+    });
+    const payload = (await res.json()) as { ok?: boolean; error?: string };
+    if (!res.ok || !payload.ok) {
+      toast.error(payload.error ?? "تعذر قبول البلاغ.");
+      return;
+    }
+    toast.success("تم قبول البلاغ وتحويله لك.");
+    await loadTickets();
+  };
 
   const refreshByPull = async () => {
     if (pullRefreshing) return;
@@ -241,16 +279,25 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
           ) : (
             <div className="space-y-2">
               {tickets.map((ticket) => (
-                <button
+                <div
                   key={ticket.id}
-                  type="button"
-                  onClick={() => void loadDrawerTicket(ticket.id)}
                   className="w-full rounded-md border border-slate-200 bg-white px-3 py-3 text-right text-sm transition hover:border-slate-400 hover:bg-slate-50"
                 >
-                  <p className="font-medium">{ticket.external_ticket_number || `#${ticket.ticket_number ?? "-"}`}</p>
-                  <p className="text-slate-700">{ticket.location}</p>
-                  <p className="text-xs text-slate-500">الحالة: {statusLabel(ticket.status)}</p>
-                </button>
+                  <button type="button" className="w-full text-right" onClick={() => void loadDrawerTicket(ticket.id)}>
+                    <p className="font-medium">{ticket.external_ticket_number || `#${ticket.ticket_number ?? "-"}`}</p>
+                    <p className="text-slate-700">{ticket.location}</p>
+                    <p className="text-xs text-slate-500">الحالة: {statusLabel(ticket.status)}</p>
+                  </button>
+                  {role === "technician" && !ticket.assigned_technician_id ? (
+                    <button
+                      type="button"
+                      className="mt-2 min-h-11 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                      onClick={() => void claimTicket(ticket.id)}
+                    >
+                      قبول البلاغ
+                    </button>
+                  ) : null}
+                </div>
               ))}
             </div>
           )}

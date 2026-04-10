@@ -36,4 +36,23 @@ self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") {
     void self.skipWaiting();
   }
+  if (event.data?.type === "SHOW_NOTIFICATION") {
+    const title = event.data.title || "تنبيه جديد";
+    const options = event.data.options || {};
+    void self.registration.showNotification(title, options);
+  }
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification?.data?.url || "/tasks/my-work";
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
+      const existing = windowClients.find((client) => "focus" in client);
+      if (existing) {
+        return existing.focus().then(() => existing.navigate(targetUrl));
+      }
+      return clients.openWindow(targetUrl);
+    }),
+  );
 });

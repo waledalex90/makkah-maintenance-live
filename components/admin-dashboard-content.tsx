@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { LiveRadarMap } from "@/components/live-radar-map";
-import { TicketDetailLiveMap } from "@/components/ticket-detail-live-map";
 import { TicketCreateForm } from "@/components/ticket-create-form";
 import { TicketChatPanel } from "@/components/ticket-chat-panel";
 
@@ -87,6 +86,16 @@ const LAST_READ_STORAGE_KEY = "admin_ticket_last_read_map";
 const OVERDUE_HOURS = 4;
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
 const NEARBY_RADIUS_METERS = 3000;
+
+const TicketDetailLiveMap = dynamic(
+  () => import("@/components/ticket-detail-live-map").then((m) => m.TicketDetailLiveMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-72 animate-pulse rounded-xl border border-slate-200 bg-slate-100" />
+    ),
+  },
+);
 
 function statusBadgeVariant(status: TicketStatus): "red" | "yellow" | "green" | "muted" {
   if (status === "new") return "red";
@@ -369,8 +378,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     const rows = ((staffRes.data as DetailStaffRow[]) ?? []).filter((row) => {
       const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
       if (!profile) return false;
-      if (!["technician", "supervisor", "engineer"].includes(profile.role)) return false;
-      if (focusLat === null || focusLng === null) return true;
+      if (!["technician", "supervisor"].includes(profile.role)) return false;
+      if (focusLat === null || focusLng === null) return false;
       return distanceMeters(row.latitude, row.longitude, focusLat, focusLng) <= NEARBY_RADIUS_METERS;
     });
     setDetailNearbyStaff(rows);
@@ -587,8 +596,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           </button>
         </section>
       ) : null}
-
-      {!tableOnly ? <LiveRadarMap zoneFilter={zoneFilter} /> : null}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between">

@@ -47,6 +47,7 @@ export async function GET() {
   }
 
   try {
+    const supabase = await createSupabaseServerClient();
     const adminSupabase = createSupabaseAdminClient();
 
     const [{ data: profiles, error: profilesError }, usersResult] = await Promise.all([
@@ -59,7 +60,25 @@ export async function GET() {
     }
 
     if (usersResult.error) {
-      return NextResponse.json({ error: usersResult.error.message }, { status: 400 });
+      // Fallback: if admin key is invalid/missing, still return profiles so management table is usable.
+      const { data: fallbackProfiles, error: fallbackProfilesError } = await supabase
+        .from("profiles")
+        .select("id, full_name, mobile, role");
+
+      if (fallbackProfilesError) {
+        return NextResponse.json({ error: usersResult.error.message }, { status: 400 });
+      }
+
+      const fallbackRows = ((fallbackProfiles as ProfileRow[]) ?? []).map((profile) => ({
+        id: profile.id,
+        full_name: profile.full_name,
+        mobile: profile.mobile,
+        role: profile.role,
+        email: "غير متوفر",
+        account_status: "غير متوفر",
+      }));
+
+      return NextResponse.json({ users: fallbackRows });
     }
 
     const userMap = new Map(usersResult.data.users.map((u) => [u.id, u]));

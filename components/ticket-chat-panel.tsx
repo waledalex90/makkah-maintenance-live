@@ -33,6 +33,17 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const [attachmentImageFile, setAttachmentImageFile] = useState<File | null>(null);
   const [attachmentAudioFile, setAttachmentAudioFile] = useState<File | null>(null);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadMe = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setMyUserId(user?.id ?? null);
+    };
+    void loadMe();
+  }, []);
 
   const compressImage = async (file: File) => {
     return imageCompression(file, {
@@ -176,32 +187,39 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
   };
 
   return (
-    <div className="rounded-xl border border-slate-200 p-4">
-      <h3 className="mb-3 text-sm font-semibold text-slate-900">الدردشة والتوثيق</h3>
-      <div className="mb-3 max-h-64 space-y-2 overflow-y-auto rounded-md bg-slate-50 p-2">
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700">
+      <h3 className="border-b border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+        الدردشة والتوثيق
+      </h3>
+      <div className="max-h-72 space-y-2 overflow-y-auto bg-[#e5ddd5] p-3 dark:bg-slate-800">
         {messages.map((msg) => (
-          <div key={msg.id} className="rounded-md border border-slate-200 bg-white p-2 text-sm">
-            <p className="text-xs text-slate-500">
-              {senderNameMap[msg.sender_id] ?? msg.sender_id.slice(0, 8)} — {new Date(msg.created_at).toLocaleString()}
-            </p>
-            <p className="mt-1 whitespace-pre-wrap">{msg.content}</p>
+          <div key={msg.id} className={`flex ${msg.sender_id === myUserId ? "justify-end" : "justify-start"}`}>
+            <div
+              className={`max-w-[85%] rounded-xl p-2 text-sm shadow-sm ${
+                msg.sender_id === myUserId ? "bg-[#dcf8c6] text-slate-900" : "bg-white text-slate-900"
+              }`}
+            >
+              <p className="text-[11px] text-slate-500">{senderNameMap[msg.sender_id] ?? msg.sender_id.slice(0, 8)}</p>
+              <p className="mt-1 whitespace-pre-wrap">{msg.content}</p>
             {msg.image_url ? (
               <a href={msg.image_url} target="_blank" rel="noreferrer" className="mt-2 block">
                 <img src={msg.image_url} alt="" className="max-h-40 rounded-md border border-slate-200" />
               </a>
             ) : null}
             {msg.audio_url ? <audio className="mt-2 w-full" controls preload="none" src={msg.audio_url} /> : null}
+              <p className="mt-1 text-[11px] text-slate-500">{new Date(msg.created_at).toLocaleTimeString("ar-SA")}</p>
+            </div>
           </div>
         ))}
         {messages.length === 0 ? <p className="p-2 text-sm text-slate-500">لا توجد رسائل بعد.</p> : null}
       </div>
       {canPost ? (
-        <>
+        <div className="sticky bottom-0 border-t border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="رسالة ميدانية / توثيق إجراء / ملاحظة إدارة المشروع..."
-            className="min-h-[72px]"
+            className="min-h-[72px] bg-white dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
           />
           <div className="mt-2 space-y-1">
             <input
@@ -220,9 +238,9 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
           <Button className="mt-2 w-full" onClick={() => void sendMessage()} disabled={sending || uploadingImage || uploadingAudio}>
             {sending ? "جاري الإرسال..." : "إرسال"}
           </Button>
-        </>
+        </div>
       ) : (
-        <p className="text-sm text-slate-500">يمكنك معاينة المحادثة فقط.</p>
+        <p className="p-3 text-sm text-slate-500">يمكنك معاينة المحادثة فقط.</p>
       )}
     </div>
   );

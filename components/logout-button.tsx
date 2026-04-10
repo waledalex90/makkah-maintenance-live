@@ -19,8 +19,7 @@ export function LogoutButton() {
 
   return (
     <Button
-      variant="outline"
-      className="w-full justify-start"
+      className="h-11 w-full justify-start bg-red-600 text-white hover:bg-red-700"
       disabled={loading}
       onClick={onLogout}
     >

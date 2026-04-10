@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { LatLngBounds, divIcon, latLng } from "leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
-import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
 import { toast } from "sonner";
 import { TicketDetailDrawer } from "@/components/ticket-detail-drawer";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +40,8 @@ type ProfileRole = "admin" | "engineer" | "supervisor" | "technician";
 type ProfileJoin = {
   full_name: string;
   role: ProfileRole;
+  specialty?: string | null;
+  mobile?: string | null;
 };
 
 type LiveLocationRow = {
@@ -182,7 +184,7 @@ export function OperationsMap() {
   const loadLiveLocations = async () => {
     const { data, error } = await supabase
       .from("live_locations")
-      .select("user_id, latitude, longitude, last_updated, profiles(full_name, role)");
+      .select("user_id, latitude, longitude, last_updated, profiles(full_name, role, specialty, mobile)");
 
     if (error) {
       toast.error(error.message);
@@ -303,10 +305,24 @@ export function OperationsMap() {
                   position={[loc.latitude, loc.longitude]}
                   icon={circleIcon(roleColor(profile.role))}
                 >
+                  <Tooltip permanent direction="top" offset={[0, -10]} className="!border-slate-200 !bg-white/95 !text-slate-900 !shadow-sm">
+                    {profile.full_name}
+                  </Tooltip>
                   <Popup>
                     <div className="space-y-1 text-sm">
                       <p className="font-semibold">{profile.full_name}</p>
                       <p>الدور: {profile.role}</p>
+                      <p>التخصص: {profile.specialty || "-"}</p>
+                      <p>الجوال: {profile.mobile || "-"}</p>
+                      <p>
+                        حالة البلاغ الحالي:{" "}
+                        {(() => {
+                          const current = activeTickets.find(
+                            (t) => t.assigned_technician_id === loc.user_id || t.assigned_supervisor_id === loc.user_id,
+                          );
+                          return current ? statusLabel(current.status) : "لا يوجد بلاغ نشط";
+                        })()}
+                      </p>
                       <p>آخر تحديث: {new Date(loc.last_updated).toLocaleTimeString()}</p>
                     </div>
                   </Popup>

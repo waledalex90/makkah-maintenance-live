@@ -4,6 +4,7 @@ import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { LiveLocationTracker } from "@/components/live-location-tracker";
 import { DashboardBottomNav } from "@/components/dashboard-bottom-nav";
 import { PageTransition } from "@/components/page-transition";
+import { DashboardTopbar } from "@/components/dashboard-topbar";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createSupabaseServerClient();
@@ -29,10 +30,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const role = profile?.role ?? "engineer";
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
       <LiveLocationTracker />
       <DashboardSidebar fullName={fullName} role={role} />
       <main className="flex-1 p-4 pb-24 md:p-6 md:pb-6">
+        <DashboardTopbar fullName={fullName} />
         <PageTransition>{children}</PageTransition>
       </main>
       <DashboardBottomNav role={role} />

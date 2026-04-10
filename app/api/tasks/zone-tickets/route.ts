@@ -33,16 +33,6 @@ export async function GET() {
   try {
     const admin = createSupabaseAdminClient();
 
-    if (role === "supervisor") {
-      const { data, error } = await admin
-        .from("tickets")
-        .select("id, ticket_number, external_ticket_number, location, description, status, created_at, assigned_technician_id, assigned_supervisor_id, zone_id, ticket_categories(name)")
-        .eq("assigned_supervisor_id", user.id)
-        .order("created_at", { ascending: false });
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      return NextResponse.json({ tickets: data ?? [] });
-    }
-
     const { data: zoneLinks, error: zoneError } = await admin
       .from("zone_profiles")
       .select("zone_id")
@@ -60,11 +50,7 @@ export async function GET() {
       .order("created_at", { ascending: false });
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-    const visible = (data ?? []).filter((ticket) => {
-      const assigned = ticket.assigned_technician_id as string | null;
-      return assigned === null || assigned === user.id;
-    });
-    return NextResponse.json({ tickets: visible });
+    return NextResponse.json({ tickets: data ?? [] });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
     return NextResponse.json({ error: message }, { status: 500 });

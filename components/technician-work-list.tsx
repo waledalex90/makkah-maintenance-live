@@ -327,9 +327,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
             <p className="text-sm text-slate-500">جاري التحميل...</p>
           ) : tickets.length === 0 ? (
             <p className="text-sm text-slate-500">
-              {role === "technician"
-                ? "لا توجد بلاغات مكلّفة إليك حتى يعيّنك المشرف."
-                : "لا توجد بلاغات تحت إشرافك حالياً."}
+              لا توجد بلاغات حالياً في منطقتك.
             </p>
           ) : (
             <div className="space-y-2">

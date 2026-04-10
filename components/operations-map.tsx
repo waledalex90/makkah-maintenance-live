@@ -309,21 +309,21 @@ export function OperationsMap() {
   };
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm" dir="rtl" lang="ar">
+    <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900" dir="rtl" lang="ar">
       <div className="mb-3 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">خريطة المشاعر التفاعلية</h1>
-        <p className="text-sm text-slate-500">الفرق الميدانية المباشرة والبلاغات النشطة</p>
+        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">خريطة المشاعر التفاعلية</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">الفرق الميدانية المباشرة والبلاغات النشطة</p>
       </div>
 
-      <div className="relative h-[72vh] overflow-hidden rounded-lg border border-slate-200">
-        <MapContainer center={MAKKAH_CENTER} zoom={DEFAULT_ZOOM} maxZoom={21} scrollWheelZoom className="h-full w-full">
+      <div className="relative h-[72vh] overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
+        <MapContainer center={MAKKAH_CENTER} zoom={DEFAULT_ZOOM} maxZoom={20} scrollWheelZoom className="h-full w-full">
           <LayersControl position="topleft">
             <LayersControl.BaseLayer checked name="خريطة الشوارع">
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, HOT'
                 url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png"
                 maxNativeZoom={19}
-                maxZoom={21}
+                maxZoom={20}
               />
             </LayersControl.BaseLayer>
 
@@ -332,7 +332,7 @@ export function OperationsMap() {
                 attribution="Tiles &copy; Esri"
                 url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
                 maxNativeZoom={20}
-                maxZoom={21}
+                maxZoom={20}
               />
             </LayersControl.BaseLayer>
 
@@ -341,7 +341,7 @@ export function OperationsMap() {
                 attribution="Labels &copy; Esri"
                 url="https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
                 maxNativeZoom={20}
-                maxZoom={21}
+                maxZoom={20}
               />
             </LayersControl.Overlay>
           </LayersControl>
@@ -421,9 +421,9 @@ export function OperationsMap() {
           </MarkerClusterGroup>
         </MapContainer>
 
-        <div className="absolute right-3 top-3 z-[500] rounded-md border border-slate-200 bg-white/95 p-3 text-xs shadow">
-          <p className="mb-2 font-semibold text-slate-800">المفاتيح</p>
-          <div className="space-y-1.5 text-slate-700">
+        <div className="absolute right-3 top-3 z-[500] rounded-md border border-slate-200 bg-white/95 p-3 text-xs dark:border-slate-800 dark:bg-slate-900/95">
+          <p className="mb-2 font-semibold text-slate-800 dark:text-slate-100">المفاتيح</p>
+          <div className="space-y-1.5 text-slate-700 dark:text-slate-400">
             <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-blue-600" /> فني</div>
             <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-violet-600" /> مشرف</div>
             <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-red-600" /> بلاغ جديد</div>

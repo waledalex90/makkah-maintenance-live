@@ -69,11 +69,11 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
             className={cn(
               "flex min-h-12 items-center gap-2 rounded-md px-3 py-3 text-sm font-medium transition",
               active
-                ? "border-s border-green-600 bg-white text-slate-900 shadow-sm"
-                : "text-slate-700 hover:bg-white",
+                ? "border-s border-green-600 bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100"
+                : "text-slate-700 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-900",
             )}
           >
-            <Icon className={cn("h-5 w-5", active ? "text-green-600" : "text-slate-600")} />
+            <Icon className={cn("h-5 w-5", active ? "text-green-600" : "text-slate-600 dark:text-slate-400")} />
             <span>{item.label}</span>
           </Link>
         );
@@ -86,10 +86,10 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
       <button
         type="button"
         aria-label="فتح القائمة"
-        className="fixed right-3 top-3 z-50 rounded-lg border border-slate-200 bg-white p-2.5 shadow md:hidden"
+        className="fixed right-3 top-3 z-50 rounded-lg border border-slate-200 bg-white p-2.5 md:hidden dark:border-slate-800 dark:bg-slate-900"
         onClick={() => setMobileOpen(true)}
       >
-        <Menu className="h-5 w-5 text-slate-700" />
+        <Menu className="h-5 w-5 text-slate-700 dark:text-slate-100" />
       </button>
 
       {mobileOpen ? (
@@ -100,21 +100,21 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
             aria-label="إغلاق القائمة"
             onClick={() => setMobileOpen(false)}
           />
-          <aside className="absolute right-0 top-0 flex h-full w-72 max-w-[86vw] flex-col border-l border-slate-200 bg-slate-100 p-4 pb-20 shadow-2xl">
+          <aside className="absolute right-0 top-0 flex h-full w-72 max-w-[86vw] flex-col border-l border-slate-200 bg-slate-100 p-4 pb-32 dark:border-slate-800 dark:bg-slate-950">
             <div className="mb-2 flex items-center justify-between">
               <button
                 type="button"
                 aria-label="إغلاق"
-                className="rounded-md border border-slate-200 p-2"
+                className="rounded-md border border-slate-200 p-2 dark:border-slate-700"
                 onClick={() => setMobileOpen(false)}
               >
-                <X className="h-4 w-4" />
+                <X className="h-4 w-4 dark:text-slate-100" />
               </button>
-              <p className="text-sm font-semibold text-slate-900">القائمة</p>
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">القائمة</p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs text-slate-500">تسجيل الدخول باسم</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">{roleLabel}: {fullName}</p>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+              <p className="text-xs text-slate-500 dark:text-slate-400">تسجيل الدخول باسم</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{roleLabel}: {fullName}</p>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto pb-4">{navList}</div>
             <div className="absolute bottom-4 left-4 right-4">
@@ -124,10 +124,10 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
         </div>
       ) : null}
 
-      <aside className="hidden h-screen w-72 flex-col border-r border-slate-200 bg-slate-100 p-4 md:flex" dir="rtl" lang="ar">
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <p className="text-xs text-slate-500">تسجيل الدخول باسم</p>
-        <p className="mt-1 text-sm font-semibold text-slate-900">{roleLabel}: {fullName}</p>
+      <aside className="hidden h-screen w-72 flex-col border-r border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-950 md:flex" dir="rtl" lang="ar">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+        <p className="text-xs text-slate-500 dark:text-slate-400">تسجيل الدخول باسم</p>
+        <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{roleLabel}: {fullName}</p>
       </div>
       {navList}
 

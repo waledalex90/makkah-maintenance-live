@@ -29,7 +29,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const role = profile?.role ?? "engineer";
 
   return (
-    <div className="flex min-h-screen bg-slate-100">
+    <div className="flex min-h-screen bg-slate-50">
       <LiveLocationTracker />
       <DashboardSidebar fullName={fullName} role={role} />
       <main className="flex-1 p-4 pb-24 md:p-6 md:pb-6">

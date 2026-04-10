@@ -84,15 +84,15 @@ export default async function ReportsPage() {
       <section className="grid gap-4 md:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">إجمالي البلاغات المنفذة</p>
-          <p className="mt-2 text-3xl font-bold text-emerald-600">{totalDone ?? 0}</p>
+          <p className="mt-2 text-3xl font-bold text-green-600">{totalDone ?? 0}</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">متوسط وقت الحل</p>
-          <p className="mt-2 text-3xl font-bold text-sky-700">{avgHours.toFixed(2)} ساعة</p>
+          <p className="mt-2 text-3xl font-bold text-indigo-600">{avgHours.toFixed(2)} ساعة</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">الموظفون المصنفون</p>
-          <p className="mt-2 text-3xl font-bold text-indigo-700">{topPerformers.length}</p>
+          <p className="mt-2 text-3xl font-bold text-amber-600">{topPerformers.length}</p>
         </div>
       </section>
 

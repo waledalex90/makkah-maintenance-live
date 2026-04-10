@@ -25,7 +25,7 @@ export default async function MyWorkPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 p-3 sm:p-6">
+    <main className="min-h-screen bg-slate-50 p-3 sm:p-6">
       <LiveLocationTracker />
       <div className="mx-auto max-w-md sm:max-w-4xl">
         <TechnicianWorkList role={profile.role as "technician" | "supervisor"} />

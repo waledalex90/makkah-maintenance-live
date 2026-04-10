@@ -68,11 +68,12 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
             onClick={() => setMobileOpen(false)}
             className={cn(
               "flex min-h-12 items-center gap-2 rounded-md px-3 py-3 text-sm font-medium transition",
-              item.href === "/dashboard" ? "border border-sky-200 bg-sky-50 text-sky-800" : "",
-              active ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100",
+              active
+                ? "border-s border-green-600 bg-white text-slate-900 shadow-sm"
+                : "text-slate-700 hover:bg-white",
             )}
           >
-            <Icon className="h-5 w-5" />
+            <Icon className={cn("h-5 w-5", active ? "text-green-600" : "text-slate-600")} />
             <span>{item.label}</span>
           </Link>
         );
@@ -99,7 +100,7 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
             aria-label="إغلاق القائمة"
             onClick={() => setMobileOpen(false)}
           />
-          <aside className="absolute right-0 top-0 flex h-full w-72 max-w-[86vw] flex-col border-l border-slate-200 bg-white p-4 shadow-2xl">
+          <aside className="absolute right-0 top-0 flex h-full w-72 max-w-[86vw] flex-col border-l border-slate-200 bg-slate-100 p-4 shadow-2xl">
             <div className="mb-2 flex items-center justify-between">
               <button
                 type="button"
@@ -123,7 +124,7 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
         </div>
       ) : null}
 
-      <aside className="hidden h-screen w-72 flex-col border-r border-slate-200 bg-white p-4 md:flex" dir="rtl" lang="ar">
+      <aside className="hidden h-screen w-72 flex-col border-r border-slate-200 bg-slate-100 p-4 md:flex" dir="rtl" lang="ar">
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
         <p className="text-xs text-slate-500">تسجيل الدخول باسم</p>
         <p className="mt-1 text-sm font-semibold text-slate-900">{roleLabel}: {fullName}</p>

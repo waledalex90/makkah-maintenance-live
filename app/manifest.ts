@@ -17,8 +17,8 @@ export default function manifest(): MetadataRoute.Manifest {
     orientation: "portrait",
     iarc_rating_id: "e9227092-2374-42f2-9599-f416629994c6",
     related_applications: [],
-    background_color: "#16a34a",
-    theme_color: "#16a34a",
+    background_color: "#ffffff",
+    theme_color: "#ffffff",
     lang: "ar",
     dir: "rtl",
     icons: [
@@ -32,7 +32,13 @@ export default function manifest(): MetadataRoute.Manifest {
         src: "/icons/icon-512.png",
         sizes: "512x512",
         type: "image/png",
-        purpose: "any maskable" as unknown as "any",
+        purpose: "any",
+      },
+      {
+        src: "/icons/icon-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
       },
     ],
     screenshots: [

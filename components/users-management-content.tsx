@@ -19,8 +19,18 @@ type UserRow = {
   email: string;
   role: UserRole;
   mobile: string;
+  job_title?: string;
+  specialty?: string;
+  zones?: Array<{ id: string; name: string }>;
   account_status: string;
 };
+
+type ZoneOption = {
+  id: string;
+  name: string;
+};
+
+type Specialty = "fire" | "electricity" | "ac" | "civil" | "kitchens";
 
 const ROLE_OPTIONS: Array<{ value: UserRole; label: string }> = [
   { value: "admin", label: "مدير النظام" },
@@ -32,6 +42,14 @@ const ROLE_OPTIONS: Array<{ value: UserRole; label: string }> = [
   { value: "technician", label: "فني" },
 ];
 
+const SPECIALTY_OPTIONS: Array<{ value: Specialty; label: string }> = [
+  { value: "fire", label: "حريق" },
+  { value: "electricity", label: "كهرباء" },
+  { value: "ac", label: "تكييف" },
+  { value: "civil", label: "مدني" },
+  { value: "kitchens", label: "مطابخ" },
+];
+
 export function UsersManagementContent() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,20 +57,28 @@ export function UsersManagementContent() {
   const [draftRoleMap, setDraftRoleMap] = useState<Record<string, UserRole>>({});
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviting, setInviting] = useState(false);
+  const [zones, setZones] = useState<ZoneOption[]>([]);
+  const [zonesLoading, setZonesLoading] = useState(false);
   const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteMobile, setInviteMobile] = useState("");
+  const [inviteJobTitle, setInviteJobTitle] = useState("");
+  const [inviteSpecialty, setInviteSpecialty] = useState<Specialty>("civil");
+  const [inviteZoneIds, setInviteZoneIds] = useState<string[]>([]);
+  const [zoneDropdownOpen, setZoneDropdownOpen] = useState(false);
   const [inviteRole, setInviteRole] = useState<UserRole>("technician");
   const [inviteErrors, setInviteErrors] = useState<{
     full_name?: string;
     email?: string;
     mobile?: string;
+    job_title?: string;
+    zone_ids?: string;
   }>({});
 
   const loadUsers = async () => {
     setLoading(true);
     const res = await fetch("/api/admin/users", { cache: "no-store" });
-    const data = (await res.json()) as { users?: UserRow[]; error?: string };
+    const data = (await res.json()) as { users?: UserRow[]; zones?: ZoneOption[]; error?: string };
 
     if (!res.ok) {
       toast.error(data.error ?? "فشل تحميل المستخدمين.");
@@ -61,6 +87,7 @@ export function UsersManagementContent() {
     }
 
     const rows = data.users ?? [];
+    setZones(data.zones ?? []);
     setUsers(rows);
     setDraftRoleMap(
       rows.reduce<Record<string, UserRole>>((acc, row) => {
@@ -103,12 +130,16 @@ export function UsersManagementContent() {
     setInviteName("");
     setInviteEmail("");
     setInviteMobile("");
+    setInviteJobTitle("");
+    setInviteSpecialty("civil");
+    setInviteZoneIds([]);
+    setZoneDropdownOpen(false);
     setInviteRole("technician");
     setInviteErrors({});
   };
 
   const validateInvite = () => {
-    const nextErrors: { full_name?: string; email?: string; mobile?: string } = {};
+    const nextErrors: { full_name?: string; email?: string; mobile?: string; job_title?: string; zone_ids?: string } = {};
 
     if (!inviteName.trim()) {
       nextErrors.full_name = "هذا الحقل مطلوب";
@@ -120,6 +151,12 @@ export function UsersManagementContent() {
     }
     if (!inviteMobile.trim()) {
       nextErrors.mobile = "هذا الحقل مطلوب";
+    }
+    if (!inviteJobTitle.trim()) {
+      nextErrors.job_title = "هذا الحقل مطلوب";
+    }
+    if (inviteZoneIds.length === 0) {
+      nextErrors.zone_ids = "يرجى اختيار منطقة واحدة على الأقل";
     }
 
     setInviteErrors(nextErrors);
@@ -137,6 +174,9 @@ export function UsersManagementContent() {
         full_name: inviteName.trim(),
         email: inviteEmail.trim(),
         mobile: inviteMobile.trim(),
+        job_title: inviteJobTitle.trim(),
+        specialty: inviteSpecialty,
+        zone_ids: inviteZoneIds,
         role: inviteRole,
       }),
     });
@@ -153,13 +193,27 @@ export function UsersManagementContent() {
     await loadUsers();
   };
 
+  const selectedZones = zones.filter((zone) => inviteZoneIds.includes(zone.id));
+  const toggleZoneSelection = (zoneId: string) => {
+    setInviteZoneIds((prev) => (prev.includes(zoneId) ? prev.filter((id) => id !== zoneId) : [...prev, zoneId]));
+    setInviteErrors((prev) => ({ ...prev, zone_ids: undefined }));
+  };
+
+  const openInviteModal = async () => {
+    setIsInviteModalOpen(true);
+    if (zones.length > 0) return;
+    setZonesLoading(true);
+    await loadUsers();
+    setZonesLoading(false);
+  };
+
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" dir="rtl" lang="ar">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold">إدارة المستخدمين</h1>
         <button
           className="rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
-          onClick={() => setIsInviteModalOpen(true)}
+          onClick={() => void openInviteModal()}
         >
           إضافة مستخدم جديد
         </button>
@@ -175,6 +229,9 @@ export function UsersManagementContent() {
                 <th className="px-3 py-2">الاسم</th>
                 <th className="px-3 py-2">الإيميل</th>
                 <th className="px-3 py-2">رقم الجوال</th>
+                <th className="px-3 py-2">المهنة</th>
+                <th className="px-3 py-2">التصنيف</th>
+                <th className="px-3 py-2">المناطق</th>
                 <th className="px-3 py-2">الدور</th>
                 <th className="px-3 py-2">حالة الحساب</th>
                 <th className="px-3 py-2">تعديل الصلاحيات</th>
@@ -186,6 +243,13 @@ export function UsersManagementContent() {
                   <td className="px-3 py-2">{user.full_name}</td>
                   <td className="px-3 py-2">{user.email}</td>
                   <td className="px-3 py-2">{user.mobile}</td>
+                  <td className="px-3 py-2">{user.job_title || "-"}</td>
+                  <td className="px-3 py-2">
+                    {SPECIALTY_OPTIONS.find((option) => option.value === user.specialty)?.label ?? "-"}
+                  </td>
+                  <td className="px-3 py-2">
+                    {(user.zones ?? []).length > 0 ? (user.zones ?? []).map((zone) => zone.name).join("، ") : "-"}
+                  </td>
                   <td className="px-3 py-2">
                     {ROLE_OPTIONS.find((option) => option.value === user.role)?.label ?? user.role}
                   </td>
@@ -221,7 +285,7 @@ export function UsersManagementContent() {
               ))}
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="px-3 py-8 text-center text-slate-500">
                     لا يوجد مستخدمون حالياً.
                   </td>
                 </tr>
@@ -233,7 +297,7 @@ export function UsersManagementContent() {
 
       {isInviteModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closeInviteModal}>
-          <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-2xl rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-slate-900">إضافة مستخدم جديد</h3>
               <button
@@ -244,7 +308,7 @@ export function UsersManagementContent() {
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <p className="mb-2 text-sm font-medium">الاسم الكامل</p>
                 <Input
@@ -286,6 +350,34 @@ export function UsersManagementContent() {
               </div>
 
               <div>
+                <p className="mb-2 text-sm font-medium">المهنة / المسمى الوظيفي</p>
+                <Input
+                  value={inviteJobTitle}
+                  onChange={(e) => {
+                    setInviteJobTitle(e.target.value);
+                    setInviteErrors((prev) => ({ ...prev, job_title: undefined }));
+                  }}
+                  placeholder="مثال: فني كهرباء أول"
+                />
+                {inviteErrors.job_title ? <p className="mt-1 text-xs text-red-600">{inviteErrors.job_title}</p> : null}
+              </div>
+
+              <div>
+                <p className="mb-2 text-sm font-medium">التصنيف</p>
+                <select
+                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                  value={inviteSpecialty}
+                  onChange={(e) => setInviteSpecialty(e.target.value as Specialty)}
+                >
+                  {SPECIALTY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
                 <p className="mb-2 text-sm font-medium">الدور</p>
                 <select
                   className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
@@ -298,6 +390,46 @@ export function UsersManagementContent() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="md:col-span-2">
+                <p className="mb-2 text-sm font-medium">المناطق (اختيار متعدد)</p>
+                <button
+                  type="button"
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 text-sm"
+                  onClick={() => setZoneDropdownOpen((prev) => !prev)}
+                >
+                  <span className="truncate text-right">
+                    {selectedZones.length === 0 ? "اختر منطقة أو أكثر" : selectedZones.map((zone) => zone.name).join("، ")}
+                  </span>
+                  <span className="text-xs text-slate-500">{selectedZones.length} محدد</span>
+                </button>
+                {zoneDropdownOpen ? (
+                  <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-2">
+                    {zonesLoading ? <p className="p-2 text-xs text-slate-500">جاري تحميل المناطق...</p> : null}
+                    {!zonesLoading && zones.length === 0 ? <p className="p-2 text-xs text-slate-500">لا توجد مناطق متاحة.</p> : null}
+                    {zones.map((zone) => (
+                      <label key={zone.id} className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 hover:bg-slate-50">
+                        <span className="text-sm">{zone.name}</span>
+                        <input
+                          type="checkbox"
+                          checked={inviteZoneIds.includes(zone.id)}
+                          onChange={() => toggleZoneSelection(zone.id)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
+                {selectedZones.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {selectedZones.map((zone) => (
+                      <span key={zone.id} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs">
+                        {zone.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {inviteErrors.zone_ids ? <p className="mt-1 text-xs text-red-600">{inviteErrors.zone_ids}</p> : null}
               </div>
             </div>
 

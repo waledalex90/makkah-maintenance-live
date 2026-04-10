@@ -13,6 +13,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { TicketChatPanel } from "@/components/ticket-chat-panel";
+import { ensureGpsPermission } from "@/lib/gps-permission";
 
 export type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
 
@@ -35,6 +36,11 @@ export type TicketDetailRow = {
 };
 
 type StaffOption = { staff_id: string; full_name: string };
+type ProfileOptionRow = {
+  id: string;
+  full_name: string;
+  specialty?: string | null;
+};
 
 type TicketDetailDrawerProps = {
   open: boolean;
@@ -66,6 +72,16 @@ function categoryLabel(cat: TicketDetailRow["ticket_categories"]): string {
   if (!cat) return "-";
   if (Array.isArray(cat)) return cat[0]?.name ?? "-";
   return cat.name;
+}
+
+function mapCategoryToSpecialty(categoryName: string): string | null {
+  const lower = categoryName.toLowerCase();
+  if (lower.includes("حريق") || lower.includes("fire")) return "fire";
+  if (lower.includes("كهرباء") || lower.includes("electric")) return "electricity";
+  if (lower.includes("تكييف") || lower.includes("ac")) return "ac";
+  if (lower.includes("مدني") || lower.includes("مدنى") || lower.includes("civil")) return "civil";
+  if (lower.includes("مطابخ") || lower.includes("kitchen")) return "kitchens";
+  return null;
 }
 
 export function TicketDetailDrawer({
@@ -119,21 +135,51 @@ export function TicketDetailDrawer({
   }, []);
 
   const loadAssignable = async () => {
-    if (!ticketId) return;
-    const { data: supData, error: supErr } = await supabase.rpc("assignable_staff_for_ticket", {
-      p_ticket_id: ticketId,
-      p_target_role: "supervisor",
-    });
-    if (!supErr && supData) {
-      setSupervisorOptions((supData as StaffOption[]) ?? []);
+    if (!ticketId || !ticket?.zone_id) {
+      setSupervisorOptions([]);
+      setTechnicianOptions([]);
+      return;
     }
-    const { data: techData, error: techErr } = await supabase.rpc("assignable_staff_for_ticket", {
-      p_ticket_id: ticketId,
-      p_target_role: "technician",
-    });
-    if (!techErr && techData) {
-      setTechnicianOptions((techData as StaffOption[]) ?? []);
+    const ticketSpecialty = mapCategoryToSpecialty(categoryLabel(ticket.ticket_categories));
+    const { data: zoneLinks } = await supabase.from("zone_profiles").select("profile_id").eq("zone_id", ticket.zone_id);
+    const profileIds = (zoneLinks ?? []).map((row) => row.profile_id as string);
+    if (profileIds.length === 0) {
+      setSupervisorOptions([]);
+      setTechnicianOptions([]);
+      return;
     }
+
+    const { data: supervisors } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .eq("role", "supervisor")
+      .or("availability_status.eq.available,availability_status.is.null")
+      .in("id", profileIds)
+      .order("full_name");
+    setSupervisorOptions(
+      ((supervisors as ProfileOptionRow[]) ?? []).map((row) => ({
+        staff_id: row.id,
+        full_name: row.full_name,
+      })),
+    );
+
+    let techniciansQuery = supabase
+      .from("profiles")
+      .select("id, full_name, specialty")
+      .eq("role", "technician")
+      .or("availability_status.eq.available,availability_status.is.null")
+      .in("id", profileIds)
+      .order("full_name");
+    if (ticketSpecialty) {
+      techniciansQuery = techniciansQuery.eq("specialty", ticketSpecialty);
+    }
+    const { data: technicians } = await techniciansQuery;
+    setTechnicianOptions(
+      ((technicians as ProfileOptionRow[]) ?? []).map((row) => ({
+        staff_id: row.id,
+        full_name: row.full_name,
+      })),
+    );
   };
 
   useEffect(() => {
@@ -248,6 +294,16 @@ export function TicketDetailDrawer({
       toast.error(error.message);
       return;
     }
+    if (supId && myUserId) {
+      const actorName = senderNameMap[myUserId] ?? "المهندس";
+      const selectedName = supervisorOptions.find((o) => o.staff_id === supId)?.full_name ?? "مراقب";
+      const nowLabel = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+      await supabase.from("ticket_messages").insert({
+        ticket_id: ticketId,
+        sender_id: myUserId,
+        content: `تكليفات: ${actorName} عيّن المراقب ${selectedName} - الساعة ${nowLabel}.`,
+      });
+    }
     toast.success(supId ? "تم تعيين المشرف." : "تم إلغاء تعيين المشرف.");
     await onTicketUpdated();
   };
@@ -266,12 +322,32 @@ export function TicketDetailDrawer({
       toast.error(error.message);
       return;
     }
+    if (techId && myUserId) {
+      const actorName = senderNameMap[myUserId] ?? "المشرف";
+      const selectedName = technicianOptions.find((o) => o.staff_id === techId)?.full_name ?? "فني";
+      const nowLabel = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+      await supabase.from("ticket_messages").insert({
+        ticket_id: ticketId,
+        sender_id: myUserId,
+        content: `تكليفات: ${actorName} عيّن الفني ${selectedName} - الساعة ${nowLabel}.`,
+      });
+    }
     toast.success(techId ? "تم تكليف الفني المنفذ." : "تم إلغاء تكليف الفني.");
     await onTicketUpdated();
   };
 
   const pushCurrentGps = async () => {
-    if (!myUserId || !navigator.geolocation) return;
+    if (!myUserId) return;
+    const permission = await ensureGpsPermission();
+    if (permission === "unsupported") return;
+    if (permission === "insecure") {
+      toast.error("تحديث GPS يتطلب HTTPS في بيئة الإنتاج.");
+      return;
+    }
+    if (permission === "denied") {
+      toast.error("صلاحية GPS مرفوضة. فعّلها من إعدادات المتصفح.");
+      return;
+    }
     return new Promise<void>((resolve) => {
       navigator.geolocation.getCurrentPosition(
         async (position) => {

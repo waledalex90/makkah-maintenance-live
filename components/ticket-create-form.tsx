@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ensureGpsPermission } from "@/lib/gps-permission";
 
 type ZoneRow = {
   id: string;
@@ -66,9 +67,18 @@ export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateForm
     void loadData();
   }, []);
 
-  const captureGps = () => {
-    if (!navigator.geolocation) {
+  const captureGps = async () => {
+    const permission = await ensureGpsPermission();
+    if (permission === "unsupported") {
       toast.error("المتصفح لا يدعم تحديد الموقع.");
+      return;
+    }
+    if (permission === "insecure") {
+      toast.error("ميزة GPS تعمل فقط عبر HTTPS في بيئة الإنتاج.");
+      return;
+    }
+    if (permission === "denied") {
+      toast.error("تم رفض صلاحية الموقع. فعّلها من إعدادات المتصفح.");
       return;
     }
     navigator.geolocation.getCurrentPosition(
@@ -248,7 +258,7 @@ export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateForm
         </div>
         {gpsEnabled ? (
           <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" onClick={captureGps}>سحب الموقع الحالي</Button>
+            <Button type="button" variant="outline" onClick={() => void captureGps()}>سحب الموقع الحالي</Button>
             <Input value={locationText} onChange={(e) => setLocationText(e.target.value)} placeholder="سيظهر الموقع هنا" />
           </div>
         ) : (

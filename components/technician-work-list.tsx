@@ -18,7 +18,29 @@ type TechnicianTicket = {
   created_at: string;
   assigned_technician_id: string | null;
   assigned_supervisor_id: string | null;
+  zone_id: string | null;
+  ticket_categories?: { name: string } | { name: string }[] | null;
 };
+
+type MyProfile = {
+  specialty?: string | null;
+};
+
+function normalizeCategoryName(category: TechnicianTicket["ticket_categories"]): string {
+  if (!category) return "";
+  if (Array.isArray(category)) return category[0]?.name ?? "";
+  return category.name;
+}
+
+function mapCategoryToSpecialty(categoryName: string): string | null {
+  const lower = categoryName.toLowerCase();
+  if (lower.includes("حريق") || lower.includes("fire")) return "fire";
+  if (lower.includes("كهرباء") || lower.includes("electric")) return "electricity";
+  if (lower.includes("تكييف") || lower.includes("ac")) return "ac";
+  if (lower.includes("مدني") || lower.includes("مدنى") || lower.includes("civil")) return "civil";
+  if (lower.includes("مطابخ") || lower.includes("kitchen")) return "kitchens";
+  return null;
+}
 
 function statusLabel(status: TicketStatus): string {
   if (status === "new") return "جديد";
@@ -55,9 +77,9 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
     setMyUserId(user.id);
 
     const filterKey = role === "supervisor" ? "assigned_supervisor_id" : "assigned_technician_id";
-    const { data, error } = await supabase
+    const { data: assignedRows, error } = await supabase
       .from("tickets")
-      .select("id, ticket_number, external_ticket_number, location, description, status, created_at, assigned_technician_id, assigned_supervisor_id")
+      .select("id, ticket_number, external_ticket_number, location, description, status, created_at, assigned_technician_id, assigned_supervisor_id, zone_id, ticket_categories(name)")
       .eq(filterKey, user.id)
       .order("created_at", { ascending: false });
 
@@ -67,7 +89,25 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       return;
     }
 
-    setTickets((data as TechnicianTicket[]) ?? []);
+    const rows = (assignedRows as TechnicianTicket[]) ?? [];
+
+    if (role === "technician") {
+      const [{ data: zoneLinks }, { data: profile }] = await Promise.all([
+        supabase.from("zone_profiles").select("zone_id").eq("profile_id", user.id),
+        supabase.from("profiles").select("specialty").eq("id", user.id).maybeSingle(),
+      ]);
+      const allowedZoneIds = new Set((zoneLinks ?? []).map((row) => row.zone_id as string));
+      const mySpecialty = (profile as MyProfile | null)?.specialty ?? null;
+      const filtered = rows.filter((ticket) => {
+        const zoneOk = ticket.zone_id ? allowedZoneIds.has(ticket.zone_id) : false;
+        const ticketSpecialty = mapCategoryToSpecialty(normalizeCategoryName(ticket.ticket_categories));
+        const specialtyOk = mySpecialty ? ticketSpecialty === mySpecialty : true;
+        return zoneOk && specialtyOk;
+      });
+      setTickets(filtered);
+    } else {
+      setTickets(rows);
+    }
     setLoading(false);
   };
 

@@ -166,7 +166,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
 
   return (
     <div className="rounded-xl border border-slate-200 p-4">
-      <h3 className="mb-3 text-sm font-semibold text-slate-900">مركز التواصل والمرفقات</h3>
+      <h3 className="mb-3 text-sm font-semibold text-slate-900">الدردشة والتوثيق</h3>
       <div className="mb-3 max-h-64 space-y-2 overflow-y-auto rounded-md bg-slate-50 p-2">
         {messages.map((msg) => (
           <div key={msg.id} className="rounded-md border border-slate-200 bg-white p-2 text-sm">
@@ -189,7 +189,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="ملاحظة أو مرفق..."
+            placeholder="رسالة ميدانية / توثيق إجراء / ملاحظة إدارة المشروع..."
             className="min-h-[72px]"
           />
           <div className="mt-2 space-y-1">

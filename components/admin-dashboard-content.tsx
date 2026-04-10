@@ -53,6 +53,7 @@ type TicketAttachmentRow = {
 };
 
 type StaffOptionRow = { staff_id: string; full_name: string };
+type AssignableProfileRow = { id: string; full_name: string; specialty?: string | null };
 
 type DetailStaffRow = {
   user_id: string;
@@ -139,6 +140,16 @@ function statusText(status: TicketStatus): string {
   return "مغلق";
 }
 
+function mapCategoryToSpecialty(categoryName: string): string | null {
+  const lower = categoryName.toLowerCase();
+  if (lower.includes("حريق") || lower.includes("fire")) return "fire";
+  if (lower.includes("كهرباء") || lower.includes("electric")) return "electricity";
+  if (lower.includes("تكييف") || lower.includes("ac")) return "ac";
+  if (lower.includes("مدني") || lower.includes("مدنى") || lower.includes("civil")) return "civil";
+  if (lower.includes("مطابخ") || lower.includes("kitchen")) return "kitchens";
+  return null;
+}
+
 function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const toRad = (value: number) => (value * Math.PI) / 180;
   const r = 6371000;
@@ -176,6 +187,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [latestChatMap, setLatestChatMap] = useState<Record<string, string>>({});
   const [lastReadMap, setLastReadMap] = useState<Record<string, string>>({});
   const [nowTs, setNowTs] = useState(() => Date.now());
+  const [myUserId, setMyUserId] = useState<string | null>(null);
 
   const zoneNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -197,6 +209,16 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   useEffect(() => {
     window.localStorage.setItem(LAST_READ_STORAGE_KEY, JSON.stringify(lastReadMap));
   }, [lastReadMap]);
+
+  useEffect(() => {
+    const loadMyUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setMyUserId(user?.id ?? null);
+    };
+    void loadMyUser();
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowTs(Date.now()), 60_000);
@@ -340,7 +362,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     setDetailModalOpen(true);
     setDetailLoading(true);
     setLastReadMap((prev) => ({ ...prev, [ticket.id]: new Date().toISOString() }));
-    const [ticketRes, attachmentsRes, staffRes, supRpc, techRpc] = await Promise.all([
+    const [ticketRes, attachmentsRes, staffRes] = await Promise.all([
       supabase
         .from("tickets")
         .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
@@ -354,8 +376,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       supabase
         .from("live_locations")
         .select("user_id, latitude, longitude, last_updated, profiles(full_name, role, availability_status)"),
-      supabase.rpc("assignable_staff_for_ticket", { p_ticket_id: ticket.id, p_target_role: "supervisor" }),
-      supabase.rpc("assignable_staff_for_ticket", { p_ticket_id: ticket.id, p_target_role: "technician" }),
     ]);
     if (ticketRes.error) {
       toast.error("تعذر تحميل تفاصيل البلاغ.");
@@ -383,14 +403,39 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       return distanceMeters(row.latitude, row.longitude, focusLat, focusLng) <= NEARBY_RADIUS_METERS;
     });
     setDetailNearbyStaff(rows);
-    if (!supRpc.error && supRpc.data) {
-      setModalSupervisorOptions((supRpc.data as StaffOptionRow[]) ?? []);
+    if (ticketData.zone_id) {
+      const ticketSpecialty = mapCategoryToSpecialty(normalizeCategoryName(ticketData.ticket_categories));
+      const { data: zoneLinks } = await supabase.from("zone_profiles").select("profile_id").eq("zone_id", ticketData.zone_id);
+      const profileIds = (zoneLinks ?? []).map((row) => row.profile_id as string);
+      if (profileIds.length > 0) {
+        const { data: supervisors } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .eq("role", "supervisor")
+          .or("availability_status.eq.available,availability_status.is.null")
+          .in("id", profileIds)
+          .order("full_name");
+        setModalSupervisorOptions(
+          ((supervisors as AssignableProfileRow[]) ?? []).map((row) => ({ staff_id: row.id, full_name: row.full_name })),
+        );
+        let techQuery = supabase
+          .from("profiles")
+          .select("id, full_name, specialty")
+          .eq("role", "technician")
+          .or("availability_status.eq.available,availability_status.is.null")
+          .in("id", profileIds)
+          .order("full_name");
+        if (ticketSpecialty) techQuery = techQuery.eq("specialty", ticketSpecialty);
+        const { data: technicians } = await techQuery;
+        setModalTechnicianOptions(
+          ((technicians as AssignableProfileRow[]) ?? []).map((row) => ({ staff_id: row.id, full_name: row.full_name })),
+        );
+      } else {
+        setModalSupervisorOptions([]);
+        setModalTechnicianOptions([]);
+      }
     } else {
       setModalSupervisorOptions([]);
-    }
-    if (!techRpc.error && techRpc.data) {
-      setModalTechnicianOptions((techRpc.data as StaffOptionRow[]) ?? []);
-    } else {
       setModalTechnicianOptions([]);
     }
     setModalSupervisorPick(ticketData.assigned_supervisor_id ?? "");
@@ -413,6 +458,16 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       toast.error(error.message);
       return;
     }
+    if (supId && myUserId) {
+      const actor = modalSupervisorOptions.find((o) => o.staff_id === myUserId)?.full_name ?? "المهندس";
+      const selectedName = modalSupervisorOptions.find((o) => o.staff_id === supId)?.full_name ?? "مراقب";
+      const nowLabel = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+      await supabase.from("ticket_messages").insert({
+        ticket_id: selectedTicket.id,
+        sender_id: myUserId,
+        content: `تكليفات: ${actor} عيّن المراقب ${selectedName} - الساعة ${nowLabel}.`,
+      });
+    }
     toast.success(supId ? "تم تعيين المشرف." : "تم إلغاء تعيين المشرف.");
     await refreshAfterDetailAction();
   };
@@ -430,6 +485,16 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     if (error) {
       toast.error(error.message);
       return;
+    }
+    if (techId && myUserId) {
+      const actor = modalSupervisorOptions.find((o) => o.staff_id === myUserId)?.full_name ?? "المشرف";
+      const selectedName = modalTechnicianOptions.find((o) => o.staff_id === techId)?.full_name ?? "فني";
+      const nowLabel = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+      await supabase.from("ticket_messages").insert({
+        ticket_id: selectedTicket.id,
+        sender_id: myUserId,
+        content: `تكليفات: ${actor} عيّن الفني ${selectedName} - الساعة ${nowLabel}.`,
+      });
     }
     toast.success(techId ? "تم تكليف الفني." : "تم إلغاء تكليف الفني.");
     await refreshAfterDetailAction();

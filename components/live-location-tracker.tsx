@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { ensureGpsPermission } from "@/lib/gps-permission";
 
 const TRACK_INTERVAL_MS = 60_000;
 
@@ -10,6 +12,32 @@ export function LiveLocationTracker() {
   const runningRef = useRef(false);
 
   useEffect(() => {
+    const requestLocationPermission = async () => {
+      const permission = await ensureGpsPermission();
+      if (permission === "unsupported") return;
+      if (permission === "insecure") {
+        toast.error("تتبع الموقع يعمل فقط عبر HTTPS في الإنتاج.");
+        return;
+      }
+      try {
+        if (permission === "denied") {
+          toast.error("صلاحية الموقع مرفوضة. فعّل الموقع دائماً من إعدادات المتصفح/الجهاز.");
+          return;
+        }
+        if (permission === "prompt") {
+          await new Promise<void>((resolve) => {
+            navigator.geolocation.getCurrentPosition(
+              () => resolve(),
+              () => resolve(),
+              { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
+            );
+          });
+        }
+      } catch {
+        // Ignore permission API errors.
+      }
+    };
+
     const trackLocation = async () => {
       if (runningRef.current) return;
       runningRef.current = true;
@@ -27,7 +55,8 @@ export function LiveLocationTracker() {
         const role = profile?.role as string | undefined;
         if (!role || !["technician", "supervisor", "engineer"].includes(role)) return;
 
-        if (!navigator.geolocation) return;
+        const permission = await ensureGpsPermission();
+        if (permission === "unsupported" || permission === "insecure" || permission === "denied") return;
         const position = await new Promise<GeolocationPosition>((resolve, reject) =>
           navigator.geolocation.getCurrentPosition(resolve, reject, {
             enableHighAccuracy: true,
@@ -56,6 +85,7 @@ export function LiveLocationTracker() {
       }
     };
 
+    void requestLocationPermission();
     void trackLocation();
     timerRef.current = window.setInterval(() => {
       void trackLocation();

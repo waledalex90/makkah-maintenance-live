@@ -17,6 +17,12 @@ type ChatMessage = {
   created_at: string;
 };
 
+type ProfileLite = {
+  id: string;
+  full_name: string;
+  role: string | null;
+};
+
 type TicketChatPanelProps = {
   ticketId: string;
   canPost: boolean;
@@ -27,10 +33,12 @@ type TicketChatPanelProps = {
 export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTicketRead }: TicketChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [senderNameMap, setSenderNameMap] = useState<Record<string, string>>({});
+  const [senderRoleMap, setSenderRoleMap] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingAudio, setUploadingAudio] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [attachmentImageFile, setAttachmentImageFile] = useState<File | null>(null);
   const [attachmentAudioFile, setAttachmentAudioFile] = useState<File | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
@@ -52,6 +60,18 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
       useWebWorker: true,
       initialQuality: 0.8,
     });
+  };
+
+  const roleLabel = (role: string | null | undefined) => {
+    if (!role) return "غير محدد";
+    if (role === "admin") return "مدير النظام";
+    if (role === "projects_director") return "مدير المشاريع";
+    if (role === "project_manager") return "مدير مشروع";
+    if (role === "engineer") return "مهندس";
+    if (role === "supervisor") return "مشرف";
+    if (role === "technician") return "فني";
+    if (role === "reporter") return "مدخل بيانات";
+    return role;
   };
 
   const loadMessages = async () => {
@@ -79,12 +99,15 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
     const senderIds = Array.from(new Set(chatRows.map((row) => row.sender_id)));
     if (senderIds.length === 0) return;
 
-    const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", senderIds);
+    const { data: profiles } = await supabase.from("profiles").select("id, full_name, role").in("id", senderIds);
     const map: Record<string, string> = {};
-    (profiles ?? []).forEach((p) => {
+    const roleMap: Record<string, string> = {};
+    ((profiles as ProfileLite[]) ?? []).forEach((p) => {
       map[p.id] = p.full_name;
+      roleMap[p.id] = roleLabel(p.role);
     });
     setSenderNameMap(map);
+    setSenderRoleMap(roleMap);
   };
 
   useEffect(() => {
@@ -112,10 +135,11 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resubscribe on ticketId only; loadMessages closes over ticketId
   }, [ticketId, onTicketUpdated]);
 
-  const sendMessage = async () => {
+  const sendMessage = async (imageFileOverride?: File | null) => {
     if (!canPost) return;
     const content = draft.trim();
-    if (!content && !attachmentImageFile && !attachmentAudioFile) return;
+    const chosenImageFile = imageFileOverride ?? attachmentImageFile;
+    if (!content && !chosenImageFile && !attachmentAudioFile) return;
 
     const {
       data: { user },
@@ -130,22 +154,30 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
     let imageUrl: string | null = null;
     let audioUrl: string | null = null;
 
-    if (attachmentImageFile) {
+    if (chosenImageFile) {
       setUploadingImage(true);
-      const compressedImage = await compressImage(attachmentImageFile);
+      setUploadProgress(8);
+      const compressedImage = await compressImage(chosenImageFile);
+      setUploadProgress(20);
+      const progressTicker = window.setInterval(() => {
+        setUploadProgress((prev) => (prev >= 90 ? 90 : prev + 8));
+      }, 220);
       const ext = compressedImage.name.split(".").pop() ?? "jpg";
       const filePath = `${ticketId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from("ticket-message-attachments")
         .upload(filePath, compressedImage, { upsert: false });
+      window.clearInterval(progressTicker);
       setUploadingImage(false);
       if (uploadError) {
+        setUploadProgress(0);
         toast.error("فشل رفع الصورة.");
         setSending(false);
         return;
       }
       const { data: publicData } = supabase.storage.from("ticket-message-attachments").getPublicUrl(filePath);
       imageUrl = publicData.publicUrl;
+      setUploadProgress(100);
     }
 
     if (attachmentAudioFile) {
@@ -165,6 +197,10 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
       audioUrl = publicAudioData.publicUrl;
     }
 
+    const { data: myProfile } = await supabase.from("profiles").select("full_name, role").eq("id", user.id).single();
+    const senderLabel = (myProfile as { full_name?: string; role?: string | null } | null)?.full_name ?? "المستخدم";
+    const senderRole = roleLabel((myProfile as { role?: string | null } | null)?.role);
+
     const { error } = await supabase.from("ticket_messages").insert({
       ticket_id: ticketId,
       sender_id: user.id,
@@ -182,8 +218,18 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
     setDraft("");
     setAttachmentImageFile(null);
     setAttachmentAudioFile(null);
+    setUploadProgress(0);
     setSending(false);
     void loadMessages();
+    if (imageUrl) {
+      toast.success(`تم رفع الصورة بواسطة: ${senderLabel} - ${senderRole}`);
+    }
+  };
+
+  const onImageSelected = (file: File | null) => {
+    if (!file) return;
+    setAttachmentImageFile(file);
+    void sendMessage(file);
   };
 
   return (
@@ -202,9 +248,14 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
               <p className="text-[11px] text-slate-500">{senderNameMap[msg.sender_id] ?? msg.sender_id.slice(0, 8)}</p>
               <p className="mt-1 whitespace-pre-wrap">{msg.content}</p>
             {msg.image_url ? (
-              <a href={msg.image_url} target="_blank" rel="noreferrer" className="mt-2 block">
-                <img src={msg.image_url} alt="" className="max-h-40 rounded-md border border-slate-200" />
-              </a>
+              <>
+                <a href={msg.image_url} target="_blank" rel="noreferrer" className="mt-2 block">
+                  <img src={msg.image_url} alt="" className="max-h-40 rounded-md border border-slate-200" />
+                </a>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  بواسطة: {senderNameMap[msg.sender_id] ?? msg.sender_id.slice(0, 8)} - {senderRoleMap[msg.sender_id] ?? "غير محدد"}
+                </p>
+              </>
             ) : null}
             {msg.audio_url ? <audio className="mt-2 w-full" controls preload="none" src={msg.audio_url} /> : null}
               <p className="mt-1 text-[11px] text-slate-500">{new Date(msg.created_at).toLocaleTimeString("ar-SA")}</p>
@@ -225,7 +276,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
             <input
               type="file"
               accept="image/*"
-              onChange={(e) => setAttachmentImageFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => onImageSelected(e.target.files?.[0] ?? null)}
               className="block w-full text-xs"
             />
             <input
@@ -235,6 +286,17 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
               className="block w-full text-xs"
             />
           </div>
+          {uploadingImage ? (
+            <div className="mt-2">
+              <div className="mb-1 text-xs text-slate-500">جاري رفع الصورة... {uploadProgress}%</div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-all duration-200"
+                  style={{ width: `${Math.max(6, uploadProgress)}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
           <Button className="mt-2 w-full" onClick={() => void sendMessage()} disabled={sending || uploadingImage || uploadingAudio}>
             {sending ? "جاري الإرسال..." : "إرسال"}
           </Button>

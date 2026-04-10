@@ -625,7 +625,6 @@ export function TicketDetailDrawer({
                       ref={fixedUploadInputRef}
                       type="file"
                       accept="image/*"
-                      capture="environment"
                       className="hidden"
                       onChange={(e) => void onFixedImageSelected(e.target.files?.[0] ?? null)}
                     />

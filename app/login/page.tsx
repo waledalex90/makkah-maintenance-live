@@ -122,7 +122,7 @@ export default function LoginPage() {
               className="h-20 w-auto object-contain"
             />
           </div>
-          <CardTitle>Operations Center Login</CardTitle>
+          <CardTitle>بوابة عمليات عزام الشريف</CardTitle>
           <CardDescription>Sign in with your work account.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -151,7 +151,7 @@ export default function LoginPage() {
 
             {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-            <Button type="submit" className="w-full bg-green-700 hover:bg-green-800" disabled={loading}>
+            <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" disabled={loading}>
               {loading ? "Signing in..." : "Sign in"}
             </Button>
           </form>

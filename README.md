@@ -41,7 +41,7 @@ Run migrations in order:
 
 Create bucket:
 
-- `ticket-message-attachments`
+- `tickets`
 
 Recommended:
 

@@ -165,7 +165,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
       const ext = compressedImage.name.split(".").pop() ?? "jpg";
       const filePath = `${ticketId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error: uploadError } = await supabase.storage
-        .from("ticket-message-attachments")
+        .from("tickets")
         .upload(filePath, compressedImage, { upsert: false });
       window.clearInterval(progressTicker);
       setUploadingImage(false);
@@ -175,7 +175,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
         setSending(false);
         return;
       }
-      const { data: publicData } = supabase.storage.from("ticket-message-attachments").getPublicUrl(filePath);
+      const { data: publicData } = supabase.storage.from("tickets").getPublicUrl(filePath);
       imageUrl = publicData.publicUrl;
       setUploadProgress(100);
     }
@@ -185,7 +185,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
       const ext = attachmentAudioFile.name.split(".").pop() ?? "webm";
       const filePath = `${ticketId}/voice-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error: uploadAudioError } = await supabase.storage
-        .from("ticket-message-attachments")
+        .from("tickets")
         .upload(filePath, attachmentAudioFile, { upsert: false });
       setUploadingAudio(false);
       if (uploadAudioError) {
@@ -193,7 +193,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
         setSending(false);
         return;
       }
-      const { data: publicAudioData } = supabase.storage.from("ticket-message-attachments").getPublicUrl(filePath);
+      const { data: publicAudioData } = supabase.storage.from("tickets").getPublicUrl(filePath);
       audioUrl = publicAudioData.publicUrl;
     }
 

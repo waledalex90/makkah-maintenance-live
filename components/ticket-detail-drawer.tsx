@@ -428,14 +428,14 @@ export function TicketDetailDrawer({
     const ext = compressedImage.name.split(".").pop() ?? "jpg";
     const filePath = `tickets/${ticketId}/after-fix-${Date.now()}.${ext}`;
     const { error: uploadError } = await supabase.storage
-      .from("ticket-attachments")
+      .from("tickets")
       .upload(filePath, compressedImage, { upsert: false });
     if (uploadError) {
       toast.error(uploadError.message);
       setActingField(false);
       return;
     }
-    const { data: publicData } = supabase.storage.from("ticket-attachments").getPublicUrl(filePath);
+    const { data: publicData } = supabase.storage.from("tickets").getPublicUrl(filePath);
     await supabase.from("ticket_attachments").insert({
       ticket_id: ticketId,
       uploaded_by: myUserId,

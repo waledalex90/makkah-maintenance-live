@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,15 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const [attachmentImageFile, setAttachmentImageFile] = useState<File | null>(null);
   const [attachmentAudioFile, setAttachmentAudioFile] = useState<File | null>(null);
+
+  const compressImage = async (file: File) => {
+    return imageCompression(file, {
+      maxSizeMB: 1,
+      maxWidthOrHeight: 1600,
+      useWebWorker: true,
+      initialQuality: 0.8,
+    });
+  };
 
   const loadMessages = async () => {
     const { data, error } = await supabase
@@ -111,11 +121,12 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
 
     if (attachmentImageFile) {
       setUploadingImage(true);
-      const ext = attachmentImageFile.name.split(".").pop() ?? "jpg";
+      const compressedImage = await compressImage(attachmentImageFile);
+      const ext = compressedImage.name.split(".").pop() ?? "jpg";
       const filePath = `${ticketId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from("ticket-message-attachments")
-        .upload(filePath, attachmentImageFile, { upsert: false });
+        .upload(filePath, compressedImage, { upsert: false });
       setUploadingImage(false);
       if (uploadError) {
         toast.error("فشل رفع الصورة.");

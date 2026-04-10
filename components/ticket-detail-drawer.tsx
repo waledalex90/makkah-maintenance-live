@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -402,11 +403,17 @@ export function TicketDetailDrawer({
   const onFixedImageSelected = async (file: File | null) => {
     if (!file || !ticketId || !myUserId) return;
     setActingField(true);
-    const ext = file.name.split(".").pop() ?? "jpg";
+    const compressedImage = await imageCompression(file, {
+      maxSizeMB: 1,
+      maxWidthOrHeight: 1600,
+      useWebWorker: true,
+      initialQuality: 0.8,
+    });
+    const ext = compressedImage.name.split(".").pop() ?? "jpg";
     const filePath = `tickets/${ticketId}/after-fix-${Date.now()}.${ext}`;
     const { error: uploadError } = await supabase.storage
       .from("ticket-attachments")
-      .upload(filePath, file, { upsert: false });
+      .upload(filePath, compressedImage, { upsert: false });
     if (uploadError) {
       toast.error(uploadError.message);
       setActingField(false);

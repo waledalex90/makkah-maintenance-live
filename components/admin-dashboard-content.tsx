@@ -406,40 +406,67 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       return distanceMeters(row.latitude, row.longitude, focusLat, focusLng) <= NEARBY_RADIUS_METERS;
     });
     setDetailNearbyStaff(rows);
-    if (ticketData.zone_id) {
-      const ticketSpecialty = mapCategoryToSpecialty(normalizeCategoryName(ticketData.ticket_categories));
-      const { data: zoneLinks } = await supabase.from("zone_profiles").select("profile_id").eq("zone_id", ticketData.zone_id);
-      const profileIds = (zoneLinks ?? []).map((row) => row.profile_id as string);
-      if (profileIds.length > 0) {
-        const { data: supervisors } = await supabase
-          .from("profiles")
-          .select("id, full_name")
-          .eq("role", "supervisor")
-          .or("availability_status.eq.available,availability_status.is.null")
-          .in("id", profileIds)
-          .order("full_name");
+    const isTopLevel = role === "admin" || role === "projects_director";
+    const isProjectManager = role === "project_manager";
+    const ticketSpecialty = mapCategoryToSpecialty(normalizeCategoryName(ticketData.ticket_categories));
+
+    let profileIds: string[] = [];
+    if (!isTopLevel && !isProjectManager) {
+      if (!ticketData.zone_id) {
+        setModalSupervisorOptions([]);
+        setModalTechnicianOptions([]);
+      } else {
+        const { data: zoneLinks } = await supabase.from("zone_profiles").select("profile_id").eq("zone_id", ticketData.zone_id);
+        profileIds = (zoneLinks ?? []).map((row) => row.profile_id as string);
+      }
+    }
+
+    let supervisorsQuery = supabase
+      .from("profiles")
+      .select("id, full_name")
+      .eq("role", "supervisor")
+      .or("availability_status.eq.available,availability_status.is.null")
+      .order("full_name");
+    if (!isTopLevel && !isProjectManager) {
+      if (profileIds.length === 0) {
+        setModalSupervisorOptions([]);
+      } else {
+        supervisorsQuery = supervisorsQuery.in("id", profileIds);
+        const { data: supervisors } = await supervisorsQuery;
         setModalSupervisorOptions(
           ((supervisors as AssignableProfileRow[]) ?? []).map((row) => ({ staff_id: row.id, full_name: row.full_name })),
         );
-        let techQuery = supabase
-          .from("profiles")
-          .select("id, full_name, specialty")
-          .eq("role", "technician")
-          .or("availability_status.eq.available,availability_status.is.null")
-          .in("id", profileIds)
-          .order("full_name");
+      }
+    } else {
+      const { data: supervisors } = await supervisorsQuery;
+      setModalSupervisorOptions(
+        ((supervisors as AssignableProfileRow[]) ?? []).map((row) => ({ staff_id: row.id, full_name: row.full_name })),
+      );
+    }
+
+    let techQuery = supabase
+      .from("profiles")
+      .select("id, full_name, specialty")
+      .eq("role", "technician")
+      .or("availability_status.eq.available,availability_status.is.null")
+      .order("full_name");
+    if (!isTopLevel && !isProjectManager) {
+      if (profileIds.length === 0) {
+        setModalTechnicianOptions([]);
+      } else {
+        techQuery = techQuery.in("id", profileIds);
         if (ticketSpecialty) techQuery = techQuery.eq("specialty", ticketSpecialty);
         const { data: technicians } = await techQuery;
         setModalTechnicianOptions(
           ((technicians as AssignableProfileRow[]) ?? []).map((row) => ({ staff_id: row.id, full_name: row.full_name })),
         );
-      } else {
-        setModalSupervisorOptions([]);
-        setModalTechnicianOptions([]);
       }
     } else {
-      setModalSupervisorOptions([]);
-      setModalTechnicianOptions([]);
+      if (ticketSpecialty) techQuery = techQuery.eq("specialty", ticketSpecialty);
+      const { data: technicians } = await techQuery;
+      setModalTechnicianOptions(
+        ((technicians as AssignableProfileRow[]) ?? []).map((row) => ({ staff_id: row.id, full_name: row.full_name })),
+      );
     }
     setModalSupervisorPick(ticketData.assigned_supervisor_id ?? "");
     setModalTechnicianPick(ticketData.assigned_technician_id ?? "");
@@ -610,7 +637,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   }, [zones]);
 
   const canSetSupervisorInModal = ["engineer", "admin", "project_manager", "projects_director"].includes(role);
-  const canSetTechnicianInModal = ["admin", "project_manager", "projects_director"].includes(role);
+  const canSetTechnicianInModal = ["admin", "project_manager", "projects_director", "supervisor"].includes(role);
   const canPostChatInModal = [
     "engineer",
     "supervisor",

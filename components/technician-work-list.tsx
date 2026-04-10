@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type TouchEventHandler } from "react";
+import { useEffect, useMemo, useRef, useState, type TouchEventHandler } from "react";
+import { Howl } from "howler";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
@@ -72,6 +73,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
   const [pullStartY, setPullStartY] = useState<number | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
   const [pullRefreshing, setPullRefreshing] = useState(false);
+  const alarmRef = useRef<Howl | null>(null);
 
   const loadTickets = async () => {
     const {
@@ -184,7 +186,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                   title: row.title,
                   options: {
                     body: row.body,
-                    data: { url: "/tasks/my-work" },
+                    data: { url: `/dashboard/tickets?ticketId=${row.ticket_id}`, ticketId: row.ticket_id },
                   },
                 });
               }
@@ -207,6 +209,46 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
     }
   }, []);
 
+  const shouldPlayAlarm = useMemo(() => {
+    if (role === "technician") {
+      return tickets.some((ticket) => {
+        if (ticket.status === "fixed") return false;
+        if (!ticket.assigned_technician_id) return ticket.status === "new";
+        return ticket.assigned_technician_id === myUserId && ticket.status === "assigned";
+      });
+    }
+    return tickets.some((ticket) => ticket.status === "new");
+  }, [tickets, role, myUserId]);
+
+  useEffect(() => {
+    if (shouldPlayAlarm) {
+      if (!alarmRef.current) {
+        alarmRef.current = new Howl({
+          src: ["/sounds/alarm.mp3"],
+          loop: true,
+          volume: 1,
+        });
+      }
+      if (!alarmRef.current.playing()) {
+        alarmRef.current.play();
+      }
+      return;
+    }
+    if (alarmRef.current?.playing()) {
+      alarmRef.current.stop();
+    }
+  }, [shouldPlayAlarm]);
+
+  useEffect(() => {
+    return () => {
+      if (alarmRef.current) {
+        alarmRef.current.stop();
+        alarmRef.current.unload();
+        alarmRef.current = null;
+      }
+    };
+  }, []);
+
   const claimTicket = async (ticketId: string) => {
     const res = await fetch(`/api/tasks/zone-tickets/${ticketId}/claim`, {
       method: "PATCH",
@@ -217,6 +259,19 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       return;
     }
     toast.success("تم قبول البلاغ وتحويله لك.");
+    await loadTickets();
+  };
+
+  const acceptTicket = async (ticketId: string) => {
+    const res = await fetch(`/api/tasks/zone-tickets/${ticketId}/accept`, {
+      method: "PATCH",
+    });
+    const payload = (await res.json()) as { ok?: boolean; error?: string };
+    if (!res.ok || !payload.ok) {
+      toast.error(payload.error ?? "تعذر قبول المهمة.");
+      return;
+    }
+    toast.success("تم قبول المهمة وبدء التنفيذ.");
     await loadTickets();
   };
 
@@ -295,6 +350,15 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                       onClick={() => void claimTicket(ticket.id)}
                     >
                       قبول البلاغ
+                    </button>
+                  ) : null}
+                  {role === "technician" && ticket.assigned_technician_id === myUserId && ticket.status === "assigned" ? (
+                    <button
+                      type="button"
+                      className="mt-2 min-h-11 rounded-md bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-700"
+                      onClick={() => void acceptTicket(ticket.id)}
+                    >
+                      قبول المهمة
                     </button>
                   ) : null}
                 </div>

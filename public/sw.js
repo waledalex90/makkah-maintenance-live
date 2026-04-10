@@ -43,9 +43,34 @@ self.addEventListener("message", (event) => {
   }
 });
 
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { title: "بلاغ جديد", body: event.data?.text?.() ?? "تم استلام إشعار جديد." };
+  }
+
+  const data = payload && typeof payload === "object" ? payload : {};
+  const title = data.title || "بلاغ جديد";
+  const body = data.body || "يوجد بلاغ جديد في منطقتك.";
+  const ticketId = data.ticketId || data.ticket_id || "";
+  const url = data.url || (ticketId ? `/dashboard/tickets?ticketId=${ticketId}` : "/dashboard/tickets");
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      tag: `ticket-${ticketId || Date.now()}`,
+      renotify: true,
+      requireInteraction: true,
+      data: { url, ticketId },
+    }),
+  );
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = event.notification?.data?.url || "/tasks/my-work";
+  const targetUrl = event.notification?.data?.url || "/dashboard/tickets";
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
       const existing = windowClients.find((client) => "focus" in client);

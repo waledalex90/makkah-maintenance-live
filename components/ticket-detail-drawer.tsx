@@ -136,27 +136,41 @@ export function TicketDetailDrawer({
   }, []);
 
   const loadAssignable = async () => {
-    if (!ticketId || !ticket?.zone_id) {
+    if (!ticketId) {
       setSupervisorOptions([]);
       setTechnicianOptions([]);
       return;
     }
     const ticketSpecialty = mapCategoryToSpecialty(categoryLabel(ticket.ticket_categories));
-    const { data: zoneLinks } = await supabase.from("zone_profiles").select("profile_id").eq("zone_id", ticket.zone_id);
-    const profileIds = (zoneLinks ?? []).map((row) => row.profile_id as string);
-    if (profileIds.length === 0) {
-      setSupervisorOptions([]);
-      setTechnicianOptions([]);
-      return;
+    const isTopLevel = myRole === "admin" || myRole === "projects_director";
+    const isProjectManager = myRole === "project_manager";
+
+    let profileIds: string[] = [];
+    if (!isTopLevel && !isProjectManager) {
+      if (!ticket?.zone_id) {
+        setSupervisorOptions([]);
+        setTechnicianOptions([]);
+        return;
+      }
+      const { data: zoneLinks } = await supabase.from("zone_profiles").select("profile_id").eq("zone_id", ticket.zone_id);
+      profileIds = (zoneLinks ?? []).map((row) => row.profile_id as string);
+      if (profileIds.length === 0) {
+        setSupervisorOptions([]);
+        setTechnicianOptions([]);
+        return;
+      }
     }
 
-    const { data: supervisors } = await supabase
+    let supervisorsQuery = supabase
       .from("profiles")
       .select("id, full_name")
       .eq("role", "supervisor")
       .or("availability_status.eq.available,availability_status.is.null")
-      .in("id", profileIds)
       .order("full_name");
+    if (!isTopLevel && !isProjectManager) {
+      supervisorsQuery = supervisorsQuery.in("id", profileIds);
+    }
+    const { data: supervisors } = await supervisorsQuery;
     setSupervisorOptions(
       ((supervisors as ProfileOptionRow[]) ?? []).map((row) => ({
         staff_id: row.id,
@@ -169,8 +183,10 @@ export function TicketDetailDrawer({
       .select("id, full_name, specialty")
       .eq("role", "technician")
       .or("availability_status.eq.available,availability_status.is.null")
-      .in("id", profileIds)
       .order("full_name");
+    if (!isTopLevel && !isProjectManager) {
+      techniciansQuery = techniciansQuery.in("id", profileIds);
+    }
     if (ticketSpecialty) {
       techniciansQuery = techniciansQuery.eq("specialty", ticketSpecialty);
     }

@@ -1,10 +1,7 @@
-const CACHE_NAME = "makkah-ops-v1";
-const APP_SHELL = ["/", "/manifest.webmanifest"];
+const CACHE_NAME = "makkah-ops-v2";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()),
-  );
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
@@ -23,16 +20,37 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  const isStaticAsset =
+    event.request.destination === "script" ||
+    event.request.destination === "style" ||
+    event.request.destination === "image" ||
+    event.request.destination === "font";
+
+  // Avoid aggressive force-cache behavior; prefer network for navigations and API.
+  if (event.request.mode === "navigate" || !isStaticAsset) {
+    event.respondWith(
+      fetch(event.request).catch(async () => {
+        const cached = await caches.match(event.request);
+        return cached || Response.error();
+      }),
+    );
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
+    caches.match(event.request).then(async (cachedResponse) => {
       if (cachedResponse) return cachedResponse;
-      return fetch(event.request).then((networkResponse) => {
-        const copy = networkResponse.clone();
-        if (event.request.url.startsWith(self.location.origin)) {
+      return fetch(event.request)
+        .then((networkResponse) => {
+          const copy = networkResponse.clone();
           void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        }
-        return networkResponse;
-      });
+          return networkResponse;
+        })
+        .catch(() => Response.error());
     }),
   );
 });

@@ -24,14 +24,10 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-self.addEventListener("fetch", (event) => {
-  // Explicit offline fallback fetch handler for PWA scanners.
+self.addEventListener("fetch", function (event) {
   event.respondWith(
-    fetch(event.request).catch(async () => {
-      const cached = await caches.match(event.request);
-      if (cached) return cached;
-      const rootFallback = await caches.match("/");
-      return rootFallback || Response.error();
+    fetch(event.request).catch(function () {
+      return caches.match(event.request);
     }),
   );
 });

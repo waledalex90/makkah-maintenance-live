@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type TouchEventHandler } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -654,19 +654,19 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     toast.success("تم تحديث البيانات.");
   };
 
-  const handleTouchStart = (event: { touches: Array<{ clientY: number }> }) => {
+  const handleTouchStart: TouchEventHandler<HTMLDivElement> = (event) => {
     if (window.scrollY > 0) return;
     setPullStartY(event.touches[0]?.clientY ?? null);
   };
 
-  const handleTouchMove = (event: { touches: Array<{ clientY: number }> }) => {
+  const handleTouchMove: TouchEventHandler<HTMLDivElement> = (event) => {
     if (pullStartY === null || pullRefreshing) return;
     const currentY = event.touches[0]?.clientY ?? pullStartY;
     const delta = Math.max(0, currentY - pullStartY);
     setPullDistance(Math.min(100, delta));
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd: TouchEventHandler<HTMLDivElement> = () => {
     const shouldRefresh = pullDistance >= 70;
     setPullStartY(null);
     setPullDistance(0);

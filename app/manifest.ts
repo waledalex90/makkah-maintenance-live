@@ -6,11 +6,13 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "عزام",
     description: "نظام عزام لإدارة البلاغات والصيانة الميدانية",
     id: "/?source=pwa",
-    categories: ["business", "productivity", "utilities"],
-    start_url: "/",
+    categories: ["business", "productivity"],
+    start_url: "/?source=pwa",
     scope: "/",
     display: "standalone",
     display_override: ["standalone", "minimal-ui"],
+    handle_links: "auto",
+    launch_handler: { client_mode: "navigate-existing" },
     orientation: "portrait",
     iarc_rating_id: "e9227092-2374-42f2-9599-f416629994c6",
     related_applications: [],
@@ -79,5 +81,7 @@ export default function manifest(): MetadataRoute.Manifest {
     display_override: string[];
     iarc_rating_id: string;
     related_applications: [];
+    handle_links: "auto";
+    launch_handler: { client_mode: "navigate-existing" };
   };
 }

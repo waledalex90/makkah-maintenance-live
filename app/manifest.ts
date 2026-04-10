@@ -10,7 +10,10 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     scope: "/",
     display: "standalone",
+    display_override: ["standalone", "minimal-ui"],
     orientation: "portrait",
+    iarc_rating_id: "e9227092-2374-42f2-9599-f416629994c6",
+    related_applications: [],
     background_color: "#16a34a",
     theme_color: "#16a34a",
     lang: "ar",
@@ -72,5 +75,9 @@ export default function manifest(): MetadataRoute.Manifest {
         url: "/dashboard",
       },
     ],
+  } as MetadataRoute.Manifest & {
+    display_override: string[];
+    iarc_rating_id: string;
+    related_applications: [];
   };
 }

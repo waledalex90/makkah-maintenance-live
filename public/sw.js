@@ -1,7 +1,13 @@
 const CACHE_NAME = "makkah-ops-v2";
+const APP_SHELL = ["/", "/dashboard", "/dashboard/tickets", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(self.skipWaiting());
+  event.waitUntil(
+    caches
+      .open(CACHE_NAME)
+      .then((cache) => cache.addAll(APP_SHELL))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener("activate", (event) => {
@@ -30,13 +36,24 @@ self.addEventListener("fetch", (event) => {
     event.request.destination === "image" ||
     event.request.destination === "font";
 
-  // Avoid aggressive force-cache behavior; prefer network for navigations and API.
+  // Avoid aggressive force-cache behavior; prefer network for navigations and API,
+  // but fallback to cached data when offline.
   if (event.request.mode === "navigate" || !isStaticAsset) {
     event.respondWith(
-      fetch(event.request).catch(async () => {
-        const cached = await caches.match(event.request);
-        return cached || Response.error();
-      }),
+      fetch(event.request)
+        .then((networkResponse) => {
+          const copy = networkResponse.clone();
+          void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          return networkResponse;
+        })
+        .catch(async () => {
+          const cached = await caches.match(event.request);
+          if (cached) return cached;
+          const dashboardFallback = await caches.match("/dashboard");
+          if (dashboardFallback) return dashboardFallback;
+          const rootFallback = await caches.match("/");
+          return rootFallback || Response.error();
+        }),
     );
     return;
   }
@@ -53,4 +70,10 @@ self.addEventListener("fetch", (event) => {
         .catch(() => Response.error());
     }),
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    void self.skipWaiting();
+  }
 });

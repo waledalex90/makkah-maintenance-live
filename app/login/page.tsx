@@ -112,7 +112,7 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
+    <main className="relative flex min-h-screen items-center justify-center bg-slate-100 p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
           <div className="mb-3 flex justify-center">
@@ -151,12 +151,13 @@ export default function LoginPage() {
 
             {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full bg-green-700 hover:bg-green-800" disabled={loading}>
               {loading ? "Signing in..." : "Sign in"}
             </Button>
           </form>
         </CardContent>
       </Card>
+      <p className="absolute bottom-3 text-[10px] text-slate-500">v1.0.5 - Azzam Live</p>
     </main>
   );
 }

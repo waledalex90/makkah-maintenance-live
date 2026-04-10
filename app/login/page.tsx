@@ -13,7 +13,9 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetSending, setResetSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
 
   const logAuthError = async (context: string, details: unknown) => {
     console.error(context, details);
@@ -111,6 +113,24 @@ export default function LoginPage() {
     }
   };
 
+  const onForgotPassword = async () => {
+    if (!email.trim()) {
+      setError("أدخل البريد الإلكتروني أولاً لإرسال رابط إعادة التعيين.");
+      return;
+    }
+    setResetSending(true);
+    setError(null);
+    setResetMessage(null);
+    const redirectTo = `${window.location.origin}/update-password`;
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+    setResetSending(false);
+    if (resetError) {
+      setError(resetError.message);
+      return;
+    }
+    setResetMessage("تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.");
+  };
+
   return (
     <main className="relative flex min-h-screen items-center justify-center bg-slate-100 p-4">
       <Card className="w-full max-w-md">
@@ -150,6 +170,16 @@ export default function LoginPage() {
             </div>
 
             {error ? <p className="text-sm text-red-600">{error}</p> : null}
+            {resetMessage ? <p className="text-sm text-green-700">{resetMessage}</p> : null}
+
+            <button
+              type="button"
+              className="text-sm font-medium text-green-700 hover:underline disabled:opacity-60"
+              onClick={() => void onForgotPassword()}
+              disabled={resetSending}
+            >
+              {resetSending ? "جاري إرسال الرابط..." : "نسيت كلمة المرور؟"}
+            </button>
 
             <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" disabled={loading}>
               {loading ? "Signing in..." : "Sign in"}

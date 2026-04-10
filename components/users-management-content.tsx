@@ -67,6 +67,10 @@ export function UsersManagementContent() {
   const [inviteZoneIds, setInviteZoneIds] = useState<string[]>([]);
   const [zoneDropdownOpen, setZoneDropdownOpen] = useState(false);
   const [inviteRole, setInviteRole] = useState<UserRole>("technician");
+  const [passwordModalUser, setPasswordModalUser] = useState<UserRow | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [inviteErrors, setInviteErrors] = useState<{
     full_name?: string;
     email?: string;
@@ -207,6 +211,41 @@ export function UsersManagementContent() {
     setZonesLoading(false);
   };
 
+  const openPasswordModal = (user: UserRow) => {
+    setPasswordModalUser(user);
+    setNewPassword("");
+    setPasswordError(null);
+  };
+
+  const closePasswordModal = () => {
+    setPasswordModalUser(null);
+    setNewPassword("");
+    setPasswordError(null);
+  };
+
+  const saveUserPassword = async () => {
+    if (!passwordModalUser) return;
+    if (newPassword.trim().length < 8) {
+      setPasswordError("كلمة المرور يجب أن تكون 8 أحرف على الأقل.");
+      return;
+    }
+    setPasswordSaving(true);
+    setPasswordError(null);
+    const res = await fetch(`/api/admin/users/${passwordModalUser.id}/password`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: newPassword.trim() }),
+    });
+    const data = (await res.json()) as { ok?: boolean; error?: string };
+    setPasswordSaving(false);
+    if (!res.ok || !data.ok) {
+      setPasswordError(data.error ?? "فشل تغيير كلمة المرور.");
+      return;
+    }
+    toast.success("تم تغيير كلمة المرور بنجاح.");
+    closePasswordModal();
+  };
+
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" dir="rtl" lang="ar">
       <div className="mb-4 flex items-center justify-between">
@@ -278,6 +317,12 @@ export function UsersManagementContent() {
                         disabled={savingUserId === user.id || (draftRoleMap[user.id] ?? user.role) === user.role}
                       >
                         {savingUserId === user.id ? "جاري الحفظ..." : "حفظ"}
+                      </button>
+                      <button
+                        className="rounded-md border border-emerald-200 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50"
+                        onClick={() => openPasswordModal(user)}
+                      >
+                        تغيير الباسورد
                       </button>
                     </div>
                   </td>
@@ -447,6 +492,46 @@ export function UsersManagementContent() {
                 disabled={inviting}
               >
                 {inviting ? "جاري الإرسال..." : "إرسال الدعوة"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {passwordModalUser ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closePasswordModal}>
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">تغيير الباسورد</h3>
+              <button
+                className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                onClick={closePasswordModal}
+              >
+                X
+              </button>
+            </div>
+            <p className="mb-2 text-sm text-slate-600">المستخدم: {passwordModalUser.full_name}</p>
+            <Input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="أدخل كلمة المرور الجديدة"
+            />
+            {passwordError ? <p className="mt-2 text-xs text-red-600">{passwordError}</p> : null}
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                className="rounded-md border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                onClick={closePasswordModal}
+                disabled={passwordSaving}
+              >
+                إلغاء
+              </button>
+              <button
+                className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => void saveUserPassword()}
+                disabled={passwordSaving}
+              >
+                {passwordSaving ? "جاري الحفظ..." : "حفظ كلمة المرور"}
               </button>
             </div>
           </div>

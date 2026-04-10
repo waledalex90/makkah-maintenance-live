@@ -62,6 +62,9 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
   const drawerTicketIdRef = useRef<string | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pullStartY, setPullStartY] = useState<number | null>(null);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
 
   const loadTickets = async () => {
     const {
@@ -179,8 +182,49 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
     };
   }, [myUserId, role]);
 
+  const refreshByPull = async () => {
+    if (pullRefreshing) return;
+    setPullRefreshing(true);
+    await loadTickets();
+    setPullRefreshing(false);
+    toast.success("تم تحديث المهام.");
+  };
+
+  const handleTouchStart = (event: { touches: Array<{ clientY: number }> }) => {
+    if (window.scrollY > 0) return;
+    setPullStartY(event.touches[0]?.clientY ?? null);
+  };
+
+  const handleTouchMove = (event: { touches: Array<{ clientY: number }> }) => {
+    if (pullStartY === null || pullRefreshing) return;
+    const currentY = event.touches[0]?.clientY ?? pullStartY;
+    const delta = Math.max(0, currentY - pullStartY);
+    setPullDistance(Math.min(100, delta));
+  };
+
+  const handleTouchEnd = () => {
+    const shouldRefresh = pullDistance >= 70;
+    setPullStartY(null);
+    setPullDistance(0);
+    if (shouldRefresh) {
+      void refreshByPull();
+    }
+  };
+
   return (
-    <div className="space-y-4" dir="rtl" lang="ar">
+    <div
+      className="space-y-4"
+      dir="rtl"
+      lang="ar"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <div className="sticky top-2 z-20 flex justify-center">
+        <div className="rounded-full bg-white/90 px-3 py-1 text-xs text-slate-600 shadow-sm">
+          {pullRefreshing ? "جاري التحديث..." : pullDistance > 35 ? "افلت للتحديث" : "اسحب للتحديث"}
+        </div>
+      </div>
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle>قائمة مهامي</CardTitle>

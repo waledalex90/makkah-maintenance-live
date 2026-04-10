@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { LiveLocationTracker } from "@/components/live-location-tracker";
+import { DashboardBottomNav } from "@/components/dashboard-bottom-nav";
+import { PageTransition } from "@/components/page-transition";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createSupabaseServerClient();
@@ -30,7 +32,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <div className="flex min-h-screen bg-slate-100">
       <LiveLocationTracker />
       <DashboardSidebar fullName={fullName} role={role} />
-      <main className="flex-1 p-6">{children}</main>
+      <main className="flex-1 p-4 pb-24 md:p-6 md:pb-6">
+        <PageTransition>{children}</PageTransition>
+      </main>
+      <DashboardBottomNav role={role} />
     </div>
   );
 }

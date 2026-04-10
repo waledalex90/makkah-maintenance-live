@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   title: "Makkah Operations Center",
   description: "Hajj maintenance operations dashboard",
   manifest: "/manifest.webmanifest",
-  themeColor: "#0f172a",
+  themeColor: "#16a34a",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type TouchEventHandler } from "react";
+import { useEffect, useMemo, useRef, useState, type TouchEventHandler } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -23,8 +23,6 @@ import {
   formatSaudiTime,
   getAgeMinutes,
   relativeAgeLabelSaudi,
-  remainingUntilOneHourDeadlineAr,
-  RIYADH_TZ_LABEL_AR,
 } from "@/lib/saudi-time";
 
 type Zone = {
@@ -104,7 +102,6 @@ type AdminDashboardContentProps = {
 const PAGE_SIZE = 10;
 const LAST_READ_STORAGE_KEY = "admin_ticket_last_read_map";
 const PICKUP_SLACK_MINUTES = 2;
-const PENALTY_WARNING_MINUTES = 40;
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
 const NEARBY_RADIUS_METERS = 3000;
 
@@ -209,6 +206,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [pullStartY, setPullStartY] = useState<number | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
   const [pullRefreshing, setPullRefreshing] = useState(false);
+  const openedTicketQueryRef = useRef<string | null>(null);
 
   const zoneNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -564,6 +562,18 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     await openTicketModal(data as TicketRow);
   };
 
+  useEffect(() => {
+    if (!tableOnly || typeof window === "undefined") return;
+    const q = window.location.search;
+    const open = new URLSearchParams(q).get("open");
+    if (!open) return;
+    const sig = `${q}`;
+    if (openedTicketQueryRef.current === sig) return;
+    openedTicketQueryRef.current = sig;
+    void openTicketById(open);
+    window.history.replaceState({}, "", "/dashboard/tickets");
+  }, [tableOnly]);
+
   const refreshAfterDetailAction = async () => {
     await Promise.all([loadStats(), loadPage()]);
     if (selectedTicket) {
@@ -591,21 +601,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     const completed = allTickets.filter((t) => t.status === "finished").length;
     return { total, latePickup, inProgress, completed };
   }, [allTickets, nowTs]);
-
-  const reporterTasks = useMemo(() => {
-    if (!isReporterDesk) {
-      return { followUp: [] as TicketRow[], externalClose: [] as TicketRow[], penalty: [] as TicketRow[] };
-    }
-    const followUp = allTickets.filter(
-      (t) => t.status === "not_received" && getAgeMinutes(t.created_at, nowTs) >= PICKUP_SLACK_MINUTES,
-    );
-    const externalClose = allTickets.filter((t) => t.status === "finished");
-    const penalty = allTickets.filter((t) => {
-      if (t.status === "finished") return false;
-      return getAgeMinutes(t.created_at, nowTs) >= PENALTY_WARNING_MINUTES;
-    });
-    return { followUp, externalClose, penalty };
-  }, [allTickets, nowTs, isReporterDesk]);
 
   useEffect(() => {
     const channel = supabase
@@ -756,7 +751,9 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           <h1 className="text-2xl font-bold text-slate-900">{tableOnly ? "مركز البلاغات" : "لوحة التحكم"}</h1>
           <p className="mt-1 text-sm text-slate-600">
             {tableOnly
-              ? "متابعة البلاغات والمهام — التوقيت يُحسب بتوقيت مكة المكرمة"
+              ? role === "reporter"
+                ? "متابعة البلاغات — التوقيت يُحسب بتوقيت مكة المكرمة. لإدارة المهام والتنبيهات الزمنية استخدم تبويب «المهام»."
+                : "متابعة البلاغات — التوقيت يُحسب بتوقيت مكة المكرمة"
               : "مؤشرات البلاغات وإنشاء بلاغ جديد"}
           </p>
           <p className="mt-1 text-xs text-slate-500" suppressHydrationWarning>
@@ -788,13 +785,13 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           className="text-right"
           onClick={() => setStatFilter((prev) => (prev === "late_pickup" ? "all" : "late_pickup"))}
         >
-          <Card className={statFilter === "late_pickup" ? "ring-2 ring-red-500" : ""}>
+          <Card className={statFilter === "late_pickup" ? "ring-2 ring-amber-400" : ""}>
             <CardHeader>
               <CardTitle className="text-base md:text-lg">بلاغات متأخرة الاستلام</CardTitle>
               <p className="text-xs font-normal text-slate-500">أكثر من دقيقتين ولم يُستلم بعد</p>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-semibold text-red-600 md:text-3xl">{dashboardStats.latePickup}</p>
+              <p className="text-2xl font-semibold text-amber-700 md:text-3xl">{dashboardStats.latePickup}</p>
             </CardContent>
           </Card>
         </button>
@@ -827,94 +824,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           </Card>
         </button>
       </section>
-
-      {isReporterDesk ? (
-        <section className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm">
-          <h2 className="mb-3 text-lg font-semibold text-slate-900">مهام المسؤول</h2>
-          <p className="mb-4 text-xs text-slate-600">
-            تحديث لحظي عبر الاشتراك في جدول البلاغات — التوقيت المرجعي: {RIYADH_TZ_LABEL_AR}.
-          </p>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-lg border border-amber-200 bg-white p-3">
-              <p className="mb-2 text-sm font-semibold text-amber-900">تنبيه متابعة الاستلام</p>
-              <p className="mb-2 text-xs text-slate-600">
-                يظهر للبلاغات التي مضى على إنشائها دقيقتان أو أكثر وما زالت «لم يستلم».
-              </p>
-              <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
-                {reporterTasks.followUp.length === 0 ? (
-                  <li className="text-slate-500">لا توجد بلاغات تتطلب متابعة استلام الآن.</li>
-                ) : (
-                  reporterTasks.followUp.map((t) => {
-                    const mins = getAgeMinutes(t.created_at, nowTs);
-                    return (
-                      <li key={t.id} className="rounded border border-amber-100 bg-amber-50/50 p-2">
-                        <button
-                          type="button"
-                          className="w-full text-right font-medium text-slate-900"
-                          onClick={() => void openTicketById(t.id)}
-                        >
-                          {t.external_ticket_number || t.ticket_number || t.id.slice(0, 8)}
-                        </button>
-                        <p className="text-xs text-amber-800">
-                          مضى {mins} دقيقة على الإنشاء — مطلوب متابعة الاستلام فورًا
-                        </p>
-                      </li>
-                    );
-                  })
-                )}
-              </ul>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-white p-3">
-              <p className="mb-2 text-sm font-semibold text-slate-900">تنبيه إغلاق خارجي</p>
-              <p className="mb-2 text-xs text-slate-600">بلاغات «تم الانتهاء» — أغلقها في النظام الخارجي إن لزم.</p>
-              <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
-                {reporterTasks.externalClose.length === 0 ? (
-                  <li className="text-slate-500">لا توجد بلاغات منتهية حاليًا.</li>
-                ) : (
-                  reporterTasks.externalClose.slice(0, 30).map((t) => (
-                    <li key={t.id} className="rounded border border-slate-100 p-2">
-                      <button
-                        type="button"
-                        className="w-full text-right font-medium text-slate-900"
-                        onClick={() => void openTicketById(t.id)}
-                      >
-                        {t.external_ticket_number || t.ticket_number || t.id.slice(0, 8)}
-                      </button>
-                      <p className="text-xs text-slate-500">{formatSaudiDateTime(t.created_at)}</p>
-                    </li>
-                  ))
-                )}
-              </ul>
-            </div>
-            <div className="animate-pulse rounded-lg border-4 border-red-600 bg-red-100 p-3 shadow-lg shadow-red-300/50 ring-4 ring-red-500/30">
-              <p className="mb-2 text-base font-black text-red-950">تحذير غرامة — مهلة الساعة</p>
-              <p className="mb-2 text-xs font-semibold text-red-900">
-                عند بلوغ عمر البلاغ 40 دقيقة دون إنهاء — يتبقى 20 دقيقة فقط على نهاية مهلة الساعة (من لحظة الإنشاء بتوقيت
-                السعودية).
-              </p>
-              <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
-                {reporterTasks.penalty.length === 0 ? (
-                  <li className="text-slate-700">لا توجد بلاغات ضمن نطاق التحذير حاليًا.</li>
-                ) : (
-                  reporterTasks.penalty.map((t) => (
-                    <li key={t.id} className="rounded border-2 border-red-500 bg-white p-2 shadow-sm">
-                      <button
-                        type="button"
-                        className="w-full text-right font-medium text-red-950"
-                        onClick={() => void openTicketById(t.id)}
-                      >
-                        {t.external_ticket_number || t.ticket_number || t.id.slice(0, 8)}
-                      </button>
-                      <p className="text-xs text-red-800">{remainingUntilOneHourDeadlineAr(t.created_at, nowTs)}</p>
-                      <p className="text-xs text-slate-600">عمر البلاغ: {getAgeMinutes(t.created_at, nowTs)} دقيقة</p>
-                    </li>
-                  ))
-                )}
-              </ul>
-            </div>
-          </div>
-        </section>
-      ) : null}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between">

@@ -39,7 +39,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <DashboardTopbar fullName={fullName} />
         <PageTransition>{children}</PageTransition>
       </main>
-      <DashboardBottomNav permissions={permissions} />
+      <DashboardBottomNav role={role} permissions={permissions} />
     </div>
   );
 }

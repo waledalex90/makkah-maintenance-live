@@ -34,7 +34,7 @@ export function getAgeMs(createdAtIso: string, nowMs: number): number {
 
 /**
  * دقائق عمر البلاغ من لحظة الإنشاء حتى «الآن».
- * أعمار البلاغات (دقيقتان، 40 دقيقة، مهلة الساعة) تُحسب من فرق الطابع الزمني الفعلي
+ * أعمار البلاغات (دقيقتان، 40 دقيقة، نافذة المتابعة) تُحسب من فرق الطابع الزمني الفعلي
  * بين `created_at` (timestamptz) والوقت الحالي — مطابق لساعة المملكة (GMT+3) لأن كلا الطرفين
  * يمثلان نفس اللحظة العالمية.
  */
@@ -96,21 +96,28 @@ export function countdownToMinutesFromCreatedAr(
   const elapsed = getAgeMs(createdAtIso, nowMs);
   const remaining = limitMs - elapsed;
   if (remaining <= 0) {
-    return { expired: true, text: "انتهت المهلة الزمنية" };
+    return { expired: true, text: "انتهى العدّ المحدد لهذا الإطار" };
   }
   const m = Math.floor(remaining / 60_000);
   const s = Math.floor((remaining % 60_000) / 1000);
   return { expired: false, text: `${m} دقيقة و${s} ثانية متبقية` };
 }
 
-/** متبقي حتى نهاية مهلة الساعة من الإنشاء (60 دقيقة) — بالدقائق والثواني */
-export function remainingUntilOneHourDeadlineAr(createdAtIso: string, nowMs: number): string {
+/**
+ * متبقٍ ضمن نافذة المتابعة الزمنية (ساعة من الإنشاء) — صيغة محايدة (بدون مصطلحات عقوبة).
+ */
+export function remainingProcessingWindowCountdownAr(createdAtIso: string, nowMs: number): string {
   const hourMs = 60 * 60_000;
   const elapsed = getAgeMs(createdAtIso, nowMs);
   const remaining = Math.max(0, hourMs - elapsed);
-  if (remaining <= 0) return "انتهت مهلة الساعة";
+  if (remaining <= 0) return "انتهت نافذة المتابعة الزمنية لهذا البلاغ";
   const totalSec = Math.floor(remaining / 1000);
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
-  return `${m} دقيقة و${s} ثانية متبقية حتى نهاية مهلة الساعة`;
+  return `${m} دقيقة و${s} ثانية متبقية ضمن نافذة المتابعة الزمنية (ساعة من الإنشاء)`;
+}
+
+/** @deprecated استخدم remainingProcessingWindowCountdownAr */
+export function remainingUntilOneHourDeadlineAr(createdAtIso: string, nowMs: number): string {
+  return remainingProcessingWindowCountdownAr(createdAtIso, nowMs);
 }

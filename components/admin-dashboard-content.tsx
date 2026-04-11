@@ -353,7 +353,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
       const orParts = [
         `external_ticket_number.ilike.%${q}%`,
-        `ticket_number.ilike.%${q}%`,
+        /** رقم البلاغ bigint — البحث النصي يتطلب تحويلاً إلى نص */
+        `ticket_number.cast.text.ilike.%${q}%`,
       ];
       if (matchedZoneIds.length > 0) {
         orParts.push(`zone_id.in.(${matchedZoneIds.join(",")})`);

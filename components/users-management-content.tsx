@@ -191,6 +191,7 @@ export function UsersManagementContent() {
     effectivePermissions("technician", undefined),
   );
   const [bulkUploading, setBulkUploading] = useState(false);
+  const [templateDownloading, setTemplateDownloading] = useState<"xlsx" | "csv" | null>(null);
 
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
   const [editName, setEditName] = useState("");
@@ -207,6 +208,26 @@ export function UsersManagementContent() {
   const [quickDeleteId, setQuickDeleteId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
+  const fetchAdminUsersPage = useCallback(async (page: number) => {
+    const res = await fetch(`/api/admin/users?page=${page}&limit=${USERS_TABLE_PAGE_SIZE}`, {
+      cache: "no-store",
+    });
+    const json = (await res.json()) as {
+      users?: UserRow[];
+      zones?: ZoneOption[];
+      total?: number;
+      error?: string;
+    };
+    if (!res.ok) {
+      throw new Error(json.error ?? "فشل تحميل المستخدمين.");
+    }
+    return {
+      users: json.users ?? [],
+      zones: json.zones ?? [],
+      total: json.total ?? 0,
+    };
+  }, []);
+
   const {
     data: usersQueryData,
     isLoading,
@@ -215,26 +236,7 @@ export function UsersManagementContent() {
     refetch,
   } = useQuery({
     queryKey: ["admin-users", usersTablePage],
-    queryFn: async () => {
-      const res = await fetch(
-        `/api/admin/users?page=${usersTablePage}&limit=${USERS_TABLE_PAGE_SIZE}`,
-        { cache: "no-store" },
-      );
-      const json = (await res.json()) as {
-        users?: UserRow[];
-        zones?: ZoneOption[];
-        total?: number;
-        error?: string;
-      };
-      if (!res.ok) {
-        throw new Error(json.error ?? "فشل تحميل المستخدمين.");
-      }
-      return {
-        users: json.users ?? [],
-        zones: json.zones ?? [],
-        total: json.total ?? 0,
-      };
-    },
+    queryFn: () => fetchAdminUsersPage(usersTablePage),
     placeholderData: (prev) => prev,
     staleTime: 60_000,
   });
@@ -275,6 +277,15 @@ export function UsersManagementContent() {
   const invalidateUsers = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["admin-users"] });
   }, [queryClient]);
+
+  useEffect(() => {
+    if (usersTablePage >= usersTotalPages) return;
+    void queryClient.prefetchQuery({
+      queryKey: ["admin-users", usersTablePage + 1],
+      queryFn: () => fetchAdminUsersPage(usersTablePage + 1),
+      staleTime: 60_000,
+    });
+  }, [usersTablePage, usersTotalPages, queryClient, fetchAdminUsersPage]);
 
   const saveRole = async (user: UserRow) => {
     const nextRole = draftRoleMap[user.id];
@@ -437,6 +448,36 @@ export function UsersManagementContent() {
     toast.success("تم إنشاء الحساب وتفعيله بنجاح.");
     closeInviteModal();
     await invalidateUsers();
+  };
+
+  const downloadBulkTemplate = async (format: "xlsx" | "csv") => {
+    setTemplateDownloading(format);
+    try {
+      const res = await fetch(`/api/admin/users/bulk-template?format=${format}`);
+      if (!res.ok) {
+        let msg = "تعذر تنزيل النموذج.";
+        try {
+          const j = (await res.json()) as { error?: string };
+          if (j.error) msg = j.error;
+        } catch {
+          /* blob error body */
+        }
+        toast.error(msg);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = format === "csv" ? "bulk-users-template.csv" : "bulk-users-template.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("تم تنزيل النموذج.");
+    } finally {
+      setTemplateDownloading(null);
+    }
   };
 
   const onBulkUsersFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -609,16 +650,35 @@ export function UsersManagementContent() {
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" dir="rtl" lang="ar">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold">إدارة المستخدمين</h1>
-        <div className="flex flex-wrap gap-2">
-          <label className="cursor-pointer rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50/80 px-2 py-1.5 dark:border-emerald-900 dark:bg-emerald-950/30">
+            <span className="px-1 text-xs font-semibold text-emerald-900 dark:text-emerald-200">نموذج الرفع</span>
+            <button
+              type="button"
+              disabled={templateDownloading !== null || bulkUploading}
+              onClick={() => void downloadBulkTemplate("xlsx")}
+              className="rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900 shadow-sm ring-1 ring-emerald-200 transition hover:bg-emerald-100 disabled:opacity-50 dark:bg-emerald-950 dark:text-emerald-100 dark:ring-emerald-800"
+            >
+              {templateDownloading === "xlsx" ? "جاري التحميل…" : "Excel"}
+            </button>
+            <button
+              type="button"
+              disabled={templateDownloading !== null || bulkUploading}
+              onClick={() => void downloadBulkTemplate("csv")}
+              className="rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900 shadow-sm ring-1 ring-emerald-200 transition hover:bg-emerald-100 disabled:opacity-50 dark:bg-emerald-950 dark:text-emerald-100 dark:ring-emerald-800"
+            >
+              {templateDownloading === "csv" ? "جاري التحميل…" : "CSV"}
+            </button>
+          </div>
+          <label className="cursor-pointer rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50">
             <input
               type="file"
-              accept=".xlsx,.xls"
+              accept=".xlsx,.xls,.csv"
               className="hidden"
-              disabled={bulkUploading}
+              disabled={bulkUploading || templateDownloading !== null}
               onChange={(e) => void onBulkUsersFile(e)}
             />
-            {bulkUploading ? "جاري الرفع..." : "رفع مستخدمين من Excel"}
+            {bulkUploading ? "جاري الرفع…" : "رفع ملف المستخدمين"}
           </label>
           <button
             className="rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"

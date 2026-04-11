@@ -46,11 +46,17 @@ export async function POST(request: Request) {
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+  const fileName = (file as File).name?.toLowerCase() ?? "";
   let workbook: XLSX.WorkBook;
   try {
-    workbook = XLSX.read(buffer, { type: "buffer" });
+    if (fileName.endsWith(".csv")) {
+      const text = buffer.toString("utf-8").replace(/^\uFEFF/, "");
+      workbook = XLSX.read(text, { type: "string" });
+    } else {
+      workbook = XLSX.read(buffer, { type: "buffer" });
+    }
   } catch {
-    return NextResponse.json({ error: "تعذر قراءة ملف Excel." }, { status: 400 });
+    return NextResponse.json({ error: "تعذر قراءة الملف (Excel أو CSV)." }, { status: 400 });
   }
 
   const sheetName = workbook.SheetNames[0];
@@ -75,14 +81,22 @@ export async function POST(request: Request) {
     const row = rows[i]!;
     const rowNum = i + 2;
 
-    const usernameRaw = pickCell(row, "username", "اسم_المستخدم", "user", "اليوزر");
-    const password = pickCell(row, "password", "كلمة_المرور", "pass");
+    const usernameRaw = pickCell(
+      row,
+      "username",
+      "اسم_المستخدم",
+      "user",
+      "اليوزر",
+      "اليوزر_نيم",
+      "اليوزرنيم",
+    );
+    const password = pickCell(row, "password", "كلمة_المرور", "الباسورد", "pass");
     const fullName = pickCell(row, "full_name", "full name", "الاسم", "الاسم_الكامل");
     const mobile = pickCell(row, "mobile", "phone", "الجوال", "الهاتف");
     const jobTitle = pickCell(row, "job_title", "job", "المهنة", "المسمى");
     const specialty = pickCell(row, "specialty", "التخصص", "تخصص") || "civil";
     const roleStr = (pickCell(row, "role", "الدور") || "technician") as Role;
-    const zonesCell = pickCell(row, "zones", "المناطق", "مناطق");
+    const zonesCell = pickCell(row, "zones", "المنطقة", "المناطق", "مناطق");
 
     if (!usernameRaw || !password || !fullName || !mobile || !jobTitle || !zonesCell) {
       errors.push({ row: rowNum, message: "حقول مطلوبة ناقصة (username, password, full_name, mobile, job_title, zones)." });
@@ -128,6 +142,15 @@ export async function POST(request: Request) {
 
     const permPartial: Partial<Record<AppPermissionKey, boolean>> = {};
     for (const key of APP_PERMISSION_KEYS) {
+      if (key === "view_tickets") {
+        const direct = pickCell(row, "view_tickets", "perm_view_tickets");
+        const fromTasks = pickCell(row, "view_tasks", "perm_view_tasks");
+        const cell = direct !== "" ? direct : fromTasks;
+        if (cell === "") continue;
+        const b = parseBool(cell);
+        if (typeof b === "boolean") permPartial.view_tickets = b;
+        continue;
+      }
       const cell = pickCell(row, key, `perm_${key}`);
       if (cell === "") continue;
       const b = parseBool(cell);

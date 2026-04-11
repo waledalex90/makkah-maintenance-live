@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -58,6 +58,8 @@ function TablePermSwitch({
     </button>
   );
 }
+
+const USERS_TABLE_PAGE_SIZE = 20;
 
 const TABLE_QUICK_PERMS: { key: AppPermissionKey; header: string }[] = [
   { key: "view_map", header: "الخريطة" },
@@ -204,6 +206,19 @@ export function UsersManagementContent() {
   const [permRowSaving, setPermRowSaving] = useState<string | null>(null);
   const [quickDeleteId, setQuickDeleteId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [usersTablePage, setUsersTablePage] = useState(1);
+
+  const usersTotalPages = Math.max(1, Math.ceil(users.length / USERS_TABLE_PAGE_SIZE));
+  const pagedUsers = useMemo(() => {
+    const start = (usersTablePage - 1) * USERS_TABLE_PAGE_SIZE;
+    return users.slice(start, start + USERS_TABLE_PAGE_SIZE);
+  }, [users, usersTablePage]);
+
+  useEffect(() => {
+    if (usersTablePage > usersTotalPages) {
+      setUsersTablePage(usersTotalPages);
+    }
+  }, [usersTablePage, usersTotalPages]);
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
@@ -211,7 +226,7 @@ export function UsersManagementContent() {
     });
   }, []);
 
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     setLoading(true);
     const res = await fetch("/api/admin/users", { cache: "no-store" });
     const data = (await res.json()) as { users?: UserRow[]; zones?: ZoneOption[]; error?: string };
@@ -232,12 +247,12 @@ export function UsersManagementContent() {
       }, {}),
     );
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadUsers();
-  }, []);
+  }, [loadUsers]);
 
   const saveRole = async (user: UserRow) => {
     const nextRole = draftRoleMap[user.id];
@@ -597,6 +612,7 @@ export function UsersManagementContent() {
       {loading ? (
         <p className="text-sm text-slate-500">جاري تحميل المستخدمين...</p>
       ) : (
+        <>
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800">
           <table className="min-w-[1100px] w-full border-collapse text-right text-sm">
             <thead>
@@ -622,21 +638,23 @@ export function UsersManagementContent() {
               </tr>
             </thead>
             <tbody>
-              {users.map((user, rowIdx) => {
+              {pagedUsers.map((user, rowIdx) => {
                 const eff = effectivePermissions(user.role, user.permissions ?? undefined);
                 const isAdminRow = user.role === "admin";
+                const globalRowIdx = (usersTablePage - 1) * USERS_TABLE_PAGE_SIZE + rowIdx;
+                const zebraEven = globalRowIdx % 2 === 0;
                 return (
                   <tr
                     key={user.id}
                     className={cn(
                       "border-b border-slate-100 transition-colors dark:border-slate-800",
-                      rowIdx % 2 === 0 ? "bg-white dark:bg-slate-950" : "bg-slate-50/80 dark:bg-slate-900/40",
+                      zebraEven ? "bg-white dark:bg-slate-950" : "bg-slate-50/80 dark:bg-slate-900/40",
                     )}
                   >
                     <td
                       className={cn(
                         "sticky right-0 z-[1] px-3 py-2.5 font-medium text-slate-900 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.06)] dark:text-slate-50",
-                        rowIdx % 2 === 0 ? "bg-white dark:bg-slate-950" : "bg-slate-50/80 dark:bg-slate-900/40",
+                        zebraEven ? "bg-white dark:bg-slate-950" : "bg-slate-50/80 dark:bg-slate-900/40",
                       )}
                     >
                       {user.full_name}
@@ -743,12 +761,45 @@ export function UsersManagementContent() {
             </tbody>
           </table>
         </div>
+        {users.length > USERS_TABLE_PAGE_SIZE ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/40">
+            <p className="text-slate-600 dark:text-slate-400">
+              عرض {(usersTablePage - 1) * USERS_TABLE_PAGE_SIZE + 1}–
+              {Math.min(usersTablePage * USERS_TABLE_PAGE_SIZE, users.length)} من {users.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900"
+                disabled={usersTablePage <= 1}
+                onClick={() => setUsersTablePage((p) => Math.max(1, p - 1))}
+              >
+                السابق
+              </button>
+              <span className="text-xs text-slate-500">
+                صفحة {usersTablePage} / {usersTotalPages}
+              </span>
+              <button
+                type="button"
+                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900"
+                disabled={usersTablePage >= usersTotalPages}
+                onClick={() => setUsersTablePage((p) => Math.min(usersTotalPages, p + 1))}
+              >
+                التالي
+              </button>
+            </div>
+          </div>
+        ) : null}
+        </>
       )}
 
       {isInviteModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closeInviteModal}>
-          <div className="w-full max-w-2xl rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex items-center justify-between">
+          <div
+            className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4">
               <h3 className="text-lg font-semibold text-slate-900">إضافة مستخدم جديد</h3>
               <button
                 className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
@@ -758,6 +809,7 @@ export function UsersManagementContent() {
               </button>
             </div>
 
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <p className="mb-2 text-sm font-medium">الاسم الكامل</p>
@@ -921,8 +973,9 @@ export function UsersManagementContent() {
                 )}
               </div>
             </div>
+            </div>
 
-            <div className="mt-6 flex items-center justify-end gap-2">
+            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
               <button
                 className="rounded-md border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                 onClick={closeInviteModal}

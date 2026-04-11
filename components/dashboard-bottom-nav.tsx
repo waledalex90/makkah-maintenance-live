@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LayoutDashboard, ListTodo, MapPinned, Settings, Ticket } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
+import { LayoutDashboard, ListTodo, LogOut, MapPinned, Settings, Ticket } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
 import type { AppPermissionKey } from "@/lib/permissions";
 
 type DashboardBottomNavProps = {
@@ -27,13 +29,20 @@ const MOBILE_NAV: Array<{
 
 export function DashboardBottomNav({ role, permissions }: DashboardBottomNavProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [loggingOut, setLoggingOut] = useState(false);
   const filtered = MOBILE_NAV.filter(
     (item) => permissions[item.perm] && (!item.roles || item.roles.includes(role)),
   );
 
-  if (filtered.length === 0) {
-    return null;
-  }
+  const onLogout = async () => {
+    setLoggingOut(true);
+    await supabase.auth.signOut();
+    router.replace("/login");
+    router.refresh();
+  };
+
+  const cols = filtered.length + 1;
 
   return (
     <nav
@@ -41,7 +50,10 @@ export function DashboardBottomNav({ role, permissions }: DashboardBottomNavProp
       dir="rtl"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <div className="mx-auto grid max-w-xl" style={{ gridTemplateColumns: `repeat(${filtered.length}, minmax(0, 1fr))` }}>
+      <div
+        className="mx-auto grid max-w-xl"
+        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+      >
         {filtered.map((item) => {
           const Icon = item.icon;
           const active = pathname === item.href;
@@ -50,15 +62,25 @@ export function DashboardBottomNav({ role, permissions }: DashboardBottomNavProp
               key={item.href}
               href={item.href}
               className={cn(
-                "flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-semibold",
+                "flex min-h-16 flex-col items-center justify-center gap-1 px-0.5 text-[11px] font-semibold leading-tight sm:text-xs",
                 active ? "text-emerald-800 dark:text-emerald-400" : "text-slate-800 dark:text-slate-200",
               )}
             >
-              <Icon className="h-4 w-4" />
-              <span>{item.label}</span>
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="line-clamp-2 text-center">{item.label}</span>
             </Link>
           );
         })}
+        <button
+          type="button"
+          onClick={() => void onLogout()}
+          disabled={loggingOut}
+          className="flex min-h-16 flex-col items-center justify-center gap-1 border-s border-slate-200 px-0.5 text-[11px] font-semibold leading-tight text-red-700 disabled:opacity-60 dark:border-slate-700 dark:text-red-400 sm:text-xs"
+          aria-label="تسجيل الخروج"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          <span>{loggingOut ? "…" : "خروج"}</span>
+        </button>
       </div>
     </nav>
   );

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type TouchEventHandler } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type TouchEventHandler } from "react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LogoutButton } from "@/components/logout-button";
 import { supabase } from "@/lib/supabase";
 import { playWorkNotificationSound } from "@/lib/work-notification";
 import { TicketDetailDrawer, type TicketDetailRow } from "@/components/ticket-detail-drawer";
@@ -73,7 +74,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
 
   const visibleTickets = tab === "area" ? areaTickets : myTickets;
 
-  const loadTickets = async () => {
+  const loadTickets = useCallback(async () => {
     const {
       data: { user },
       error: userError,
@@ -108,7 +109,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       setMyTickets(payload.myTickets ?? []);
     }
     setLoading(false);
-  };
+  }, []);
 
   const loadDrawerTicket = async (ticketId: string) => {
     const { data, error } = await supabase
@@ -144,7 +145,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-only work list
     void loadTickets();
-  }, []);
+  }, [loadTickets]);
 
   useEffect(() => {
     if (!myUserId) return;
@@ -205,7 +206,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [myUserId, role]);
+  }, [myUserId, role, loadTickets]);
 
   useEffect(() => {
     if (!("Notification" in window)) return;
@@ -318,6 +319,13 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">لوحة الميدان</p>
+          <p className="text-lg font-bold text-slate-900 dark:text-slate-100">مهامي</p>
+        </div>
+        <LogoutButton />
+      </div>
       <div className="sticky top-2 z-20 flex justify-center">
         <div className="rounded-full bg-white/90 px-3 py-1 text-xs text-slate-600 shadow-sm">
           {pullRefreshing ? "جاري التحديث..." : pullDistance > 35 ? "افلت للتحديث" : "اسحب للتحديث"}

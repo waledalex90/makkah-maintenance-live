@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -48,6 +48,7 @@ type TicketsWorkspaceContentProps = {
 };
 
 const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
+const TICKETS_TABLE_PAGE_SIZE = 15;
 
 export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) {
   const [myUserId, setMyUserId] = useState<string | null>(null);
@@ -67,6 +68,19 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
   const [categoryId, setCategoryId] = useState("");
   const [zoneId, setZoneId] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [ticketTablePage, setTicketTablePage] = useState(1);
+
+  const ticketTotalPages = Math.max(1, Math.ceil(tickets.length / TICKETS_TABLE_PAGE_SIZE));
+  const pagedTickets = useMemo(() => {
+    const start = (ticketTablePage - 1) * TICKETS_TABLE_PAGE_SIZE;
+    return tickets.slice(start, start + TICKETS_TABLE_PAGE_SIZE);
+  }, [tickets, ticketTablePage]);
+
+  useEffect(() => {
+    if (ticketTablePage > ticketTotalPages) {
+      setTicketTablePage(ticketTotalPages);
+    }
+  }, [ticketTablePage, ticketTotalPages]);
 
   const loadData = async () => {
     setLoading(true);
@@ -84,7 +98,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
           "id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at, closed_at",
         )
         .order("created_at", { ascending: false })
-        .limit(100),
+        .limit(250),
     ]);
 
     if (zonesRes.error) toast.error(arabicErrorMessage(zonesRes.error.message));
@@ -338,7 +352,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
                 </tr>
               </thead>
               <tbody>
-                {tickets.map((ticket) => (
+                {pagedTickets.map((ticket) => (
                   <tr
                     key={ticket.id}
                     className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
@@ -385,6 +399,35 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
             </table>
           </div>
         )}
+        {!loading && tickets.length > TICKETS_TABLE_PAGE_SIZE ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3 text-sm">
+            <p className="text-slate-600">
+              عرض {(ticketTablePage - 1) * TICKETS_TABLE_PAGE_SIZE + 1}–
+              {Math.min(ticketTablePage * TICKETS_TABLE_PAGE_SIZE, tickets.length)} من {tickets.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-slate-200 px-3 py-1 text-xs font-medium disabled:opacity-40"
+                disabled={ticketTablePage <= 1}
+                onClick={() => setTicketTablePage((p) => Math.max(1, p - 1))}
+              >
+                السابق
+              </button>
+              <span className="text-xs text-slate-500">
+                {ticketTablePage} / {ticketTotalPages}
+              </span>
+              <button
+                type="button"
+                className="rounded-md border border-slate-200 px-3 py-1 text-xs font-medium disabled:opacity-40"
+                disabled={ticketTablePage >= ticketTotalPages}
+                onClick={() => setTicketTablePage((p) => Math.min(ticketTotalPages, p + 1))}
+              >
+                التالي
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <TicketDetailDrawer

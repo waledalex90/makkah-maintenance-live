@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { X } from "lucide-react";
 import { LatLngBounds, divIcon, latLng } from "leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
 import { LayersControl, MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
@@ -196,7 +198,8 @@ export function OperationsMap() {
         "id, ticket_number, external_ticket_number, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at, closed_at",
       )
       .neq("status", "finished")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(350);
 
     if (error) {
       toast.error(error.message);
@@ -357,6 +360,14 @@ export function OperationsMap() {
       ) : null}
 
       <div className="relative h-[72vh] overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
+        <Link
+          href="/dashboard"
+          className="absolute left-3 top-3 z-[600] flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-lg transition hover:bg-slate-50 md:hidden dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+          aria-label="إغلاق الخريطة والعودة للقائمة"
+          prefetch={false}
+        >
+          <X className="h-6 w-6" strokeWidth={2.5} />
+        </Link>
         <MapContainer center={MAKKAH_CENTER} zoom={DEFAULT_ZOOM} maxZoom={streetsTileProps.maxZoom} scrollWheelZoom className="h-full w-full">
           <LayersControl position="topleft">
             <LayersControl.BaseLayer checked name="MapTiler — الشوارع">

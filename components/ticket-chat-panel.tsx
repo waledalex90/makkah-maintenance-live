@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { formatSaudiTime } from "@/lib/saudi-time";
@@ -39,6 +39,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const scrollAreaRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const loadMe = async () => {
@@ -103,6 +104,12 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticketId]);
 
+  useLayoutEffect(() => {
+    const el = scrollAreaRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, ticketId]);
+
   useEffect(() => {
     const channel = supabase
       .channel(`ticket-chat-panel-${ticketId}`)
@@ -162,7 +169,10 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
       <h3 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
         الدردشة والتوثيق
       </h3>
-      <div className="max-h-80 space-y-3 overflow-y-auto bg-gradient-to-b from-slate-100/90 to-slate-50 p-3 dark:from-slate-900 dark:to-slate-950">
+      <div
+        ref={scrollAreaRef}
+        className="max-h-80 space-y-3 overflow-y-auto overflow-x-hidden bg-gradient-to-b from-slate-100/90 to-slate-50 p-3 dark:from-slate-900 dark:to-slate-950"
+      >
         {messages.map((msg) => {
           const systemDoc = isTicketSystemDocChatMessage(msg.content);
           if (systemDoc) {

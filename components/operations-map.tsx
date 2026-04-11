@@ -16,6 +16,7 @@ import {
   MAPTILER_ATTRIBUTION,
 } from "@/lib/maptiler";
 import { supabase } from "@/lib/supabase";
+import { formatSaudiDateTime } from "@/lib/saudi-time";
 import { type TicketStatus, statusBadgeVariant, statusLabelAr } from "@/lib/ticket-status";
 
 type Zone = {
@@ -40,6 +41,7 @@ type TicketRow = {
   assigned_supervisor_id?: string | null;
   assigned_technician_id?: string | null;
   created_at: string;
+  closed_at?: string | null;
 };
 
 type StaffRole =
@@ -191,7 +193,7 @@ export function OperationsMap() {
     const { data, error } = await supabase
       .from("tickets")
       .select(
-        "id, ticket_number, external_ticket_number, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at",
+        "id, ticket_number, external_ticket_number, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at, closed_at",
       )
       .neq("status", "finished")
       .order("created_at", { ascending: false });
@@ -330,7 +332,7 @@ export function OperationsMap() {
     const { data } = await supabase
       .from("tickets")
       .select(
-        "id, ticket_number, external_ticket_number, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at",
+        "id, ticket_number, external_ticket_number, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at, closed_at",
       )
       .eq("id", selectedTicket.id)
       .single();
@@ -430,7 +432,7 @@ export function OperationsMap() {
                           return current ? statusLabelAr(current.status) : "لا يوجد بلاغ نشط";
                         })()}
                       </p>
-                      <p>آخر تحديث: {new Date(loc.last_updated).toLocaleTimeString("ar-SA")}</p>
+                      <p>آخر تحديث: {formatSaudiDateTime(loc.last_updated)}</p>
                     </div>
                   </Popup>
                 </Marker>
@@ -458,6 +460,8 @@ export function OperationsMap() {
                     <div className="space-y-1 text-sm">
                       <p className="font-semibold">{ticket.title ?? ticket.location}</p>
                       <p>المنطقة: {zone.name}</p>
+                      <p>وقت الإنشاء: {formatSaudiDateTime(ticket.created_at)}</p>
+                      {ticket.closed_at ? <p>وقت الإغلاق: {formatSaudiDateTime(ticket.closed_at)}</p> : null}
                       <div className="pt-1">
                         <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabelAr(ticket.status)}</Badge>
                       </div>

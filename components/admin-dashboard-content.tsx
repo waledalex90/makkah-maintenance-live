@@ -20,6 +20,7 @@ import { arabicErrorMessage } from "@/lib/arabic-errors";
 import {
   formatSaudiDateTime,
   formatSaudiNow,
+  formatSaudiTime,
   getAgeMinutes,
   relativeAgeLabelSaudi,
   remainingUntilOneHourDeadlineAr,
@@ -59,6 +60,7 @@ type TicketRow = {
   assigned_technician_id: string | null;
   zone_id: string | null;
   created_at: string;
+  closed_at?: string | null;
 };
 
 type TicketAttachmentRow = {
@@ -259,7 +261,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const loadStats = async () => {
     const { data, error } = await supabase
       .from("tickets")
-      .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
+      .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at, closed_at")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -301,7 +303,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
     let query = supabase
       .from("tickets")
-      .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at", { count: "exact" })
+      .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at, closed_at", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(from, to);
 
@@ -384,7 +386,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     const [ticketRes, attachmentsRes, staffRes] = await Promise.all([
       supabase
         .from("tickets")
-        .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
+        .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at, closed_at")
         .eq("id", ticket.id)
         .single(),
       supabase
@@ -508,11 +510,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     if (supId && myUserId) {
       const actor = modalSupervisorOptions.find((o) => o.staff_id === myUserId)?.full_name ?? "المهندس";
       const selectedName = modalSupervisorOptions.find((o) => o.staff_id === supId)?.full_name ?? "مراقب";
-      const nowLabel = new Date().toLocaleTimeString("ar-SA", {
-        timeZone: "Asia/Riyadh",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      const nowLabel = formatSaudiTime(Date.now());
       await supabase.from("ticket_messages").insert({
         ticket_id: selectedTicket.id,
         sender_id: myUserId,
@@ -540,11 +538,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     if (techId && myUserId) {
       const actor = modalSupervisorOptions.find((o) => o.staff_id === myUserId)?.full_name ?? "المشرف";
       const selectedName = modalTechnicianOptions.find((o) => o.staff_id === techId)?.full_name ?? "فني";
-      const nowLabel = new Date().toLocaleTimeString("ar-SA", {
-        timeZone: "Asia/Riyadh",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      const nowLabel = formatSaudiTime(Date.now());
       await supabase.from("ticket_messages").insert({
         ticket_id: selectedTicket.id,
         sender_id: myUserId,
@@ -558,7 +552,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const openTicketById = async (ticketId: string) => {
     const { data, error } = await supabase
       .from("tickets")
-      .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
+      .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at, closed_at")
       .eq("id", ticketId)
       .single();
 
@@ -575,7 +569,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     if (selectedTicket) {
       const { data } = await supabase
         .from("tickets")
-        .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
+        .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at, closed_at")
         .eq("id", selectedTicket.id)
         .single();
 
@@ -1200,6 +1194,14 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                       {selectedTicket.reporter_phone || "—"}
                     </div>
                     <div><span className="font-semibold">موقع البلاغ:</span> {selectedTicket.title || "-"}</div>
+                    <div>
+                      <span className="font-semibold">وقت إنشاء البلاغ:</span> {formatSaudiDateTime(selectedTicket.created_at)}
+                    </div>
+                    {selectedTicket.closed_at ? (
+                      <div>
+                        <span className="font-semibold">وقت الإغلاق:</span> {formatSaudiDateTime(selectedTicket.closed_at)}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <div>
@@ -1281,7 +1283,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                             )}
                           </a>
                           <p className="text-center text-xs text-slate-600">
-                            الرتبة {att.sort_order + 1} — {att.file_name ?? "—"}
+                            الرتبة {att.sort_order + 1} — {att.file_name ?? "—"} — {formatSaudiDateTime(att.created_at)}
                           </p>
                         </div>
                       ))}

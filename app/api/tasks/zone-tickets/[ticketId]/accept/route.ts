@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { formatSaudiTime } from "@/lib/saudi-time";
 
 export async function PATCH(_request: Request, context: { params: Promise<{ ticketId: string }> }) {
   const supabase = await createSupabaseServerClient();
@@ -40,7 +41,7 @@ export async function PATCH(_request: Request, context: { params: Promise<{ tick
       return NextResponse.json({ error: updateError.message }, { status: 400 });
     }
 
-    const nowLabel = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+    const nowLabel = formatSaudiTime(Date.now());
     await supabase.from("ticket_messages").insert({
       ticket_id: ticketId,
       sender_id: user.id,

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { formatSaudiTime } from "@/lib/saudi-time";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -258,7 +259,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
               </>
             ) : null}
             {msg.audio_url ? <audio className="mt-2 w-full" controls preload="none" src={msg.audio_url} /> : null}
-              <p className="mt-1 text-[11px] text-slate-500">{new Date(msg.created_at).toLocaleTimeString("ar-SA")}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{formatSaudiTime(msg.created_at)}</p>
             </div>
           </div>
         ))}

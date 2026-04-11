@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
 import { playWorkNotificationSound } from "@/lib/work-notification";
 import { TicketDetailDrawer, type TicketDetailRow } from "@/components/ticket-detail-drawer";
+import { formatSaudiDateTime } from "@/lib/saudi-time";
 import { type TicketStatus, statusLabelAr } from "@/lib/ticket-status";
 
 type ZoneJoin = { name: string } | { name: string }[] | null;
@@ -26,6 +27,7 @@ type TechnicianTicket = {
   category?: string | null;
   ticket_categories?: { name: string } | { name: string }[] | null;
   zones?: ZoneJoin;
+  closed_at?: string | null;
 };
 
 type ZoneNotificationRow = {
@@ -47,17 +49,6 @@ function normalizeZoneName(zones: ZoneJoin | undefined): string {
   if (!zones) return "-";
   if (Array.isArray(zones)) return zones[0]?.name ?? "-";
   return zones.name ?? "-";
-}
-
-function formatOpenedAt(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("ar-SA", {
-      dateStyle: "short",
-      timeStyle: "short",
-    });
-  } catch {
-    return iso;
-  }
 }
 
 type TechnicianWorkListProps = {
@@ -123,7 +114,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
     const { data, error } = await supabase
       .from("tickets")
       .select(
-        "id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, location, description, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, category_id, category, ticket_categories(name), zones(name), created_at",
+        "id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, location, description, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, category_id, category, ticket_categories(name), zones(name), created_at, closed_at",
       )
       .eq("id", ticketId)
       .single();
@@ -365,7 +356,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                         التصنيف: {categoryDisplay} — المنطقة: {zoneDisplay}
                       </p>
                       <p className="text-xs text-slate-600">
-                        الحالة: {statusLabelAr(ticket.status)} — تاريخ الفتح: {formatOpenedAt(ticket.created_at)}
+                        الحالة: {statusLabelAr(ticket.status)} — وقت الإنشاء: {formatSaudiDateTime(ticket.created_at)}
                       </p>
                       <p className="mt-1 text-slate-700">{ticket.title ?? ticket.location}</p>
                     </button>

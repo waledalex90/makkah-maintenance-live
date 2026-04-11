@@ -30,6 +30,7 @@ type TicketRow = {
   assigned_supervisor_id: string | null;
   assigned_technician_id: string | null;
   created_at: string;
+  closed_at?: string | null;
 };
 
 type ZoneRow = {
@@ -80,7 +81,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
       supabase
         .from("tickets")
         .select(
-          "id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at",
+          "id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at, closed_at",
         )
         .order("created_at", { ascending: false })
         .limit(100),

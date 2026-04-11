@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/sheet";
 import { TicketChatPanel } from "@/components/ticket-chat-panel";
 import { ensureGpsPermission } from "@/lib/gps-permission";
+import { formatSaudiDateTime, formatSaudiTime } from "@/lib/saudi-time";
 import {
   TICKET_STATUS_VALUES,
   type TicketStatus,
@@ -43,6 +44,7 @@ export type TicketDetailRow = {
   category?: string | null;
   ticket_categories?: { name: string } | { name: string }[] | null;
   created_at: string;
+  closed_at?: string | null;
 };
 
 type StaffOption = { staff_id: string; full_name: string };
@@ -341,7 +343,7 @@ export function TicketDetailDrawer({
     if (supId && myUserId) {
       const actorName = senderNameMap[myUserId] ?? "المهندس";
       const selectedName = supervisorOptions.find((o) => o.staff_id === supId)?.full_name ?? "مراقب";
-      const nowLabel = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+      const nowLabel = formatSaudiTime(Date.now());
       await supabase.from("ticket_messages").insert({
         ticket_id: ticketId,
         sender_id: myUserId,
@@ -369,7 +371,7 @@ export function TicketDetailDrawer({
     if (techId && myUserId) {
       const actorName = senderNameMap[myUserId] ?? "المشرف";
       const selectedName = technicianOptions.find((o) => o.staff_id === techId)?.full_name ?? "فني";
-      const nowLabel = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+      const nowLabel = formatSaudiTime(Date.now());
       await supabase.from("ticket_messages").insert({
         ticket_id: ticketId,
         sender_id: myUserId,
@@ -577,6 +579,14 @@ export function TicketDetailDrawer({
                   <p>
                     <span className="font-medium">الوصف:</span> {ticket.description}
                   </p>
+                  <p>
+                    <span className="font-medium">وقت إنشاء البلاغ:</span> {formatSaudiDateTime(ticket.created_at)}
+                  </p>
+                  {ticket.closed_at ? (
+                    <p>
+                      <span className="font-medium">وقت الإغلاق:</span> {formatSaudiDateTime(ticket.closed_at)}
+                    </p>
+                  ) : null}
                   <p>
                     <span className="font-medium">المهندس المسؤول:</span>{" "}
                     {ticket.assigned_engineer_id

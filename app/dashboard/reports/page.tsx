@@ -19,11 +19,14 @@ export default async function ReportsPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, permissions")
     .eq("id", user.id)
     .single();
 
-  if (!profile?.role || !["admin", "project_manager", "projects_director"].includes(profile.role)) {
+  const perms = profile?.permissions as { view_admin_reports?: boolean } | null | undefined;
+  const allowedRole = profile?.role && ["admin", "project_manager", "projects_director"].includes(profile.role);
+  const allowedByPermission = Boolean(perms?.view_admin_reports);
+  if (!allowedRole && !allowedByPermission) {
     redirect("/dashboard/tickets");
   }
 

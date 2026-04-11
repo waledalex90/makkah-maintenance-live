@@ -21,6 +21,8 @@ type UserRow = {
   mobile: string;
   job_title?: string;
   specialty?: string;
+  region?: string;
+  permissions?: Record<string, unknown>;
   zones?: Array<{ id: string; name: string }>;
   account_status: string;
 };
@@ -78,6 +80,17 @@ export function UsersManagementContent() {
     job_title?: string;
     zone_ids?: string;
   }>({});
+
+  const [editingUser, setEditingUser] = useState<UserRow | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editRole, setEditRole] = useState<UserRole>("technician");
+  const [editRegion, setEditRegion] = useState("");
+  const [editSpecialty, setEditSpecialty] = useState<Specialty>("civil");
+  const [editZoneIds, setEditZoneIds] = useState<string[]>([]);
+  const [editViewReports, setEditViewReports] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editZoneDropdownOpen, setEditZoneDropdownOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -198,9 +211,14 @@ export function UsersManagementContent() {
   };
 
   const selectedZones = zones.filter((zone) => inviteZoneIds.includes(zone.id));
+  const selectedEditZones = zones.filter((zone) => editZoneIds.includes(zone.id));
   const toggleZoneSelection = (zoneId: string) => {
     setInviteZoneIds((prev) => (prev.includes(zoneId) ? prev.filter((id) => id !== zoneId) : [...prev, zoneId]));
     setInviteErrors((prev) => ({ ...prev, zone_ids: undefined }));
+  };
+
+  const toggleEditZoneSelection = (zoneId: string) => {
+    setEditZoneIds((prev) => (prev.includes(zoneId) ? prev.filter((id) => id !== zoneId) : [...prev, zoneId]));
   };
 
   const openInviteModal = async () => {
@@ -215,6 +233,68 @@ export function UsersManagementContent() {
     setPasswordModalUser(user);
     setNewPassword("");
     setPasswordError(null);
+  };
+
+  const openEditUser = (user: UserRow) => {
+    setEditingUser(user);
+    setEditName(user.full_name);
+    setEditRole(user.role);
+    setEditRegion(user.region ?? "");
+    setEditSpecialty((user.specialty as Specialty) ?? "civil");
+    setEditZoneIds((user.zones ?? []).map((z) => z.id));
+    setEditViewReports(Boolean(user.permissions?.view_admin_reports));
+    setEditZoneDropdownOpen(false);
+    setDeleteConfirm(false);
+  };
+
+  const closeEditUser = () => {
+    setEditingUser(null);
+    setDeleteConfirm(false);
+  };
+
+  const saveEditUser = async () => {
+    if (!editingUser) return;
+    if (!editName.trim()) {
+      toast.error("الاسم مطلوب.");
+      return;
+    }
+    setEditSaving(true);
+    const res = await fetch(`/api/admin/users/${editingUser.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        full_name: editName.trim(),
+        role: editRole,
+        region: editRegion.trim() || null,
+        specialty: editSpecialty,
+        zone_ids: editZoneIds,
+        permissions: { view_admin_reports: editViewReports },
+      }),
+    });
+    const data = (await res.json()) as { ok?: boolean; error?: string };
+    setEditSaving(false);
+    if (!res.ok || !data.ok) {
+      toast.error(data.error ?? "فشل حفظ البيانات.");
+      return;
+    }
+    toast.success("تم تحديث بيانات المستخدم.");
+    closeEditUser();
+    await loadUsers();
+  };
+
+  const deleteEditingUser = async () => {
+    if (!editingUser) return;
+    setEditSaving(true);
+    const res = await fetch(`/api/admin/users/${editingUser.id}`, { method: "DELETE" });
+    const data = (await res.json()) as { ok?: boolean; error?: string };
+    setEditSaving(false);
+    if (!res.ok || !data.ok) {
+      toast.error(data.error ?? "تعذر حذف المستخدم.");
+      return;
+    }
+    toast.success("تم حذف المستخدم.");
+    closeEditUser();
+    await loadUsers();
   };
 
   const closePasswordModal = () => {
@@ -273,7 +353,8 @@ export function UsersManagementContent() {
                 <th className="px-3 py-2">المناطق</th>
                 <th className="px-3 py-2">الدور</th>
                 <th className="px-3 py-2">حالة الحساب</th>
-                <th className="px-3 py-2">تعديل الصلاحيات</th>
+                <th className="px-3 py-2">الصلاحيات السريعة</th>
+                <th className="px-3 py-2">البيانات</th>
               </tr>
             </thead>
             <tbody>
@@ -326,11 +407,20 @@ export function UsersManagementContent() {
                       </button>
                     </div>
                   </td>
+                  <td className="px-3 py-2">
+                    <button
+                      type="button"
+                      className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                      onClick={() => openEditUser(user)}
+                    >
+                      تعديل البيانات
+                    </button>
+                  </td>
                 </tr>
               ))}
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-8 text-center text-slate-500">
+                  <td colSpan={10} className="px-3 py-8 text-center text-slate-500">
                     لا يوجد مستخدمون حالياً.
                   </td>
                 </tr>
@@ -493,6 +583,129 @@ export function UsersManagementContent() {
               >
                 {inviting ? "جاري الإرسال..." : "إرسال الدعوة"}
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editingUser ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closeEditUser}>
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">تعديل المستخدم</h3>
+              <button type="button" className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100" onClick={closeEditUser}>
+                X
+              </button>
+            </div>
+            <p className="mb-3 text-xs text-slate-500">{editingUser.email}</p>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <p className="mb-1 text-sm font-medium">الاسم الكامل</p>
+                <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+              </div>
+              <div>
+                <p className="mb-1 text-sm font-medium">الرتبة</p>
+                <select
+                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                  value={editRole}
+                  onChange={(e) => setEditRole(e.target.value as UserRole)}
+                >
+                  {ROLE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <p className="mb-1 text-sm font-medium">التخصص</p>
+                <select
+                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                  value={editSpecialty}
+                  onChange={(e) => setEditSpecialty(e.target.value as Specialty)}
+                >
+                  {SPECIALTY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <p className="mb-1 text-sm font-medium">المنطقة (نص مرجعي يطابق اسم المنطة إن لزم)</p>
+                <Input value={editRegion} onChange={(e) => setEditRegion(e.target.value)} placeholder="مثال: المعيصم" />
+              </div>
+              <div className="md:col-span-2">
+                <p className="mb-2 text-sm font-medium">ربط المناطق (تشغيل)</p>
+                <button
+                  type="button"
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 text-sm"
+                  onClick={() => setEditZoneDropdownOpen((prev) => !prev)}
+                >
+                  <span className="truncate text-right">
+                    {selectedEditZones.length === 0 ? "بدون مناطق" : selectedEditZones.map((z) => z.name).join("، ")}
+                  </span>
+                  <span className="text-xs text-slate-500">{selectedEditZones.length} محدد</span>
+                </button>
+                {editZoneDropdownOpen ? (
+                  <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-2">
+                    {zones.map((zone) => (
+                      <label key={zone.id} className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 hover:bg-slate-50">
+                        <span className="text-sm">{zone.name}</span>
+                        <input type="checkbox" checked={editZoneIds.includes(zone.id)} onChange={() => toggleEditZoneSelection(zone.id)} />
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input type="checkbox" checked={editViewReports} onChange={(e) => setEditViewReports(e.target.checked)} />
+                  <span>صلاحية عرض تقارير الإدارة (لوحة التقارير)</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-2">
+                {deleteConfirm ? (
+                  <>
+                    <button
+                      type="button"
+                      className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                      disabled={editSaving}
+                      onClick={() => void deleteEditingUser()}
+                    >
+                      {editSaving ? "جاري الحذف..." : "تأكيد الحذف نهائياً"}
+                    </button>
+                    <button type="button" className="rounded-md border border-slate-200 px-4 py-2 text-sm" onClick={() => setDeleteConfirm(false)}>
+                      إلغاء
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded-md border border-red-200 px-4 py-2 text-sm text-red-700 hover:bg-red-50"
+                    onClick={() => setDeleteConfirm(true)}
+                  >
+                    حذف المستخدم
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button type="button" className="rounded-md border border-slate-200 px-4 py-2 text-sm" onClick={closeEditUser} disabled={editSaving}>
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                  disabled={editSaving}
+                  onClick={() => void saveEditUser()}
+                >
+                  {editSaving ? "جاري الحفظ..." : "حفظ التغييرات"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

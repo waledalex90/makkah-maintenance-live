@@ -8,6 +8,8 @@ type ProfileRow = {
   mobile: string;
   job_title?: string | null;
   specialty?: string | null;
+  region?: string | null;
+  permissions?: Record<string, unknown> | null;
   role:
     | "admin"
     | "projects_director"
@@ -53,7 +55,7 @@ export async function GET() {
     const adminSupabase = createSupabaseAdminClient();
 
     const [{ data: profiles, error: profilesError }, usersResult] = await Promise.all([
-      adminSupabase.from("profiles").select("id, full_name, mobile, role, job_title, specialty"),
+      adminSupabase.from("profiles").select("id, full_name, mobile, role, job_title, specialty, region, permissions"),
       adminSupabase.auth.admin.listUsers(),
     ]);
 
@@ -65,7 +67,7 @@ export async function GET() {
       // Fallback: if admin key is invalid/missing, still return profiles so management table is usable.
       const { data: fallbackProfiles, error: fallbackProfilesError } = await supabase
         .from("profiles")
-        .select("id, full_name, mobile, role, job_title, specialty");
+        .select("id, full_name, mobile, role, job_title, specialty, region, permissions");
 
       const profileIds = ((fallbackProfiles as ProfileRow[]) ?? []).map((p) => p.id);
       const { data: zoneLinks } = profileIds.length
@@ -94,6 +96,8 @@ export async function GET() {
         mobile: profile.mobile,
         job_title: profile.job_title ?? "",
         specialty: profile.specialty ?? "",
+        region: profile.region ?? "",
+        permissions: profile.permissions ?? {},
         role: profile.role,
         email: "غير متوفر",
         account_status: "غير متوفر",
@@ -132,6 +136,8 @@ export async function GET() {
         mobile: profile.mobile,
         job_title: profile.job_title ?? "",
         specialty: profile.specialty ?? "",
+        region: profile.region ?? "",
+        permissions: profile.permissions ?? {},
         role: profile.role,
         email,
         account_status: status,

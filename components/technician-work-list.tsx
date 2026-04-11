@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type TouchEventHandler } from "react";
-import { Howl } from "howler";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
+import { playWorkNotificationSound } from "@/lib/work-notification";
 import { TicketDetailDrawer, type TicketDetailRow } from "@/components/ticket-detail-drawer";
 
 type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
@@ -85,7 +85,8 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
   const [pullStartY, setPullStartY] = useState<number | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
   const [pullRefreshing, setPullRefreshing] = useState(false);
-  const alarmRef = useRef<Howl | null>(null);
+  const seenTicketIdsRef = useRef<Set<string>>(new Set());
+  const initialListHydratedRef = useRef(false);
 
   const visibleTickets = tab === "area" ? areaTickets : myTickets;
 
@@ -176,6 +177,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
             const was = oldRow.assigned_supervisor_id as string | undefined;
             const now = newRow.assigned_supervisor_id as string | undefined;
             if (was !== myUserId && now === myUserId) {
+              playWorkNotificationSound();
               toast.success("تم تكليفك كمشرف على بلاغ جديد.");
               void loadTickets();
             }
@@ -183,6 +185,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
             const was = oldRow.assigned_technician_id as string | undefined;
             const now = newRow.assigned_technician_id as string | undefined;
             if (was !== myUserId && now === myUserId) {
+              playWorkNotificationSound();
               toast.success("تم تكليفك بتنفيذ بلاغ جديد.");
               void loadTickets();
             }
@@ -195,6 +198,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
         { event: "INSERT", schema: "public", table: "zone_notifications", filter: `recipient_id=eq.${myUserId}` },
         (payload) => {
           const row = payload.new as ZoneNotificationRow;
+          playWorkNotificationSound();
           toast.success(row.title);
           if ("Notification" in window && Notification.permission === "granted" && "serviceWorker" in navigator) {
             void navigator.serviceWorker.ready.then((registration) => {
@@ -233,45 +237,26 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
     return [...map.values()];
   }, [areaTickets, myTickets]);
 
-  const shouldPlayAlarm = useMemo(() => {
-    if (role === "technician") {
-      return combinedTickets.some((ticket) => {
-        if (ticket.status === "fixed") return false;
-        if (!ticket.assigned_technician_id) return ticket.status === "new";
-        return ticket.assigned_technician_id === myUserId && ticket.status === "assigned";
-      });
-    }
-    return combinedTickets.some((ticket) => ticket.status === "new");
-  }, [combinedTickets, role, myUserId]);
-
   useEffect(() => {
-    if (shouldPlayAlarm) {
-      if (!alarmRef.current) {
-        alarmRef.current = new Howl({
-          src: ["/sounds/alarm.mp3"],
-          loop: true,
-          volume: 1,
-        });
-      }
-      if (!alarmRef.current.playing()) {
-        alarmRef.current.play();
-      }
+    if (loading) return;
+    const ids = new Set(combinedTickets.map((t) => t.id));
+    if (!initialListHydratedRef.current) {
+      seenTicketIdsRef.current = ids;
+      initialListHydratedRef.current = true;
       return;
     }
-    if (alarmRef.current?.playing()) {
-      alarmRef.current.stop();
-    }
-  }, [shouldPlayAlarm]);
-
-  useEffect(() => {
-    return () => {
-      if (alarmRef.current) {
-        alarmRef.current.stop();
-        alarmRef.current.unload();
-        alarmRef.current = null;
+    let foundNew = false;
+    for (const id of ids) {
+      if (!seenTicketIdsRef.current.has(id)) {
+        foundNew = true;
+        break;
       }
-    };
-  }, []);
+    }
+    if (foundNew) {
+      playWorkNotificationSound();
+    }
+    seenTicketIdsRef.current = ids;
+  }, [combinedTickets, loading]);
 
   const claimTicket = async (ticketId: string) => {
     const res = await fetch(`/api/tasks/zone-tickets/${ticketId}/claim`, {

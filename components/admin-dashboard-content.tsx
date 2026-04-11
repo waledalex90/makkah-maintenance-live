@@ -136,10 +136,10 @@ function normalizeCategoryName(category: CategoryJoin | undefined): string {
 
 function statusText(status: TicketStatus): string {
   if (status === "new") return "جديد";
-  if (status === "assigned") return "تم التعيين";
+  if (status === "assigned") return "تم التكليف";
   if (status === "on_the_way") return "في الطريق";
   if (status === "arrived") return "وصل";
-  return "مغلق";
+  return "تم الإنجاز";
 }
 
 function mapCategoryToSpecialty(categoryName: string): string | null {
@@ -766,10 +766,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
             >
               <option value="all">كل الحالات</option>
               <option value="new">جديد</option>
-              <option value="assigned">تم التعيين</option>
+              <option value="assigned">تم التكليف</option>
               <option value="on_the_way">في الطريق</option>
               <option value="arrived">وصل</option>
-              <option value="fixed">مغلق</option>
+              <option value="fixed">تم الإنجاز</option>
             </select>
           </div>
 

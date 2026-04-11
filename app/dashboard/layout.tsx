@@ -18,7 +18,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, role")
+    .select("full_name, role, permissions")
     .eq("id", user.id)
     .single();
 
@@ -28,11 +28,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const fullName = profile?.full_name ?? "User";
   const role = profile?.role ?? "engineer";
+  const perms = profile?.permissions as { view_admin_reports?: boolean } | null | undefined;
+  const canViewReports =
+    role === "admin" ||
+    role === "project_manager" ||
+    role === "projects_director" ||
+    Boolean(perms?.view_admin_reports);
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
       <LiveLocationTracker />
-      <DashboardSidebar fullName={fullName} role={role} />
+      <DashboardSidebar fullName={fullName} role={role} canViewReports={canViewReports} />
       <main className="flex-1 p-4 pb-24 md:p-6 md:pb-6">
         <DashboardTopbar fullName={fullName} />
         <PageTransition>{children}</PageTransition>

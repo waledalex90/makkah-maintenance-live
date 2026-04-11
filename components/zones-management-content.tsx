@@ -5,6 +5,7 @@ import { divIcon } from "leaflet";
 import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
+import { getLeafletTileProps } from "@/lib/maptiler";
 import { supabase } from "@/lib/supabase";
 
 type ZoneRow = {
@@ -66,6 +67,7 @@ function ZoneLocationPickerMap({ latitude, longitude, onPick }: ZoneLocationPick
 }
 
 export function ZonesManagementContent() {
+  const mapTiles = useMemo(() => getLeafletTileProps(), []);
   const [zones, setZones] = useState<ZoneRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -397,10 +399,12 @@ export function ZonesManagementContent() {
               <div>
                 <p className="mb-2 text-sm font-medium">حدد موقع المنطقة على الخريطة</p>
                 <div className="h-56 overflow-hidden rounded-md border border-slate-200">
-                  <MapContainer center={miniMapCenter} zoom={12} scrollWheelZoom className="h-full w-full">
+                  <MapContainer center={miniMapCenter} zoom={12} maxZoom={mapTiles.maxZoom} scrollWheelZoom className="h-full w-full">
                     <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      attribution={mapTiles.attribution}
+                      url={mapTiles.url}
+                      maxZoom={mapTiles.maxZoom}
+                      maxNativeZoom={mapTiles.maxNativeZoom}
                     />
                     <MiniMapCenterController center={miniMapCenter} />
                     <ZoneLocationPickerMap

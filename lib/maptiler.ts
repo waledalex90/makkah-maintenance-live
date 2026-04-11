@@ -1,0 +1,45 @@
+/**
+ * MapTiler raster tiles (Leaflet: {z} {x} {y}).
+ * Set NEXT_PUBLIC_MAPTILER_API_KEY in .env.local
+ * @see https://docs.maptiler.com/cloud/api/
+ */
+
+export const MAPTILER_ATTRIBUTION =
+  '&copy; <a href="https://www.maptiler.com/copyright/" target="_blank" rel="noreferrer">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors';
+
+export function getMapTilerApiKey(): string {
+  return typeof process !== "undefined" ? process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? "" : "";
+}
+
+/** Streets v2 (default operational basemap) */
+export function mapTilerStreetsTileUrl(key: string): string {
+  return `https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=${encodeURIComponent(key)}`;
+}
+
+/** Satellite imagery (optional second basemap) */
+export function mapTilerSatelliteTileUrl(key: string): string {
+  return `https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${encodeURIComponent(key)}`;
+}
+
+export function getLeafletTileProps(): {
+  url: string;
+  attribution: string;
+  maxZoom: number;
+  maxNativeZoom: number;
+} {
+  const key = getMapTilerApiKey();
+  if (key) {
+    return {
+      url: mapTilerStreetsTileUrl(key),
+      attribution: MAPTILER_ATTRIBUTION,
+      maxZoom: 22,
+      maxNativeZoom: 22,
+    };
+  }
+  return {
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+    maxNativeZoom: 19,
+  };
+}

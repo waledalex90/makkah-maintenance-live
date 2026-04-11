@@ -53,7 +53,12 @@ export function LiveLocationTracker() {
           .eq("id", user.id)
           .single();
         const role = profile?.role as string | undefined;
-        if (!role || !["technician", "supervisor", "engineer"].includes(role)) return;
+        if (
+          !role ||
+          !["technician", "supervisor", "engineer", "reporter", "project_manager", "projects_director"].includes(role)
+        ) {
+          return;
+        }
 
         const permission = await ensureGpsPermission();
         if (permission === "unsupported" || permission === "insecure" || permission === "denied") return;

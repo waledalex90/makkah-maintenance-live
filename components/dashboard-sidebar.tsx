@@ -10,11 +10,13 @@ import { LogoutButton } from "@/components/logout-button";
 type DashboardSidebarProps = {
   fullName: string;
   role: string;
+  /** Extra access to /dashboard/reports (e.g. permissions.view_admin_reports) */
+  canViewReports?: boolean;
 };
 
 type NavItem = { href: string; label: string; icon: typeof MapPinned };
 
-export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
+export function DashboardSidebar({ fullName, role, canViewReports = false }: DashboardSidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const roleLabel =
@@ -46,6 +48,13 @@ export function DashboardSidebar({ fullName, role }: DashboardSidebarProps) {
         { href: "/dashboard/reports", label: "التقارير", icon: BarChart3 },
         { href: "/dashboard/admin/zones", label: "إدارة المناطق", icon: MapPinned },
         { href: "/dashboard/admin/users", label: "إدارة المستخدمين", icon: Users },
+      ];
+    }
+    if (canViewReports) {
+      return [
+        { href: "/dashboard/map", label: "الخريطة", icon: MapPinned },
+        ...common,
+        { href: "/dashboard/reports", label: "التقارير", icon: BarChart3 },
       ];
     }
     if (role === "reporter") {

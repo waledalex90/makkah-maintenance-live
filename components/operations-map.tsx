@@ -7,6 +7,14 @@ import { LayersControl, MapContainer, Marker, Popup, TileLayer, Tooltip, useMap 
 import { toast } from "sonner";
 import { TicketDetailDrawer } from "@/components/ticket-detail-drawer";
 import { Badge } from "@/components/ui/badge";
+import { isFleetMapRole } from "@/lib/fleet-map-roles";
+import { fleetPinDotOnly } from "@/lib/map-fleet-marker";
+import {
+  getLeafletTileProps,
+  getMapTilerApiKey,
+  mapTilerSatelliteTileUrl,
+  MAPTILER_ATTRIBUTION,
+} from "@/lib/maptiler";
 import { supabase } from "@/lib/supabase";
 
 type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
@@ -35,11 +43,17 @@ type TicketRow = {
   created_at: string;
 };
 
-type ProfileRole = "admin" | "engineer" | "supervisor" | "technician";
+type StaffRole =
+  | "engineer"
+  | "supervisor"
+  | "technician"
+  | "reporter"
+  | "project_manager"
+  | "projects_director";
 
 type ProfileJoin = {
   full_name: string;
-  role: ProfileRole;
+  role: StaffRole | "admin";
   specialty?: string | null;
   mobile?: string | null;
 };
@@ -64,16 +78,30 @@ function getStatusBadgeVariant(status: TicketStatus): "red" | "yellow" | "green"
 
 function statusLabel(status: TicketStatus): string {
   if (status === "new") return "جديد";
-  if (status === "assigned") return "مُسند";
+  if (status === "assigned") return "تم التكليف";
   if (status === "on_the_way") return "في الطريق";
-  if (status === "arrived") return "تم الوصول";
-  return "تم الإصلاح";
+  if (status === "arrived") return "وصل";
+  return "تم الإنجاز";
 }
 
-function roleColor(role: ProfileRole): string {
+function roleColor(role: string): string {
   if (role === "technician") return "#2563eb";
   if (role === "supervisor") return "#7c3aed";
-  return "#0f172a";
+  if (role === "engineer") return "#0f172a";
+  if (role === "reporter") return "#ea580c";
+  if (role === "project_manager") return "#0891b2";
+  if (role === "projects_director") return "#be123c";
+  return "#64748b";
+}
+
+function roleLabelAr(role: string): string {
+  if (role === "technician") return "فني";
+  if (role === "supervisor") return "مراقب";
+  if (role === "engineer") return "مهندس";
+  if (role === "reporter") return "مدخل بيانات";
+  if (role === "project_manager") return "مدير مشروع";
+  if (role === "projects_director") return "مدير المشاريع";
+  return role;
 }
 
 function ticketColor(status: TicketStatus): string {
@@ -91,33 +119,10 @@ function circleIcon(color: string) {
   });
 }
 
-function liveStaffIcon(role: ProfileRole) {
-  const tint = role === "supervisor" ? "#7c3aed" : "#2563eb";
-  return divIcon({
-    className: "",
-    html: `
-      <div class="live-staff-marker" style="--pulse-color:${tint}">
-        <span class="live-staff-pulse"></span>
-        <span class="live-staff-core">👷</span>
-      </div>
-    `,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-    popupAnchor: [0, -16],
-  });
-}
-
 function normalizeProfile(profile: LiveLocationRow["profiles"]): ProfileJoin | null {
   if (!profile) return null;
   if (Array.isArray(profile)) return profile[0] ?? null;
   return profile;
-}
-
-function shortDisplayName(fullName: string): string {
-  const cleaned = fullName.trim().split(/\s+/).filter(Boolean);
-  if (cleaned.length === 0) return "";
-  if (cleaned.length === 1) return cleaned[0];
-  return `${cleaned[0]} ${cleaned[1].charAt(0)}.`;
 }
 
 type FitMapBoundsProps = {
@@ -148,8 +153,9 @@ export function OperationsMap() {
   const [liveLocations, setLiveLocations] = useState<LiveLocationRow[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
   const hereTrafficKey = process.env.NEXT_PUBLIC_HERE_TRAFFIC_API_KEY;
+  const mapTilerKey = getMapTilerApiKey();
+  const streetsTileProps = getLeafletTileProps();
 
   const zoneMap = useMemo(() => {
     const map = new Map<string, Zone>();
@@ -157,10 +163,17 @@ export function OperationsMap() {
     return map;
   }, [zones]);
 
+  const visibleFleet = useMemo(() => {
+    return liveLocations.filter((loc) => {
+      const profile = normalizeProfile(loc.profiles);
+      return Boolean(profile && isFleetMapRole(profile.role));
+    });
+  }, [liveLocations]);
+
   const fitPoints = useMemo(() => {
     const points: Array<[number, number]> = [];
 
-    liveLocations.forEach((loc) => {
+    visibleFleet.forEach((loc) => {
       points.push([loc.latitude, loc.longitude]);
     });
 
@@ -173,7 +186,7 @@ export function OperationsMap() {
     });
 
     return points;
-  }, [liveLocations, activeTickets, zoneMap]);
+  }, [visibleFleet, activeTickets, zoneMap]);
 
   const loadZones = async () => {
     const { data, error } = await supabase
@@ -216,12 +229,13 @@ export function OperationsMap() {
       return;
     }
 
-    const rows = ((data as LiveLocationRow[]) ?? []).filter((row) => {
-      const profile = normalizeProfile(row.profiles);
-      return profile?.role === "technician" || profile?.role === "supervisor";
-    });
-
-    setLiveLocations(rows);
+    const rows = (data as LiveLocationRow[]) ?? [];
+    setLiveLocations(
+      rows.filter((loc) => {
+        const p = normalizeProfile(loc.profiles);
+        return Boolean(p && isFleetMapRole(p.role));
+      }),
+    );
   };
 
   useEffect(() => {
@@ -229,16 +243,8 @@ export function OperationsMap() {
   }, []);
 
   useEffect(() => {
-    const syncDark = () => setIsDarkMode(document.documentElement.classList.contains("dark"));
-    syncDark();
-    const observer = new MutationObserver(syncDark);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
     const channel = supabase
-      .channel("map-realtime-sync")
+      .channel("map-realtime-sync-v2")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "live_locations" },
@@ -250,7 +256,7 @@ export function OperationsMap() {
             .eq("id", row.user_id)
             .single();
           const profile = profileData as ProfileJoin | null;
-          if (!profile || (profile.role !== "technician" && profile.role !== "supervisor")) return;
+          if (!profile || !isFleetMapRole(profile.role)) return;
           setLiveLocations((prev) => {
             const exists = prev.some((item) => item.user_id === row.user_id);
             const nextRow: LiveLocationRow = { ...row, profiles: profile };
@@ -264,13 +270,28 @@ export function OperationsMap() {
         { event: "UPDATE", schema: "public", table: "live_locations" },
         async (payload) => {
           const row = payload.new as LiveLocationRow;
+          setLiveLocations((prev) => {
+            const i = prev.findIndex((item) => item.user_id === row.user_id);
+            if (i < 0) return prev;
+            const next = [...prev];
+            next[i] = {
+              ...next[i],
+              latitude: row.latitude,
+              longitude: row.longitude,
+              last_updated: row.last_updated,
+            };
+            return next;
+          });
           const { data: profileData } = await supabase
             .from("profiles")
             .select("full_name, role, specialty, mobile")
             .eq("id", row.user_id)
             .single();
           const profile = profileData as ProfileJoin | null;
-          if (!profile || (profile.role !== "technician" && profile.role !== "supervisor")) return;
+          if (!profile || !isFleetMapRole(profile.role)) {
+            setLiveLocations((prev) => prev.filter((item) => item.user_id !== row.user_id));
+            return;
+          }
           setLiveLocations((prev) =>
             prev.map((item) => (item.user_id === row.user_id ? { ...item, ...row, profiles: profile } : item)),
           );
@@ -341,56 +362,38 @@ export function OperationsMap() {
         <p className="text-sm text-slate-500 dark:text-slate-400">الفرق الميدانية المباشرة والبلاغات النشطة</p>
       </div>
 
+      {!mapTilerKey ? (
+        <p className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          لتفعيل طبقة MapTiler Streets: أضف <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">NEXT_PUBLIC_MAPTILER_API_KEY</code> في{" "}
+          <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">.env.local</code>. حالياً تُستخدم خريطة OpenStreetMap احتياطياً.
+        </p>
+      ) : null}
+
       <div className="relative h-[72vh] overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
-        <MapContainer center={MAKKAH_CENTER} zoom={DEFAULT_ZOOM} maxZoom={20} scrollWheelZoom className="h-full w-full">
+        <MapContainer center={MAKKAH_CENTER} zoom={DEFAULT_ZOOM} maxZoom={streetsTileProps.maxZoom} scrollWheelZoom className="h-full w-full">
           <LayersControl position="topleft">
-            <LayersControl.BaseLayer checked={!isDarkMode} name="خريطة الشوارع المتقدمة">
+            <LayersControl.BaseLayer checked name="MapTiler — الشوارع">
               <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; CARTO'
-                url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-                maxNativeZoom={19}
-                maxZoom={20}
+                attribution={streetsTileProps.attribution}
+                url={streetsTileProps.url}
+                maxNativeZoom={streetsTileProps.maxNativeZoom}
+                maxZoom={streetsTileProps.maxZoom}
               />
             </LayersControl.BaseLayer>
 
-            <LayersControl.BaseLayer name="الأقمار الصناعية">
-              <TileLayer
-                attribution="Tiles &copy; Esri"
-                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                maxNativeZoom={20}
-                maxZoom={20}
-              />
-            </LayersControl.BaseLayer>
-
-            <LayersControl.BaseLayer checked={isDarkMode} name="الوضع الليلي">
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; CARTO'
-                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                maxNativeZoom={20}
-                maxZoom={20}
-              />
-            </LayersControl.BaseLayer>
-
-            <LayersControl.Overlay checked name="الأسماء والمعالم">
-              <TileLayer
-                attribution="Labels &copy; Esri"
-                url="https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
-                maxNativeZoom={20}
-                maxZoom={20}
-              />
-            </LayersControl.Overlay>
-
-            <LayersControl.Overlay checked name="المعالم المحلية (POIs)">
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, HOT'
-                url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png"
-                maxNativeZoom={19}
-                maxZoom={20}
-              />
-            </LayersControl.Overlay>
+            {mapTilerKey ? (
+              <LayersControl.BaseLayer name="MapTiler — الأقمار الصناعية">
+                <TileLayer
+                  attribution={MAPTILER_ATTRIBUTION}
+                  url={mapTilerSatelliteTileUrl(mapTilerKey)}
+                  maxNativeZoom={22}
+                  maxZoom={22}
+                />
+              </LayersControl.BaseLayer>
+            ) : null}
 
             {hereTrafficKey ? (
-              <LayersControl.Overlay checked name="حركة المرور الحية">
+              <LayersControl.Overlay name="حركة المرور (HERE)">
                 <TileLayer
                   attribution="Traffic &copy; HERE"
                   url={`https://{s}.traffic.maps.ls.hereapi.com/traffic/6.2/flowtile/newest/normal.day/{z}/{x}/{y}/512/png8?apiKey=${hereTrafficKey}`}
@@ -404,28 +407,31 @@ export function OperationsMap() {
           <FitMapBounds points={fitPoints} />
 
           <MarkerClusterGroup chunkedLoading>
-            {liveLocations.map((loc) => {
+            {visibleFleet.map((loc) => {
               const profile = normalizeProfile(loc.profiles);
               if (!profile) return null;
+              const tint = roleColor(profile.role);
+              const displayName = profile.full_name.trim() || "—";
 
               return (
                 <Marker
                   key={`staff-${loc.user_id}`}
                   position={[loc.latitude, loc.longitude]}
-                  icon={liveStaffIcon(profile.role)}
+                  icon={fleetPinDotOnly(tint)}
                 >
                   <Tooltip
-                    permanent
                     direction="top"
-                    offset={[0, -20]}
-                    className="!rounded-full !border !border-slate-300 !bg-white/95 !px-2 !py-0.5 !text-[10px] !font-semibold !text-slate-800 !shadow"
+                    offset={[0, -12]}
+                    opacity={1}
+                    permanent
+                    className="!rounded-lg !border !border-slate-300 !bg-white !px-2.5 !py-1 !text-xs !font-semibold !text-slate-900 !shadow-md"
                   >
-                    {shortDisplayName(profile.full_name)}
+                    {displayName}
                   </Tooltip>
                   <Popup>
                     <div className="space-y-1 text-sm">
                       <p className="font-semibold">{profile.full_name}</p>
-                      <p>الدور: {profile.role}</p>
+                      <p>الدور: {roleLabelAr(profile.role)}</p>
                       <p>التخصص: {profile.specialty || "-"}</p>
                       <p>الجوال: {profile.mobile || "-"}</p>
                       <p>
@@ -437,7 +443,7 @@ export function OperationsMap() {
                           return current ? statusLabel(current.status) : "لا يوجد بلاغ نشط";
                         })()}
                       </p>
-                      <p>آخر تحديث: {new Date(loc.last_updated).toLocaleTimeString()}</p>
+                      <p>آخر تحديث: {new Date(loc.last_updated).toLocaleTimeString("ar-SA")}</p>
                     </div>
                   </Popup>
                 </Marker>
@@ -476,13 +482,33 @@ export function OperationsMap() {
           </MarkerClusterGroup>
         </MapContainer>
 
-        <div className="absolute right-3 top-3 z-[500] rounded-md border border-slate-200 bg-white/95 p-3 text-xs dark:border-slate-800 dark:bg-slate-900/95">
-          <p className="mb-2 font-semibold text-slate-800 dark:text-slate-100">المفاتيح</p>
+        <div className="absolute right-3 top-3 z-[500] max-w-[200px] rounded-md border border-slate-200 bg-white/95 p-3 text-xs dark:border-slate-800 dark:bg-slate-900/95">
+          <p className="mb-2 font-semibold text-slate-800 dark:text-slate-100">المفتاح</p>
           <div className="space-y-1.5 text-slate-700 dark:text-slate-400">
-            <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-blue-600" /> فني</div>
-            <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-violet-600" /> مشرف</div>
-            <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-red-600" /> بلاغ جديد</div>
-            <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500" /> بلاغ تحت التنفيذ</div>
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-sky-600" /> مدير مشروع
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-rose-700" /> مدير مشاريع
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-slate-900" /> مهندس
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-violet-600" /> مراقب
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-600" /> فني
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-orange-600" /> مدخل بيانات
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-600" /> بلاغ جديد
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-yellow-500" /> بلاغ قيد التنفيذ
+            </div>
           </div>
         </div>
       </div>

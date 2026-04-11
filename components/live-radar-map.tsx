@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { LatLngBounds, divIcon, latLng } from "leaflet";
+import { LatLngBounds, latLng } from "leaflet";
 import { MapContainer, Marker, TileLayer, Tooltip, useMap } from "react-leaflet";
 import { toast } from "sonner";
+import { isFleetMapRole } from "@/lib/fleet-map-roles";
+import { fleetPinDotOnly } from "@/lib/map-fleet-marker";
+import { getLeafletTileProps } from "@/lib/maptiler";
 import { supabase } from "@/lib/supabase";
 
 type ZoneRow = {
@@ -60,17 +63,14 @@ function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number):
   return r * c;
 }
 
-function markerIcon(color: string, label: string) {
-  const safeLabel = label.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return divIcon({
-    className: "",
-    html: `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;transform:translateY(-8px)">
-      <span style="font-size:11px;background:#fff;padding:2px 6px;border-radius:9999px;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,0.12);white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${safeLabel}</span>
-      <span style="width:14px;height:14px;border-radius:9999px;background:${color};border:2px solid #fff;box-shadow:0 0 0 1px rgba(15,23,42,0.25);"></span>
-    </div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-  });
+function roleFleetColor(role: string): string {
+  if (role === "technician") return "#2563eb";
+  if (role === "supervisor") return "#7c3aed";
+  if (role === "engineer") return "#0f172a";
+  if (role === "reporter") return "#ea580c";
+  if (role === "project_manager") return "#0891b2";
+  if (role === "projects_director") return "#be123c";
+  return "#64748b";
 }
 
 function FitMapBounds({ points }: { points: Array<[number, number]> }) {
@@ -93,6 +93,7 @@ export function LiveRadarMap({ zoneFilter }: LiveRadarMapProps) {
   const [liveLocations, setLiveLocations] = useState<LiveLocationRow[]>([]);
   const [nowTs, setNowTs] = useState(() => Date.now());
   const [mapError, setMapError] = useState<string | null>(null);
+  const streetsTile = getLeafletTileProps();
 
   const zoneMap = useMemo(() => {
     const map = new Map<string, ZoneRow>();
@@ -152,7 +153,7 @@ export function LiveRadarMap({ zoneFilter }: LiveRadarMapProps) {
     setTickets(zoneScopedTickets);
     const staff = ((liveRes.data as LiveLocationRow[]) ?? []).filter((row) => {
       const profile = normalizeProfile(row.profiles);
-      return profile?.role === "technician" || profile?.role === "supervisor" || profile?.role === "engineer";
+      return Boolean(profile && isFleetMapRole(profile.role));
     });
     setLiveLocations(staff);
   };
@@ -189,21 +190,35 @@ export function LiveRadarMap({ zoneFilter }: LiveRadarMapProps) {
         </div>
       ) : null}
       <div className="relative h-[48vh] overflow-hidden rounded-lg border border-slate-200">
-        <MapContainer center={MAKKAH_CENTER} zoom={11} scrollWheelZoom className="h-full w-full">
+        <MapContainer center={MAKKAH_CENTER} zoom={11} maxZoom={streetsTile.maxZoom} scrollWheelZoom className="h-full w-full">
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution={streetsTile.attribution}
+            url={streetsTile.url}
+            maxZoom={streetsTile.maxZoom}
+            maxNativeZoom={streetsTile.maxNativeZoom}
           />
           <FitMapBounds points={mapPoints} />
           {visibleFleet.map((loc) => {
             const profile = normalizeProfile(loc.profiles);
             if (!profile) return null;
             const isOnline = nowTs - new Date(loc.last_updated).getTime() <= ONLINE_WINDOW_MS;
-            const color = !isOnline ? "#9ca3af" : busyUserIds.has(loc.user_id) ? "#dc2626" : "#16a34a";
+            const base = roleFleetColor(profile.role);
+            const color = !isOnline ? "#9ca3af" : busyUserIds.has(loc.user_id) ? "#dc2626" : base;
+            const displayName = profile.full_name.trim() || "—";
             return (
-              <Marker key={loc.user_id} position={[loc.latitude, loc.longitude]} icon={markerIcon(color, profile.full_name)}>
-                <Tooltip direction="top" offset={[0, -12]} opacity={1} permanent>
-                  {profile.full_name}
+              <Marker
+                key={loc.user_id}
+                position={[loc.latitude, loc.longitude]}
+                icon={fleetPinDotOnly(color)}
+              >
+                <Tooltip
+                  direction="top"
+                  offset={[0, -12]}
+                  opacity={1}
+                  permanent
+                  className="!rounded-lg !border !border-slate-300 !bg-white !px-2.5 !py-1 !text-xs !font-semibold !text-slate-900 !shadow-md"
+                >
+                  {displayName}
                 </Tooltip>
               </Marker>
             );

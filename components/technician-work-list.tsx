@@ -44,7 +44,7 @@ function normalizeZoneName(zones: ZoneJoin | undefined): string {
 }
 
 type TechnicianWorkListProps = {
-  role: "technician" | "supervisor";
+  role: "technician" | "supervisor" | "engineer";
 };
 
 export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
@@ -137,6 +137,13 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
             if (was !== myUserId && now === myUserId) {
               playWorkNotificationSound();
               toast.success("تم تكليفك كمشرف على بلاغ جديد.");
+            }
+          } else if (role === "engineer") {
+            const was = oldRow.assigned_engineer_id as string | undefined;
+            const now = newRow.assigned_engineer_id as string | undefined;
+            if (was !== myUserId && now === myUserId) {
+              playWorkNotificationSound();
+              toast.success("تم تكليفك كمهندس على بلاغ جديد.");
             }
           } else {
             const was = oldRow.assigned_technician_id as string | undefined;

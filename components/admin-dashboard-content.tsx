@@ -29,6 +29,7 @@ import {
   statusLabelAr,
 } from "@/lib/ticket-status";
 import { arabicErrorMessage } from "@/lib/arabic-errors";
+import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 import {
   formatSaudiDateTime,
   formatSaudiNow,
@@ -249,6 +250,17 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [pullDistance, setPullDistance] = useState(0);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const openedTicketQueryRef = useRef<string | null>(null);
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  const [ticketDeleteDialogOpen, setTicketDeleteDialogOpen] = useState(false);
+  const [ticketDeleting, setTicketDeleting] = useState(false);
+
+  const isSuperAdminSession = isProtectedSuperAdminEmail(sessionEmail);
+
+  useEffect(() => {
+    void supabase.auth.getUser().then(({ data }) => {
+      setSessionEmail(data.user?.email?.trim().toLowerCase() ?? null);
+    });
+  }, []);
 
   const zonesQuery = useQuery({
     queryKey: ["dashboard-zones"],
@@ -568,6 +580,27 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         const row = data as unknown as TicketRow;
         setSelectedTicket(row);
       }
+    }
+  };
+
+  const confirmDeleteTicket = async () => {
+    if (!selectedTicket) return;
+    setTicketDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/tickets/${selectedTicket.id}`, { method: "DELETE" });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        toast.error(data.error ?? "تعذر حذف البلاغ.");
+        return;
+      }
+      toast.success("تم حذف البلاغ نهائياً من النظام.");
+      setTicketDeleteDialogOpen(false);
+      setDetailModalOpen(false);
+      setSelectedTicket(null);
+      await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
+    } finally {
+      setTicketDeleting(false);
     }
   };
 
@@ -1107,15 +1140,26 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
             style={{ colorScheme: "light" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-lg font-semibold">تفاصيل البلاغ</h3>
-              <button
-                type="button"
-                className="rounded-md border border-slate-200 px-3 py-1 text-sm"
-                onClick={() => setDetailModalOpen(false)}
-              >
-                إغلاق
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {isSuperAdminSession && selectedTicket ? (
+                  <button
+                    type="button"
+                    className="rounded-md border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-800 hover:bg-red-100"
+                    onClick={() => setTicketDeleteDialogOpen(true)}
+                  >
+                    حذف البلاغ نهائياً
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="rounded-md border border-slate-200 px-3 py-1 text-sm"
+                  onClick={() => setDetailModalOpen(false)}
+                >
+                  إغلاق
+                </button>
+              </div>
             </div>
             {detailLoading || !selectedTicket ? (
               <p className="text-sm text-slate-500">جاري تحميل التفاصيل...</p>
@@ -1233,6 +1277,45 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {ticketDeleteDialogOpen && selectedTicket ? (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 p-4"
+          onClick={() => (ticketDeleting ? undefined : setTicketDeleteDialogOpen(false))}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h4 className="text-lg font-semibold text-slate-900">تأكيد حذف البلاغ</h4>
+            <p className="mt-2 text-sm text-slate-600">
+              سيتم حذف البلاغ رقم{" "}
+              <span className="font-mono font-semibold">
+                {selectedTicket.external_ticket_number || selectedTicket.ticket_number || selectedTicket.id.slice(0, 8)}
+              </span>{" "}
+              نهائياً من النظام. لا يمكن التراجع عن هذا الإجراء.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                disabled={ticketDeleting}
+                onClick={() => setTicketDeleteDialogOpen(false)}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                disabled={ticketDeleting}
+                onClick={() => void confirmDeleteTicket()}
+              >
+                {ticketDeleting ? "جاري الحذف…" : "نعم، احذف نهائياً"}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

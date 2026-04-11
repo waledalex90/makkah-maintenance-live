@@ -44,7 +44,7 @@ export async function updateSession(request: NextRequest) {
   if (user && isAuthPage) {
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("role, permissions")
+      .select("role, permissions, access_work_list")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -56,7 +56,9 @@ export async function updateSession(request: NextRequest) {
     }
 
     const url = request.nextUrl.clone();
-    if (profile.role === "technician" || profile.role === "supervisor") {
+    if (profile.access_work_list) {
+      url.pathname = "/tasks/my-work";
+    } else if (profile.role === "technician" || profile.role === "supervisor") {
       url.pathname = "/tasks/my-work";
     } else if (profile.role === "reporter" || profile.role === "engineer") {
       url.pathname = "/dashboard/tickets";
@@ -69,11 +71,11 @@ export async function updateSession(request: NextRequest) {
   if (user && path.startsWith("/dashboard")) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role, permissions")
+      .select("role, permissions, access_work_list")
       .eq("id", user.id)
       .maybeSingle();
 
-    if (profile?.role === "technician" || profile?.role === "supervisor") {
+    if (profile?.access_work_list || profile?.role === "technician" || profile?.role === "supervisor") {
       const url = request.nextUrl.clone();
       url.pathname = "/tasks/my-work";
       return NextResponse.redirect(url);

@@ -62,7 +62,7 @@ export async function GET() {
 
   const { data: me, error: meError } = await supabase
     .from("profiles")
-    .select("role, specialty, region")
+    .select("role, specialty, region, access_work_list")
     .eq("id", user.id)
     .single();
 
@@ -71,7 +71,12 @@ export async function GET() {
   }
 
   const role = me.role as string;
-  if (!["technician", "supervisor"].includes(role)) {
+  const allowed =
+    Boolean(me.access_work_list) ||
+    role === "technician" ||
+    role === "supervisor" ||
+    role === "engineer";
+  if (!allowed) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -16,6 +16,7 @@ type ProfileRow = {
   region?: string | null;
   username?: string | null;
   permissions?: Record<string, unknown> | null;
+  access_work_list?: boolean | null;
   role:
     | "admin"
     | "projects_director"
@@ -27,7 +28,7 @@ type ProfileRow = {
 };
 
 const PROFILE_SELECT =
-  "id, full_name, mobile, role, job_title, specialty, region, permissions, username";
+  "id, full_name, mobile, role, job_title, specialty, region, permissions, username, access_work_list";
 
 async function buildZoneMapForProfiles(
   adminSupabase: ReturnType<typeof createSupabaseAdminClient>,
@@ -86,100 +87,27 @@ async function mapProfilesToUserRows(
       email,
       account_status: accountStatus,
       zones: zoneMap.get(profile.id) ?? [],
+      access_work_list: Boolean(profile.access_work_list),
     };
   });
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   const access = await requireManageUsers();
   if (!access.ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
   }
-
-  const { searchParams } = new URL(request.url);
-  const page = Math.max(1, Number.parseInt(searchParams.get("page") || "1", 10) || 1);
-  const rawLimit = Number.parseInt(searchParams.get("limit") || "20", 10);
-  const limit = Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 20));
-  const from = (page - 1) * limit;
-  const to = from + limit - 1;
-
-  const qRaw = searchParams.get("q")?.trim() ?? "";
-  const roleFilter = searchParams.get("role")?.trim() ?? "";
-  const zoneIdFilter = searchParams.get("zoneId")?.trim() ?? "";
-  const statusFilter = searchParams.get("status")?.trim() ?? "";
 
   try {
     const adminSupabase = createSupabaseAdminClient();
 
     const { data: zones } = await adminSupabase.from("zones").select("id, name").order("name");
 
-    const applyCommonFilters = () => {
-      let q = adminSupabase
-        .from("profiles")
-        .select(PROFILE_SELECT, { count: "exact" })
-        .order("full_name", { ascending: true });
-      if (qRaw) {
-        const safe = qRaw.replace(/,/g, " ");
-        q = q.or(`full_name.ilike.%${safe}%,mobile.ilike.%${safe}%`);
-      }
-      if (roleFilter && roleFilter !== "all") {
-        q = q.eq("role", roleFilter as ProfileRow["role"]);
-      }
-      return q;
-    };
-
-    let profileQuery = applyCommonFilters();
-
-    if (zoneIdFilter && zoneIdFilter !== "all") {
-      const { data: zpRows, error: zpErr } = await adminSupabase
-        .from("zone_profiles")
-        .select("profile_id")
-        .eq("zone_id", zoneIdFilter);
-      if (zpErr) {
-        return NextResponse.json({ error: zpErr.message }, { status: 400 });
-      }
-      const ids = [...new Set((zpRows ?? []).map((r) => r.profile_id))];
-      if (ids.length === 0) {
-        return NextResponse.json({
-          users: [],
-          zones: zones ?? [],
-          total: 0,
-          page,
-          pageSize: limit,
-        });
-      }
-      profileQuery = profileQuery.in("id", ids);
-    }
-
-    const needsAuthStatusSlice =
-      statusFilter === "active" || statusFilter === "inactive";
-
-    if (needsAuthStatusSlice) {
-      const { data: allProfiles, error: fetchErr } = await profileQuery.limit(2000);
-      if (fetchErr) {
-        return NextResponse.json({ error: fetchErr.message }, { status: 400 });
-      }
-      const list = ((allProfiles as ProfileRow[]) ?? []) as ProfileRow[];
-      const zoneMap = await buildZoneMapForProfiles(
-        adminSupabase,
-        list.map((p) => p.id),
-      );
-      const rowsAll = await mapProfilesToUserRows(adminSupabase, list, zoneMap);
-      const filtered = rowsAll.filter((r) =>
-        statusFilter === "active" ? r.account_status === "نشط" : r.account_status === "بانتظار التفعيل",
-      );
-      const total = filtered.length;
-      const pageSlice = filtered.slice(from, from + limit);
-      return NextResponse.json({
-        users: pageSlice,
-        zones: zones ?? [],
-        total,
-        page,
-        pageSize: limit,
-      });
-    }
-
-    const { data: profiles, error: profilesError, count } = await profileQuery.range(from, to);
+    const { data: profiles, error: profilesError } = await adminSupabase
+      .from("profiles")
+      .select(PROFILE_SELECT)
+      .order("full_name", { ascending: true })
+      .limit(8000);
 
     if (profilesError) {
       return NextResponse.json({ error: profilesError.message }, { status: 400 });
@@ -193,9 +121,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       users: rows,
       zones: zones ?? [],
-      total: count ?? 0,
-      page,
-      pageSize: limit,
+      total: rows.length,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";

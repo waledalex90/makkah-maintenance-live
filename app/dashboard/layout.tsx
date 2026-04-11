@@ -20,7 +20,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, role, permissions")
+    .select("full_name, role, permissions, access_work_list")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -28,7 +28,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect("/login?notice=missing_profile");
   }
 
-  if (profile.role === "technician" || profile.role === "supervisor") {
+  if (profile.access_work_list || profile.role === "technician" || profile.role === "supervisor") {
     redirect("/tasks/my-work");
   }
 

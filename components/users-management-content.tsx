@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -98,8 +97,6 @@ function TablePermSwitch({
   );
 }
 
-const USERS_TABLE_PAGE_SIZE = 20;
-
 const TABLE_QUICK_PERMS: { key: AppPermissionKey; header: string }[] = [
   { key: "view_map", header: "الخريطة" },
   { key: "view_reports", header: "التقارير" },
@@ -168,6 +165,8 @@ type UserRow = {
   permissions?: Record<string, unknown>;
   zones?: Array<{ id: string; name: string }>;
   account_status: string;
+  /** واجهة مهام الميدان */
+  access_work_list?: boolean;
 };
 
 type ZoneOption = {
@@ -187,6 +186,13 @@ const ROLE_OPTIONS: Array<{ value: UserRole; label: string }> = [
   { value: "technician", label: "فني" },
 ];
 
+/** فني، مهندس، مشرف — أدوار تحتاج حقل التصنيف */
+const ROLES_WITH_SPECIALTY = new Set<UserRole>(["technician", "engineer", "supervisor"]);
+
+function showSpecialtyForRole(role: UserRole): boolean {
+  return ROLES_WITH_SPECIALTY.has(role);
+}
+
 const SPECIALTY_OPTIONS: Array<{ value: Specialty; label: string }> = [
   { value: "fire", label: "حريق" },
   { value: "electricity", label: "كهرباء" },
@@ -195,25 +201,8 @@ const SPECIALTY_OPTIONS: Array<{ value: Specialty; label: string }> = [
   { value: "kitchens", label: "مطابخ" },
 ];
 
-function mergeUserListSearchParams(
-  current: URLSearchParams,
-  patch: Record<string, string | undefined>,
-  resetPage: boolean,
-) {
-  const next = new URLSearchParams(current.toString());
-  Object.entries(patch).forEach(([k, v]) => {
-    if (v === undefined || v === "" || v === "all") next.delete(k);
-    else next.set(k, v);
-  });
-  if (resetPage) next.delete("up");
-  return next;
-}
-
 export function UsersManagementContent() {
   const queryClient = useQueryClient();
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [draftRoleMap, setDraftRoleMap] = useState<Record<string, UserRole>>({});
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -258,65 +247,29 @@ export function UsersManagementContent() {
   const [editZoneDropdownOpen, setEditZoneDropdownOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [permRowSaving, setPermRowSaving] = useState<string | null>(null);
+  const [accessListSavingId, setAccessListSavingId] = useState<string | null>(null);
   const [quickDeleteId, setQuickDeleteId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [nameSearch, setNameSearch] = useState("");
 
-  const filterQ = searchParams.get("uq")?.trim() ?? "";
-  const filterRole = searchParams.get("urole")?.trim() ?? "all";
-  const filterZone = searchParams.get("uzone")?.trim() ?? "all";
-  const filterStatus = searchParams.get("ustatus")?.trim() ?? "all";
-  const usersTablePage = Math.max(1, Number.parseInt(searchParams.get("up") || "1", 10) || 1);
-
-  const [searchInput, setSearchInput] = useState(filterQ);
-  useEffect(() => {
-    setSearchInput(filterQ);
-  }, [filterQ]);
-
-  useEffect(() => {
-    const t = window.setTimeout(() => {
-      const trimmed = searchInput.trim();
-      if (trimmed === filterQ) return;
-      const next = mergeUserListSearchParams(searchParams, { uq: trimmed || undefined }, true);
-      router.replace(`${pathname}?${next}`, { scroll: false });
-    }, 320);
-    return () => window.clearTimeout(t);
-  }, [searchInput, filterQ, pathname, router, searchParams]);
-
-  const filtersKey = useMemo(
-    () => ({ q: filterQ, role: filterRole, zone: filterZone, status: filterStatus }),
-    [filterQ, filterRole, filterZone, filterStatus],
-  );
-
-  const fetchAdminUsersPage = useCallback(
-    async (page: number, f: typeof filtersKey) => {
-      const sp = new URLSearchParams();
-      sp.set("page", String(page));
-      sp.set("limit", String(USERS_TABLE_PAGE_SIZE));
-      if (f.q) sp.set("q", f.q);
-      if (f.role && f.role !== "all") sp.set("role", f.role);
-      if (f.zone && f.zone !== "all") sp.set("zoneId", f.zone);
-      if (f.status && f.status !== "all") sp.set("status", f.status);
-      const res = await fetch(`/api/admin/users?${sp.toString()}`, {
-        cache: "no-store",
-      });
-      const json = (await res.json()) as {
-        users?: UserRow[];
-        zones?: ZoneOption[];
-        total?: number;
-        error?: string;
-      };
-      if (!res.ok) {
-        throw new Error(json.error ?? "فشل تحميل المستخدمين.");
-      }
-      return {
-        users: json.users ?? [],
-        zones: json.zones ?? [],
-        total: json.total ?? 0,
-      };
-    },
-    [],
-  );
+  const fetchAllAdminUsers = useCallback(async () => {
+    const res = await fetch("/api/admin/users", { cache: "no-store" });
+    const json = (await res.json()) as {
+      users?: UserRow[];
+      zones?: ZoneOption[];
+      total?: number;
+      error?: string;
+    };
+    if (!res.ok) {
+      throw new Error(json.error ?? "فشل تحميل المستخدمين.");
+    }
+    return {
+      users: json.users ?? [],
+      zones: json.zones ?? [],
+      total: json.total ?? 0,
+    };
+  }, []);
 
   const {
     data: usersQueryData,
@@ -325,29 +278,31 @@ export function UsersManagementContent() {
     error: usersQueryError,
     refetch,
   } = useQuery({
-    queryKey: ["admin-users", filtersKey, usersTablePage],
-    queryFn: () => fetchAdminUsersPage(usersTablePage, filtersKey),
+    queryKey: ["admin-users-all"],
+    queryFn: fetchAllAdminUsers,
     placeholderData: (prev) => prev,
     staleTime: 60_000,
   });
 
   const users = usersQueryData?.users ?? [];
   const zones = usersQueryData?.zones ?? [];
-  const usersTotal = usersQueryData?.total ?? 0;
-  const usersTotalPages = Math.max(1, Math.ceil(usersTotal / USERS_TABLE_PAGE_SIZE));
+
+  const filteredUsers = useMemo(() => {
+    const q = nameSearch.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) => {
+      const name = u.full_name.toLowerCase();
+      const un = (u.username ?? "").toLowerCase();
+      const mob = (u.mobile ?? "").replace(/\s/g, "");
+      return name.includes(q) || un.includes(q) || mob.includes(q);
+    });
+  }, [users, nameSearch]);
 
   useEffect(() => {
     if (usersQueryError) {
       toast.error(usersQueryError.message);
     }
   }, [usersQueryError]);
-
-  useEffect(() => {
-    if (usersTablePage <= usersTotalPages || usersTotalPages < 1) return;
-    const next = new URLSearchParams(searchParams.toString());
-    next.set("up", String(usersTotalPages));
-    router.replace(`${pathname}?${next}`, { scroll: false });
-  }, [usersTablePage, usersTotalPages, pathname, router, searchParams]);
 
   useEffect(() => {
     void supabase.auth.getUser().then(({ data }) => {
@@ -367,17 +322,32 @@ export function UsersManagementContent() {
   }, [users]);
 
   const invalidateUsers = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    await queryClient.invalidateQueries({ queryKey: ["admin-users-all"] });
   }, [queryClient]);
 
-  useEffect(() => {
-    if (usersTablePage >= usersTotalPages) return;
-    void queryClient.prefetchQuery({
-      queryKey: ["admin-users", filtersKey, usersTablePage + 1],
-      queryFn: () => fetchAdminUsersPage(usersTablePage + 1, filtersKey),
-      staleTime: 60_000,
-    });
-  }, [usersTablePage, usersTotalPages, queryClient, fetchAdminUsersPage, filtersKey]);
+  const saveAccessWorkList = async (user: UserRow, next: boolean) => {
+    if (shouldHideAdminActionsForProtectedRow(user.email, currentUserEmail)) {
+      toast.error("لا يمكن تعديل حساب المدير المحمي إلا من صاحبه.");
+      return;
+    }
+    setAccessListSavingId(user.id);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_work_list: next }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        toast.error(data.error ?? "فشل تحديث واجهة الفريق.");
+        return;
+      }
+      toast.success(next ? "تم تفعيل واجهة مهام الميدان." : "تم إيقاف واجهة مهام الميدان.");
+      await invalidateUsers();
+    } finally {
+      setAccessListSavingId(null);
+    }
+  };
 
   const saveRole = async (user: UserRow) => {
     if (shouldHideAdminActionsForProtectedRow(user.email, currentUserEmail)) {
@@ -525,7 +495,7 @@ export function UsersManagementContent() {
       full_name: inviteName.trim(),
       mobile: inviteMobile.trim(),
       job_title: inviteJobTitle.trim(),
-      specialty: inviteSpecialty,
+      specialty: showSpecialtyForRole(inviteRole) ? inviteSpecialty : "civil",
       zone_ids: inviteZoneIds,
       role: inviteRole,
       permissions:
@@ -689,7 +659,7 @@ export function UsersManagementContent() {
       full_name: editName.trim(),
       role: editRole,
       region: editRegion.trim() || null,
-      specialty: editSpecialty,
+      specialty: showSpecialtyForRole(editRole) ? editSpecialty : "civil",
       zone_ids: editZoneIds,
     };
     if (editRole !== "admin" && permToggles) {
@@ -762,24 +732,6 @@ export function UsersManagementContent() {
     closePasswordModal();
   };
 
-  const patchUserFilters = useCallback(
-    (patch: Record<string, string | undefined>) => {
-      const next = mergeUserListSearchParams(searchParams, patch, true);
-      router.replace(`${pathname}?${next}`, { scroll: false });
-    },
-    [pathname, router, searchParams],
-  );
-
-  const goUsersPage = useCallback(
-    (p: number) => {
-      const next = new URLSearchParams(searchParams.toString());
-      if (p <= 1) next.delete("up");
-      else next.set("up", String(p));
-      router.replace(`${pathname}?${next}`, { scroll: false });
-    },
-    [pathname, router, searchParams],
-  );
-
   return (
     <section className="w-full min-w-0 max-w-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm" dir="rtl" lang="ar">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -821,72 +773,16 @@ export function UsersManagementContent() {
       </div>
 
       <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-900/30">
-        <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-400">تصفية سريعة</p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 lg:items-end">
-          <div className="min-w-0 lg:col-span-2">
-            <label className="mb-1 block text-[11px] text-slate-500">بحث (الاسم أو الجوال)</label>
-            <Input
-              className="h-9 text-sm"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="ابدأ الكتابة…"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] text-slate-500">الدور</label>
-            <select
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-900"
-              value={filterRole}
-              onChange={(e) => patchUserFilters({ urole: e.target.value })}
-            >
-              <option value="all">الكل</option>
-              {ROLE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] text-slate-500">المنطقة</label>
-            <select
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-900"
-              value={filterZone}
-              onChange={(e) => patchUserFilters({ uzone: e.target.value })}
-            >
-              <option value="all">الكل</option>
-              {(zones ?? []).map((z) => (
-                <option key={z.id} value={z.id}>
-                  {z.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] text-slate-500">الحالة</label>
-            <select
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-900"
-              value={filterStatus}
-              onChange={(e) => patchUserFilters({ ustatus: e.target.value })}
-            >
-              <option value="all">الكل</option>
-              <option value="active">نشط</option>
-              <option value="inactive">بانتظار التفعيل</option>
-            </select>
-          </div>
-          <div className="flex items-end">
-            <button
-              type="button"
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
-              onClick={() => {
-                setSearchInput("");
-                router.replace(pathname, { scroll: false });
-              }}
-            >
-              مسح الفلاتر
-            </button>
-          </div>
-        </div>
+        <label className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">بحث بالاسم</label>
+        <Input
+          className="h-10 max-w-md text-sm"
+          value={nameSearch}
+          onChange={(e) => setNameSearch(e.target.value)}
+          placeholder="اكتب جزءاً من الاسم أو اسم المستخدم أو الجوال — يُصفّى الجدول فوراً"
+        />
+        <p className="mt-1.5 text-xs text-slate-500">
+          {filteredUsers.length} مستخدم معروض من أصل {users.length}
+        </p>
       </div>
 
       {isLoading && !usersQueryData ? (
@@ -929,6 +825,9 @@ export function UsersManagementContent() {
                 <th className="sticky top-0 z-20 w-[4rem] bg-slate-100 px-2 py-2 text-xs font-semibold dark:bg-slate-900">
                   الحالة
                 </th>
+                <th className="sticky top-0 z-20 w-[4.5rem] min-w-[4.25rem] bg-slate-100 px-1 py-2 text-center text-[11px] font-semibold leading-tight text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                  واجهة الفريق
+                </th>
                 {TABLE_QUICK_PERMS.map((col) => (
                   <th
                     key={col.key}
@@ -943,13 +842,12 @@ export function UsersManagementContent() {
               </tr>
             </thead>
             <tbody>
-              {users.map((user, rowIdx) => {
+              {filteredUsers.map((user, rowIdx) => {
                 const eff = effectivePermissions(user.role, user.permissions ?? undefined);
                 const isAdminRow = user.role === "admin";
                 const hideActionsForOthers = shouldHideAdminActionsForProtectedRow(user.email, currentUserEmail);
                 const rowQuickLock = isAdminRow || hideActionsForOthers;
-                const globalRowIdx = (usersTablePage - 1) * USERS_TABLE_PAGE_SIZE + rowIdx;
-                const zebraEven = globalRowIdx % 2 === 0;
+                const zebraEven = rowIdx % 2 === 0;
                 const rowBg = zebraEven ? "bg-white dark:bg-slate-950" : "bg-slate-50/80 dark:bg-slate-900/40";
                 const jobTitle = user.job_title || "—";
                 return (
@@ -1006,6 +904,15 @@ export function UsersManagementContent() {
                     </td>
                     <td className="truncate px-2 py-1.5 align-middle text-xs text-slate-700 dark:text-slate-300">
                       {user.account_status}
+                    </td>
+                    <td className="px-0.5 py-1 text-center align-middle">
+                      <TablePermSwitch
+                        checked={Boolean(user.access_work_list)}
+                        disabled={hideActionsForOthers}
+                        saving={accessListSavingId === user.id}
+                        ariaLabel={`واجهة الفريق — ${user.full_name}`}
+                        onToggle={() => void saveAccessWorkList(user, !user.access_work_list)}
+                      />
                     </td>
                     {TABLE_QUICK_PERMS.map((col) => {
                       const on = eff[col.key];
@@ -1096,43 +1003,20 @@ export function UsersManagementContent() {
               })}
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="px-3 py-10 text-center text-slate-500">
+                  <td colSpan={13} className="px-3 py-10 text-center text-slate-500">
                     لا يوجد مستخدمون حالياً.
+                  </td>
+                </tr>
+              ) : filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={13} className="px-3 py-10 text-center text-slate-500">
+                    لا توجد نتائج مطابقة للبحث.
                   </td>
                 </tr>
               ) : null}
             </tbody>
           </table>
         </div>
-        {usersTotal > USERS_TABLE_PAGE_SIZE ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/40">
-            <p className="text-slate-600 dark:text-slate-400">
-              عرض {(usersTablePage - 1) * USERS_TABLE_PAGE_SIZE + 1}–
-              {Math.min(usersTablePage * USERS_TABLE_PAGE_SIZE, usersTotal)} من {usersTotal}
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900"
-                disabled={usersTablePage <= 1}
-                onClick={() => goUsersPage(usersTablePage - 1)}
-              >
-                السابق
-              </button>
-              <span className="text-xs text-slate-500">
-                صفحة {usersTablePage} / {usersTotalPages}
-              </span>
-              <button
-                type="button"
-                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900"
-                disabled={usersTablePage >= usersTotalPages}
-                onClick={() => goUsersPage(usersTablePage + 1)}
-              >
-                التالي
-              </button>
-            </div>
-          </div>
-        ) : null}
         </>
       )}
 
@@ -1226,21 +1110,6 @@ export function UsersManagementContent() {
               </div>
 
               <div>
-                <p className="mb-2 text-sm font-medium">التصنيف</p>
-                <select
-                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                  value={inviteSpecialty}
-                  onChange={(e) => setInviteSpecialty(e.target.value as Specialty)}
-                >
-                  {SPECIALTY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
                 <p className="mb-2 text-sm font-medium">الدور</p>
                 <select
                   className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
@@ -1254,6 +1123,23 @@ export function UsersManagementContent() {
                   ))}
                 </select>
               </div>
+
+              {showSpecialtyForRole(inviteRole) ? (
+                <div>
+                  <p className="mb-2 text-sm font-medium">التصنيف</p>
+                  <select
+                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                    value={inviteSpecialty}
+                    onChange={(e) => setInviteSpecialty(e.target.value as Specialty)}
+                  >
+                    {SPECIALTY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
 
               <div className="md:col-span-2">
                 <p className="mb-2 text-sm font-medium">المناطق (اختيار متعدد)</p>
@@ -1381,20 +1267,22 @@ export function UsersManagementContent() {
                   ))}
                 </select>
               </div>
-              <div>
-                <p className="mb-1 text-sm font-medium">التخصص</p>
-                <select
-                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                  value={editSpecialty}
-                  onChange={(e) => setEditSpecialty(e.target.value as Specialty)}
-                >
-                  {SPECIALTY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {showSpecialtyForRole(editRole) ? (
+                <div>
+                  <p className="mb-1 text-sm font-medium">التصنيف</p>
+                  <select
+                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                    value={editSpecialty}
+                    onChange={(e) => setEditSpecialty(e.target.value as Specialty)}
+                  >
+                    {SPECIALTY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
               <div className="md:col-span-2">
                 <p className="mb-1 text-sm font-medium">المنطقة (نص مرجعي يطابق اسم المنطة إن لزم)</p>
                 <Input value={editRegion} onChange={(e) => setEditRegion(e.target.value)} placeholder="مثال: المعيصم" />

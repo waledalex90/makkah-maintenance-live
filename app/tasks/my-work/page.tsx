@@ -17,20 +17,35 @@ export default async function MyWorkPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, access_work_list")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
-  if (profile?.role !== "technician" && profile?.role !== "supervisor") {
+  if (!profile) {
+    redirect("/login?notice=missing_profile");
+  }
+
+  const allowedByRole =
+    profile.role === "technician" ||
+    profile.role === "supervisor" ||
+    profile.role === "engineer";
+  const allowed = Boolean(profile.access_work_list || allowedByRole);
+
+  if (!allowed) {
     redirect("/dashboard");
   }
+
+  const listRole: "technician" | "supervisor" | "engineer" =
+    profile.role === "technician" || profile.role === "supervisor" || profile.role === "engineer"
+      ? profile.role
+      : "technician";
 
   return (
     <main className="min-h-screen bg-slate-50 p-3 sm:p-6">
       <FieldStaffPermissionsOnboarding role={profile.role} />
       <LiveLocationTracker />
       <div className="mx-auto max-w-md sm:max-w-4xl">
-        <TechnicianWorkList role={profile.role as "technician" | "supervisor"} />
+        <TechnicianWorkList role={listRole} />
       </div>
     </main>
   );

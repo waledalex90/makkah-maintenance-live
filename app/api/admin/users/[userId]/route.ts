@@ -19,6 +19,8 @@ type PatchBody = {
     | "reporter";
   region?: string | null;
   specialty?: "fire" | "electricity" | "ac" | "civil" | "kitchens" | null;
+  /** واجهة مهام الميدان */
+  access_work_list?: boolean;
   zone_ids?: string[];
   permissions?: Record<string, unknown>;
 };
@@ -72,6 +74,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
   if (body.role !== undefined) updates.role = body.role;
   if (body.region !== undefined) updates.region = body.region === null || body.region === "" ? null : String(body.region).trim();
   if (body.specialty !== undefined) updates.specialty = body.specialty;
+  if (typeof body.access_work_list === "boolean") updates.access_work_list = body.access_work_list;
   if (body.permissions !== undefined && typeof body.permissions === "object" && body.permissions !== null) {
     const { data: current } = await admin.from("profiles").select("permissions").eq("id", userId).single();
     const prev = (current?.permissions as Record<string, unknown> | null) ?? {};

@@ -13,12 +13,16 @@ export default async function HomePage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, access_work_list")
     .eq("id", user.id)
     .maybeSingle();
 
   if (!profile) {
     redirect("/login?notice=missing_profile");
+  }
+
+  if (profile.access_work_list) {
+    redirect("/tasks/my-work");
   }
 
   if (profile.role === "technician" || profile.role === "supervisor") {

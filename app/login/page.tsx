@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { mapAuthErrorToArabic } from "@/lib/auth-error-messages-ar";
 import { signOutCurrentSessionOnly } from "@/lib/auth-sign-out";
-import { postLoginHrefForRole } from "@/lib/post-login-redirect";
+import { postLoginHrefForProfile } from "@/lib/post-login-redirect";
 import {
   AUTH_EMAIL_DOMAIN,
   parseUsernameOrEmailLocalPart,
@@ -125,7 +125,7 @@ export default function LoginPage() {
 
       const { data: profileRow, error: profileReadError } = await supabase
         .from("profiles")
-        .select("role")
+        .select("role, access_work_list")
         .eq("id", userId)
         .maybeSingle();
 
@@ -150,7 +150,10 @@ export default function LoginPage() {
       await logInfo("Login profile ok", { userId, role: profileRow.role });
 
       setLoading(false);
-      const nextHref = postLoginHrefForRole(profileRow.role);
+      const nextHref = postLoginHrefForProfile({
+        role: profileRow.role,
+        access_work_list: profileRow.access_work_list,
+      });
       router.replace(nextHref);
       router.refresh();
     } catch (unexpectedError) {

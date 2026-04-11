@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { APP_PERMISSION_KEYS, effectivePermissions, type AppPermissionKey } from "@/lib/permissions";
@@ -157,14 +159,12 @@ const SPECIALTY_OPTIONS: Array<{ value: Specialty; label: string }> = [
 ];
 
 export function UsersManagementContent() {
-  const [users, setUsers] = useState<UserRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const [usersTablePage, setUsersTablePage] = useState(1);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [draftRoleMap, setDraftRoleMap] = useState<Record<string, UserRole>>({});
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviting, setInviting] = useState(false);
-  const [zones, setZones] = useState<ZoneOption[]>([]);
-  const [zonesLoading, setZonesLoading] = useState(false);
   const [inviteName, setInviteName] = useState("");
   const [inviteUsername, setInviteUsername] = useState("");
   const [inviteMobile, setInviteMobile] = useState("");
@@ -206,13 +206,49 @@ export function UsersManagementContent() {
   const [permRowSaving, setPermRowSaving] = useState<string | null>(null);
   const [quickDeleteId, setQuickDeleteId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [usersTablePage, setUsersTablePage] = useState(1);
 
-  const usersTotalPages = Math.max(1, Math.ceil(users.length / USERS_TABLE_PAGE_SIZE));
-  const pagedUsers = useMemo(() => {
-    const start = (usersTablePage - 1) * USERS_TABLE_PAGE_SIZE;
-    return users.slice(start, start + USERS_TABLE_PAGE_SIZE);
-  }, [users, usersTablePage]);
+  const {
+    data: usersQueryData,
+    isLoading,
+    isFetching,
+    error: usersQueryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["admin-users", usersTablePage],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/admin/users?page=${usersTablePage}&limit=${USERS_TABLE_PAGE_SIZE}`,
+        { cache: "no-store" },
+      );
+      const json = (await res.json()) as {
+        users?: UserRow[];
+        zones?: ZoneOption[];
+        total?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(json.error ?? "فشل تحميل المستخدمين.");
+      }
+      return {
+        users: json.users ?? [],
+        zones: json.zones ?? [],
+        total: json.total ?? 0,
+      };
+    },
+    placeholderData: (prev) => prev,
+    staleTime: 60_000,
+  });
+
+  const users = usersQueryData?.users ?? [];
+  const zones = usersQueryData?.zones ?? [];
+  const usersTotal = usersQueryData?.total ?? 0;
+  const usersTotalPages = Math.max(1, Math.ceil(usersTotal / USERS_TABLE_PAGE_SIZE));
+
+  useEffect(() => {
+    if (usersQueryError) {
+      toast.error(usersQueryError.message);
+    }
+  }, [usersQueryError]);
 
   useEffect(() => {
     if (usersTablePage > usersTotalPages) {
@@ -226,33 +262,19 @@ export function UsersManagementContent() {
     });
   }, []);
 
-  const loadUsers = useCallback(async () => {
-    setLoading(true);
-    const res = await fetch("/api/admin/users", { cache: "no-store" });
-    const data = (await res.json()) as { users?: UserRow[]; zones?: ZoneOption[]; error?: string };
-
-    if (!res.ok) {
-      toast.error(data.error ?? "فشل تحميل المستخدمين.");
-      setLoading(false);
-      return;
-    }
-
-    const rows = data.users ?? [];
-    setZones(data.zones ?? []);
-    setUsers(rows);
+  useEffect(() => {
+    if (!users.length) return;
     setDraftRoleMap(
-      rows.reduce<Record<string, UserRole>>((acc, row) => {
+      users.reduce<Record<string, UserRole>>((acc, row) => {
         acc[row.id] = row.role;
         return acc;
       }, {}),
     );
-    setLoading(false);
-  }, []);
+  }, [users]);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadUsers();
-  }, [loadUsers]);
+  const invalidateUsers = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+  }, [queryClient]);
 
   const saveRole = async (user: UserRow) => {
     const nextRole = draftRoleMap[user.id];
@@ -273,7 +295,7 @@ export function UsersManagementContent() {
     }
 
     toast.success("تم تعديل الصلاحيات بنجاح.");
-    await loadUsers();
+    await invalidateUsers();
   };
 
   const saveTablePermission = async (user: UserRow, key: AppPermissionKey, newValue: boolean) => {
@@ -300,7 +322,7 @@ export function UsersManagementContent() {
         return;
       }
       toast.success(`${newValue ? "تم التفعيل" : "تم الإيقاف"}: ${PERM_LABELS_AR[key]}`);
-      await loadUsers();
+      await invalidateUsers();
     } finally {
       setPermRowSaving(null);
     }
@@ -323,7 +345,7 @@ export function UsersManagementContent() {
         return;
       }
       toast.success("تم حذف المستخدم.");
-      await loadUsers();
+      await invalidateUsers();
     } finally {
       setQuickDeleteId(null);
     }
@@ -414,7 +436,7 @@ export function UsersManagementContent() {
 
     toast.success("تم إنشاء الحساب وتفعيله بنجاح.");
     closeInviteModal();
-    await loadUsers();
+    await invalidateUsers();
   };
 
   const onBulkUsersFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -442,7 +464,7 @@ export function UsersManagementContent() {
           `توجد ملاحظات على ${data.errors.length} صف (مثال: صف ${data.errors[0]?.row} — ${data.errors[0]?.message}).`,
         );
       }
-      await loadUsers();
+      await invalidateUsers();
     } finally {
       setBulkUploading(false);
     }
@@ -468,9 +490,7 @@ export function UsersManagementContent() {
     setIsInviteModalOpen(true);
     setInvitePermToggles(effectivePermissions("technician", undefined));
     if (zones.length > 0) return;
-    setZonesLoading(true);
-    await loadUsers();
-    setZonesLoading(false);
+    await refetch();
   };
 
   const openPasswordModal = (user: UserRow) => {
@@ -538,7 +558,7 @@ export function UsersManagementContent() {
     }
     toast.success("تم تحديث بيانات المستخدم.");
     closeEditUser();
-    await loadUsers();
+    await invalidateUsers();
   };
 
   const deleteEditingUser = async () => {
@@ -553,7 +573,7 @@ export function UsersManagementContent() {
     }
     toast.success("تم حذف المستخدم.");
     closeEditUser();
-    await loadUsers();
+    await invalidateUsers();
   };
 
   const closePasswordModal = () => {
@@ -609,8 +629,16 @@ export function UsersManagementContent() {
         </div>
       </div>
 
-      {loading ? (
-        <p className="text-sm text-slate-500">جاري تحميل المستخدمين...</p>
+      {isLoading && !usersQueryData ? (
+        <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800">
+          <div className="flex gap-2">
+            <Skeleton className="h-10 flex-1" />
+            <Skeleton className="h-10 w-24" />
+          </div>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-12 w-full" />
+          ))}
+        </div>
       ) : (
         <>
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800">
@@ -638,7 +666,7 @@ export function UsersManagementContent() {
               </tr>
             </thead>
             <tbody>
-              {pagedUsers.map((user, rowIdx) => {
+              {users.map((user, rowIdx) => {
                 const eff = effectivePermissions(user.role, user.permissions ?? undefined);
                 const isAdminRow = user.role === "admin";
                 const globalRowIdx = (usersTablePage - 1) * USERS_TABLE_PAGE_SIZE + rowIdx;
@@ -761,11 +789,11 @@ export function UsersManagementContent() {
             </tbody>
           </table>
         </div>
-        {users.length > USERS_TABLE_PAGE_SIZE ? (
+        {usersTotal > USERS_TABLE_PAGE_SIZE ? (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/40">
             <p className="text-slate-600 dark:text-slate-400">
               عرض {(usersTablePage - 1) * USERS_TABLE_PAGE_SIZE + 1}–
-              {Math.min(usersTablePage * USERS_TABLE_PAGE_SIZE, users.length)} من {users.length}
+              {Math.min(usersTablePage * USERS_TABLE_PAGE_SIZE, usersTotal)} من {usersTotal}
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -926,8 +954,8 @@ export function UsersManagementContent() {
                 </button>
                 {zoneDropdownOpen ? (
                   <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-2">
-                    {zonesLoading ? <p className="p-2 text-xs text-slate-500">جاري تحميل المناطق...</p> : null}
-                    {!zonesLoading && zones.length === 0 ? <p className="p-2 text-xs text-slate-500">لا توجد مناطق متاحة.</p> : null}
+                    {isFetching && zones.length === 0 ? <p className="p-2 text-xs text-slate-500">جاري تحميل المناطق...</p> : null}
+                    {!isFetching && zones.length === 0 ? <p className="p-2 text-xs text-slate-500">لا توجد مناطق متاحة.</p> : null}
                     {zones.map((zone) => (
                       <label key={zone.id} className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 hover:bg-slate-50">
                         <span className="text-sm">{zone.name}</span>

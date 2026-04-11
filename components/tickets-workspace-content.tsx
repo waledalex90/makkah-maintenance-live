@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TicketMediaDropzone } from "@/components/ticket-media-dropzone";
+import { Skeleton } from "@/components/ui/skeleton";
 import { arabicErrorMessage } from "@/lib/arabic-errors";
 import { type TicketStatus, statusBadgeVariant, statusLabelAr } from "@/lib/ticket-status";
 
@@ -48,14 +50,14 @@ type TicketsWorkspaceContentProps = {
 };
 
 const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
-const TICKETS_TABLE_PAGE_SIZE = 15;
+const TICKETS_TABLE_PAGE_SIZE = 20;
+
+const TICKETS_LIST_SELECT =
+  "id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at, closed_at";
 
 export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) {
+  const queryClient = useQueryClient();
   const [myUserId, setMyUserId] = useState<string | null>(null);
-  const [zones, setZones] = useState<ZoneRow[]>([]);
-  const [categories, setCategories] = useState<CategoryRow[]>([]);
-  const [tickets, setTickets] = useState<TicketRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
@@ -70,11 +72,45 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
   const [attachments, setAttachments] = useState<File[]>([]);
   const [ticketTablePage, setTicketTablePage] = useState(1);
 
-  const ticketTotalPages = Math.max(1, Math.ceil(tickets.length / TICKETS_TABLE_PAGE_SIZE));
-  const pagedTickets = useMemo(() => {
-    const start = (ticketTablePage - 1) * TICKETS_TABLE_PAGE_SIZE;
-    return tickets.slice(start, start + TICKETS_TABLE_PAGE_SIZE);
-  }, [tickets, ticketTablePage]);
+  const { data: metaData } = useQuery({
+    queryKey: ["tickets-workspace-meta"],
+    queryFn: async () => {
+      const [zonesRes, categoriesRes] = await Promise.all([
+        supabase.from("zones").select("id, name").order("name"),
+        supabase.from("ticket_categories").select("id, name").eq("is_active", true).order("id"),
+      ]);
+      if (zonesRes.error) throw new Error(arabicErrorMessage(zonesRes.error.message));
+      if (categoriesRes.error) throw new Error(arabicErrorMessage(categoriesRes.error.message));
+      return {
+        zones: (zonesRes.data as ZoneRow[]) ?? [],
+        categories: (categoriesRes.data as CategoryRow[]) ?? [],
+      };
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: ticketsPageData, isLoading: ticketsLoading } = useQuery({
+    queryKey: ["tickets-workspace", ticketTablePage],
+    queryFn: async () => {
+      const from = (ticketTablePage - 1) * TICKETS_TABLE_PAGE_SIZE;
+      const to = from + TICKETS_TABLE_PAGE_SIZE - 1;
+      const { data, error, count } = await supabase
+        .from("tickets")
+        .select(TICKETS_LIST_SELECT, { count: "exact" })
+        .order("created_at", { ascending: false })
+        .range(from, to);
+      if (error) throw new Error(arabicErrorMessage(error.message));
+      return { rows: (data as TicketRow[]) ?? [], total: count ?? 0 };
+    },
+    placeholderData: (prev) => prev,
+    staleTime: 60_000,
+  });
+
+  const zones = metaData?.zones ?? [];
+  const categories = metaData?.categories ?? [];
+  const tickets = ticketsPageData?.rows ?? [];
+  const ticketsTotal = ticketsPageData?.total ?? 0;
+  const ticketTotalPages = Math.max(1, Math.ceil(ticketsTotal / TICKETS_TABLE_PAGE_SIZE));
 
   useEffect(() => {
     if (ticketTablePage > ticketTotalPages) {
@@ -82,37 +118,10 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     }
   }, [ticketTablePage, ticketTotalPages]);
 
-  const loadData = async () => {
-    setLoading(true);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    setMyUserId(user?.id ?? null);
-
-    const [zonesRes, categoriesRes, ticketsRes] = await Promise.all([
-      supabase.from("zones").select("id, name").order("name"),
-      supabase.from("ticket_categories").select("id, name").eq("is_active", true).order("id"),
-      supabase
-        .from("tickets")
-        .select(
-          "id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at, closed_at",
-        )
-        .order("created_at", { ascending: false })
-        .limit(250),
-    ]);
-
-    if (zonesRes.error) toast.error(arabicErrorMessage(zonesRes.error.message));
-    if (categoriesRes.error) toast.error(arabicErrorMessage(categoriesRes.error.message));
-    if (ticketsRes.error) toast.error(arabicErrorMessage(ticketsRes.error.message));
-
-    setZones((zonesRes.data as ZoneRow[]) ?? []);
-    setCategories((categoriesRes.data as CategoryRow[]) ?? []);
-    setTickets((ticketsRes.data as TicketRow[]) ?? []);
-    setLoading(false);
-  };
-
   useEffect(() => {
-    void loadData();
+    void supabase.auth.getUser().then(({ data: { user } }) => {
+      setMyUserId(user?.id ?? null);
+    });
   }, []);
 
   const resetForm = () => {
@@ -214,7 +223,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     setCreating(false);
     toast.success("تم إنشاء البلاغ بنجاح.");
     resetForm();
-    await loadData();
+    await queryClient.invalidateQueries({ queryKey: ["tickets-workspace"] });
   };
 
   const closeTicketAsReporter = async (ticketId: string) => {
@@ -224,7 +233,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
       return;
     }
     toast.success("تم إغلاق البلاغ.");
-    await loadData();
+    await queryClient.invalidateQueries({ queryKey: ["tickets-workspace"] });
   };
 
   return (
@@ -337,8 +346,12 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
 
       <section className="mt-8 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="mb-3 text-lg font-semibold text-slate-900">البلاغات</h2>
-        {loading ? (
-          <p className="text-sm text-slate-600">جاري تحميل البيانات...</p>
+        {ticketsLoading && !ticketsPageData ? (
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-right text-sm">
@@ -352,7 +365,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
                 </tr>
               </thead>
               <tbody>
-                {pagedTickets.map((ticket) => (
+                {tickets.map((ticket) => (
                   <tr
                     key={ticket.id}
                     className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
@@ -399,11 +412,11 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
             </table>
           </div>
         )}
-        {!loading && tickets.length > TICKETS_TABLE_PAGE_SIZE ? (
+        {!ticketsLoading && ticketsTotal > TICKETS_TABLE_PAGE_SIZE ? (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3 text-sm">
             <p className="text-slate-600">
               عرض {(ticketTablePage - 1) * TICKETS_TABLE_PAGE_SIZE + 1}–
-              {Math.min(ticketTablePage * TICKETS_TABLE_PAGE_SIZE, tickets.length)} من {tickets.length}
+              {Math.min(ticketTablePage * TICKETS_TABLE_PAGE_SIZE, ticketsTotal)} من {ticketsTotal}
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -437,7 +450,9 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
         zoneName={
           selectedTicket?.zone_id ? zones.find((z) => z.id === selectedTicket.zone_id)?.name ?? "-" : "-"
         }
-        onTicketUpdated={loadData}
+        onTicketUpdated={async () => {
+          await queryClient.invalidateQueries({ queryKey: ["tickets-workspace"] });
+        }}
         onMarkTicketRead={() => {}}
       />
     </div>

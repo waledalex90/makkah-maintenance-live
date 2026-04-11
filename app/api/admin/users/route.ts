@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireManageUsers } from "@/lib/auth-guards";
 import { mergeInvitePermissions } from "@/lib/dashboard-user-permissions";
@@ -26,77 +25,42 @@ type ProfileRow = {
     | "reporter";
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   const access = await requireManageUsers();
   if (!access.ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
   }
 
+  const { searchParams } = new URL(request.url);
+  const page = Math.max(1, Number.parseInt(searchParams.get("page") || "1", 10) || 1);
+  const rawLimit = Number.parseInt(searchParams.get("limit") || "20", 10);
+  const limit = Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 20));
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
+
   try {
-    const supabase = await createSupabaseServerClient();
     const adminSupabase = createSupabaseAdminClient();
 
-    const [{ data: profiles, error: profilesError }, usersResult] = await Promise.all([
-      adminSupabase.from("profiles").select("id, full_name, mobile, role, job_title, specialty, region, permissions, username"),
-      adminSupabase.auth.admin.listUsers(),
-    ]);
+    const { data: profiles, error: profilesError, count } = await adminSupabase
+      .from("profiles")
+      .select("id, full_name, mobile, role, job_title, specialty, region, permissions, username", { count: "exact" })
+      .order("full_name", { ascending: true })
+      .range(from, to);
 
     if (profilesError) {
       return NextResponse.json({ error: profilesError.message }, { status: 400 });
     }
 
-    if (usersResult.error) {
-      const { data: fallbackProfiles, error: fallbackProfilesError } = await supabase
-        .from("profiles")
-        .select("id, full_name, mobile, role, job_title, specialty, region, permissions, username");
+    const list = ((profiles as ProfileRow[]) ?? []) as ProfileRow[];
+    const profileIds = list.map((p) => p.id);
 
-      const profileIds = ((fallbackProfiles as ProfileRow[]) ?? []).map((p) => p.id);
-      const { data: zoneLinks } = profileIds.length
-        ? await supabase
-            .from("zone_profiles")
-            .select("profile_id, zones(id, name)")
-            .in("profile_id", profileIds)
-        : { data: [] as Array<{ profile_id: string; zones: { id: string; name: string } | { id: string; name: string }[] | null }> };
-
-      if (fallbackProfilesError) {
-        return NextResponse.json({ error: usersResult.error.message }, { status: 400 });
-      }
-
-      const zoneMap = new Map<string, Array<{ id: string; name: string }>>();
-      (zoneLinks ?? []).forEach((link) => {
-        const zone = Array.isArray(link.zones) ? link.zones[0] : link.zones;
-        if (!zone) return;
-        const current = zoneMap.get(link.profile_id) ?? [];
-        current.push({ id: zone.id, name: zone.name });
-        zoneMap.set(link.profile_id, current);
-      });
-
-      const fallbackRows = ((fallbackProfiles as ProfileRow[]) ?? []).map((profile) => ({
-        id: profile.id,
-        full_name: profile.full_name,
-        mobile: profile.mobile,
-        job_title: profile.job_title ?? "",
-        specialty: profile.specialty ?? "",
-        region: profile.region ?? "",
-        username: profile.username ?? "",
-        permissions: profile.permissions ?? {},
-        role: profile.role,
-        email: "غير متوفر",
-        account_status: "غير متوفر",
-        zones: zoneMap.get(profile.id) ?? [],
-      }));
-
-      const { data: fallbackZones } = await supabase.from("zones").select("id, name").order("name");
-      return NextResponse.json({ users: fallbackRows, zones: fallbackZones ?? [] });
-    }
-
-    const profileIds = ((profiles as ProfileRow[]) ?? []).map((p) => p.id);
     const { data: zoneLinks } = profileIds.length
       ? await adminSupabase
           .from("zone_profiles")
           .select("profile_id, zones(id, name)")
           .in("profile_id", profileIds)
       : { data: [] as Array<{ profile_id: string; zones: { id: string; name: string } | { id: string; name: string }[] | null }> };
+
     const zoneMap = new Map<string, Array<{ id: string; name: string }>>();
     (zoneLinks ?? []).forEach((link) => {
       const zone = Array.isArray(link.zones) ? link.zones[0] : link.zones;
@@ -106,10 +70,21 @@ export async function GET() {
       zoneMap.set(link.profile_id, current);
     });
 
-    const authUsers = usersResult.data?.users ?? [];
-    const userMap = new Map(authUsers.map((u) => [u.id, u]));
-    const rows = ((profiles as ProfileRow[]) ?? []).map((profile) => {
-      const authUser = userMap.get(profile.id);
+    const authById = new Map<string, { email?: string | null; email_confirmed_at?: string | null }>();
+    await Promise.all(
+      list.map(async (p) => {
+        const { data, error } = await adminSupabase.auth.admin.getUserById(p.id);
+        if (!error && data?.user) {
+          authById.set(p.id, {
+            email: data.user.email,
+            email_confirmed_at: data.user.email_confirmed_at ?? null,
+          });
+        }
+      }),
+    );
+
+    const rows = list.map((profile) => {
+      const authUser = authById.get(profile.id);
       const email = authUser?.email ?? "غير متوفر";
       const status = authUser?.email_confirmed_at ? "نشط" : "بانتظار التفعيل";
       const displayUser = profile.username?.trim() || displayLoginIdentifier(authUser?.email ?? null);
@@ -131,7 +106,13 @@ export async function GET() {
     });
 
     const { data: zones } = await adminSupabase.from("zones").select("id, name").order("name");
-    return NextResponse.json({ users: rows, zones: zones ?? [] });
+    return NextResponse.json({
+      users: rows,
+      zones: zones ?? [],
+      total: count ?? 0,
+      page,
+      pageSize: limit,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
     const status = message.includes("Missing Supabase admin") ? 503 : 500;

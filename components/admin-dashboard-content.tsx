@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type TouchEventHandler } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type TouchEventHandler } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TicketCreateForm } from "@/components/ticket-create-form";
 import { TicketChatPanel } from "@/components/ticket-chat-panel";
 import {
@@ -99,7 +100,7 @@ type AdminDashboardContentProps = {
   tableOnly?: boolean;
 };
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 20;
 const LAST_READ_STORAGE_KEY = "admin_ticket_last_read_map";
 const PICKUP_SLACK_MINUTES = 2;
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
@@ -177,7 +178,6 @@ function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number):
 
 export function AdminDashboardContent({ role = "admin", tableOnly = false }: AdminDashboardContentProps) {
   const [zones, setZones] = useState<Zone[]>([]);
-  const [allTickets, setAllTickets] = useState<TicketRow[]>([]);
   const [pageTickets, setPageTickets] = useState<TicketRow[]>([]);
   const [zoneFilter, setZoneFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -186,6 +186,12 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const isReporterDesk = tableOnly;
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
+  const [ticketStats, setTicketStats] = useState({
+    total: 0,
+    latePickup: 0,
+    inProgress: 0,
+    completed: 0,
+  });
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -239,11 +245,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     void loadMyUser();
   }, []);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowTs(Date.now()), 10_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
   const loadZones = async () => {
     const { data, error } = await supabase
       .from("zones")
@@ -256,19 +257,41 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     setZones(data ?? []);
   };
 
-  const loadStats = async () => {
-    const { data, error } = await supabase
-      .from("tickets")
-      .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at, closed_at")
-      .order("created_at", { ascending: false });
+  const loadTicketStats = useCallback(async (clock?: number) => {
+    const t = clock ?? nowTs;
+    const thresholdIso = new Date(t - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString();
+    const [totalRes, receivedRes, finishedRes, lateRes] = await Promise.all([
+      supabase.from("tickets").select("*", { count: "exact", head: true }),
+      supabase.from("tickets").select("*", { count: "exact", head: true }).eq("status", "received"),
+      supabase.from("tickets").select("*", { count: "exact", head: true }).eq("status", "finished"),
+      supabase
+        .from("tickets")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "not_received")
+        .lte("created_at", thresholdIso),
+    ]);
 
-    if (error) {
-      toast.error(arabicErrorMessage(error.message));
+    const err = totalRes.error || receivedRes.error || finishedRes.error || lateRes.error;
+    if (err) {
+      toast.error(arabicErrorMessage(err.message));
       return;
     }
+    setTicketStats({
+      total: totalRes.count ?? 0,
+      inProgress: receivedRes.count ?? 0,
+      completed: finishedRes.count ?? 0,
+      latePickup: lateRes.count ?? 0,
+    });
+  }, [nowTs]);
 
-    setAllTickets((data as TicketRow[]) ?? []);
-  };
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const next = Date.now();
+      setNowTs(next);
+      void loadTicketStats(next);
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [loadTicketStats]);
 
   const loadLatestChatsForTickets = async (ticketIds: string[]) => {
     if (ticketIds.length === 0) {
@@ -325,10 +348,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     const q = searchTerm.trim();
     if (q) {
       const matchedZoneIds = zones.filter((zone) => zone.name.toLowerCase().includes(q.toLowerCase())).map((zone) => zone.id);
-      const matchedCategoryIds = allTickets
-        .filter((ticket) => normalizeCategoryName(ticket.ticket_categories).toLowerCase().includes(q.toLowerCase()))
-        .map((ticket) => ticket.category_id)
-        .filter((value): value is number => typeof value === "number");
+      const { data: catRows } = await supabase.from("ticket_categories").select("id").ilike("name", `%${q}%`);
+      const matchedCategoryIds = (catRows ?? []).map((r) => r.id as number);
 
       const orParts = [
         `external_ticket_number.ilike.%${q}%`,
@@ -360,7 +381,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   useEffect(() => {
     const init = async () => {
       setLoading(true);
-      await Promise.all([loadZones(), loadStats()]);
+      await Promise.all([loadZones(), loadTicketStats()]);
       await loadPage();
       setLoading(false);
     };
@@ -575,7 +596,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   }, [tableOnly]);
 
   const refreshAfterDetailAction = async () => {
-    await Promise.all([loadStats(), loadPage()]);
+    await Promise.all([loadTicketStats(), loadPage()]);
     if (selectedTicket) {
       const { data } = await supabase
         .from("tickets")
@@ -590,17 +611,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       }
     }
   };
-
-  const dashboardStats = useMemo(() => {
-    const total = allTickets.length;
-    const latePickup = allTickets.filter((t) => {
-      if (t.status !== "not_received") return false;
-      return getAgeMinutes(t.created_at, nowTs) > PICKUP_SLACK_MINUTES;
-    }).length;
-    const inProgress = allTickets.filter((t) => t.status === "received").length;
-    const completed = allTickets.filter((t) => t.status === "finished").length;
-    return { total, latePickup, inProgress, completed };
-  }, [allTickets, nowTs]);
 
   useEffect(() => {
     const channel = supabase
@@ -618,7 +628,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
               },
             },
           });
-          void loadStats();
+          void loadTicketStats();
           void loadPage();
         },
       )
@@ -633,7 +643,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
             setModalSupervisorPick(updated.assigned_supervisor_id ?? "");
             setModalTechnicianPick(updated.assigned_technician_id ?? "");
           }
-          await Promise.all([loadStats(), loadPage()]);
+          await Promise.all([loadTicketStats(), loadPage()]);
         },
       )
       .on(
@@ -704,7 +714,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const refreshByPull = async () => {
     if (pullRefreshing) return;
     setPullRefreshing(true);
-    await Promise.all([loadStats(), loadPage()]);
+    await Promise.all([loadTicketStats(), loadPage()]);
     setPullRefreshing(false);
     toast.success("تم تحديث البيانات.");
   };
@@ -776,7 +786,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
               <CardTitle className="text-base md:text-lg">إجمالي البلاغات</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-semibold text-sky-700 md:text-3xl">{dashboardStats.total}</p>
+              <p className="text-2xl font-semibold text-sky-700 md:text-3xl">{ticketStats.total}</p>
             </CardContent>
           </Card>
         </button>
@@ -791,7 +801,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
               <p className="text-xs font-normal text-slate-500">أكثر من دقيقتين ولم يُستلم بعد</p>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-semibold text-amber-700 md:text-3xl">{dashboardStats.latePickup}</p>
+              <p className="text-2xl font-semibold text-amber-700 md:text-3xl">{ticketStats.latePickup}</p>
             </CardContent>
           </Card>
         </button>
@@ -805,7 +815,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
               <CardTitle className="text-base md:text-lg">بلاغات قيد التنفيذ</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-semibold text-amber-600 md:text-3xl">{dashboardStats.inProgress}</p>
+              <p className="text-2xl font-semibold text-amber-600 md:text-3xl">{ticketStats.inProgress}</p>
             </CardContent>
           </Card>
         </button>
@@ -819,7 +829,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
               <CardTitle className="text-base md:text-lg">بلاغات مكتملة</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-semibold text-emerald-600 md:text-3xl">{dashboardStats.completed}</p>
+              <p className="text-2xl font-semibold text-emerald-600 md:text-3xl">{ticketStats.completed}</p>
             </CardContent>
           </Card>
         </button>
@@ -876,7 +886,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </div>
 
         <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-          عرض {pageTickets.length} بلاغ من {totalCount} بعد الفلترة (الإجمالي العام: {allTickets.length})
+          عرض {pageTickets.length} بلاغ من {totalCount} بعد الفلترة (الإجمالي العام: {ticketStats.total})
         </div>
 
         <p className="mb-2 text-xs text-slate-500">
@@ -886,7 +896,12 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </p>
 
         {loading ? (
-          <p className="text-sm text-slate-500">جاري تحميل البلاغات...</p>
+          <div className="space-y-2">
+            <Skeleton className="h-10 w-full" />
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full" />
+            ))}
+          </div>
         ) : (
           <>
             <div className="hidden overflow-x-auto md:block">
@@ -1035,7 +1050,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
               role={role}
               onCancel={() => setCreateModalOpen(false)}
               onCreated={async () => {
-                await Promise.all([loadStats(), loadPage()]);
+                await Promise.all([loadTicketStats(), loadPage()]);
                 toast.success("تم حفظ البلاغ وتحديث الجدول.");
               }}
             />

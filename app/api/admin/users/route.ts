@@ -5,6 +5,7 @@ import { mergeInvitePermissions } from "@/lib/dashboard-user-permissions";
 import { upsertProfileAndZones } from "@/lib/server/provision-dashboard-user";
 import { parseUsernameOrEmailLocalPart, toAuthEmail, displayLoginIdentifier } from "@/lib/username-auth";
 import type { AppPermissionKey } from "@/lib/permissions";
+import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 
 type ProfileRow = {
   id: string;
@@ -182,6 +183,10 @@ export async function POST(request: Request) {
     authEmail = toAuthEmail(usernameNormalized);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "اسم المستخدم غير صالح." }, { status: 400 });
+  }
+
+  if (isProtectedSuperAdminEmail(authEmail)) {
+    return NextResponse.json({ error: "لا يُسمح بإنشاء حساب يطابق المدير المحمي." }, { status: 400 });
   }
 
   const permissions = mergeInvitePermissions(role, body.permissions);

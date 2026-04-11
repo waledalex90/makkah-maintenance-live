@@ -6,6 +6,7 @@ import { mergeInvitePermissions } from "@/lib/dashboard-user-permissions";
 import { upsertProfileAndZones } from "@/lib/server/provision-dashboard-user";
 import { parseUsernameOrEmailLocalPart, toAuthEmail } from "@/lib/username-auth";
 import { APP_PERMISSION_KEYS, type AppPermissionKey } from "@/lib/permissions";
+import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 
 type Role =
   | "admin"
@@ -162,6 +163,11 @@ export async function POST(request: Request) {
       authEmail = toAuthEmail(usernameNormalized);
     } catch (e) {
       errors.push({ row: rowNum, message: e instanceof Error ? e.message : "بريد دخول غير صالح." });
+      continue;
+    }
+
+    if (isProtectedSuperAdminEmail(authEmail)) {
+      errors.push({ row: rowNum, message: "لا يُسمح بالرقم المجمع لحساب المدير المحمي." });
       continue;
     }
 

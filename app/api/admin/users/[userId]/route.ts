@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { requireManageUsers } from "@/lib/auth-guards";
+import { getSessionProfile, requireManageUsers } from "@/lib/auth-guards";
+import { denyDeleteProtectedSuperAdmin, denyMutationOfProtectedSuperAdmin } from "@/lib/protected-super-admin";
 import { parseUsernameOrEmailLocalPart, toAuthEmail } from "@/lib/username-auth";
 
 type PatchBody = {
@@ -28,9 +29,20 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
     return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
   }
 
+  const { user: actor } = await getSessionProfile();
+  if (!actor?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { userId } = await context.params;
   const body = (await request.json()) as PatchBody;
   const admin = createSupabaseAdminClient();
+
+  const { data: targetAuth } = await admin.auth.admin.getUserById(userId);
+  const deny = denyMutationOfProtectedSuperAdmin(targetAuth?.user?.email, actor.email);
+  if (deny) {
+    return NextResponse.json({ error: deny }, { status: 403 });
+  }
 
   const updates: Record<string, unknown> = {};
   if (typeof body.username === "string") {
@@ -44,11 +56,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : "اسم المستخدم غير صالح." }, { status: 400 });
     }
-    const { data: authData, error: getUserErr } = await admin.auth.admin.getUserById(userId);
-    if (getUserErr || !authData?.user?.email) {
-      return NextResponse.json({ error: getUserErr?.message ?? "تعذر قراءة حساب المستخدم." }, { status: 400 });
+    if (!targetAuth?.user?.email) {
+      return NextResponse.json({ error: "تعذر قراءة حساب المستخدم." }, { status: 400 });
     }
-    const currentEmail = authData.user.email.toLowerCase();
+    const currentEmail = targetAuth.user.email.toLowerCase();
     if (newEmail.toLowerCase() !== currentEmail) {
       const { error: authUpErr } = await admin.auth.admin.updateUserById(userId, { email: newEmail });
       if (authUpErr) {
@@ -113,6 +124,12 @@ export async function DELETE(_request: Request, context: { params: Promise<{ use
   }
 
   const admin = createSupabaseAdminClient();
+  const { data: targetAuth } = await admin.auth.admin.getUserById(userId);
+  const denyDel = denyDeleteProtectedSuperAdmin(targetAuth?.user?.email);
+  if (denyDel) {
+    return NextResponse.json({ error: denyDel }, { status: 403 });
+  }
+
   const { error: authErr } = await admin.auth.admin.deleteUser(userId);
   if (authErr) {
     return NextResponse.json({ error: authErr.message }, { status: 400 });

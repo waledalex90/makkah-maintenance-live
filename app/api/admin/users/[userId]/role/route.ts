@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { requireManageUsers } from "@/lib/auth-guards";
+import { getSessionProfile, requireManageUsers } from "@/lib/auth-guards";
+import { denyMutationOfProtectedSuperAdmin } from "@/lib/protected-super-admin";
 
 type RolePayload = {
   role?:
@@ -19,6 +20,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
     return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
   }
 
+  const { user: actor } = await getSessionProfile();
+  if (!actor?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { userId } = await context.params;
   const body = (await request.json()) as RolePayload;
   const role = body.role;
@@ -29,6 +35,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
 
   try {
     const adminSupabase = createSupabaseAdminClient();
+    const { data: targetAuth } = await adminSupabase.auth.admin.getUserById(userId);
+    const deny = denyMutationOfProtectedSuperAdmin(targetAuth?.user?.email, actor.email);
+    if (deny) {
+      return NextResponse.json({ error: deny }, { status: 403 });
+    }
+
     const { error } = await adminSupabase.from("profiles").update({ role }).eq("id", userId);
 
     if (error) {

@@ -10,6 +10,10 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { APP_PERMISSION_KEYS, effectivePermissions, type AppPermissionKey } from "@/lib/permissions";
 import { displayLoginIdentifier, parseUsernameOrEmailLocalPart } from "@/lib/username-auth";
+import {
+  isProtectedSuperAdminEmail,
+  shouldHideAdminActionsForProtectedRow,
+} from "@/lib/protected-super-admin";
 
 const PERM_LABELS_AR: Record<AppPermissionKey, string> = {
   view_dashboard: "لوحة التحكم",
@@ -207,6 +211,7 @@ export function UsersManagementContent() {
   const [permRowSaving, setPermRowSaving] = useState<string | null>(null);
   const [quickDeleteId, setQuickDeleteId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
   const fetchAdminUsersPage = useCallback(async (page: number) => {
     const res = await fetch(`/api/admin/users?page=${page}&limit=${USERS_TABLE_PAGE_SIZE}`, {
@@ -259,8 +264,9 @@ export function UsersManagementContent() {
   }, [usersTablePage, usersTotalPages]);
 
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => {
-      setCurrentUserId(data.session?.user.id ?? null);
+    void supabase.auth.getUser().then(({ data }) => {
+      setCurrentUserId(data.user?.id ?? null);
+      setCurrentUserEmail(data.user?.email?.trim().toLowerCase() ?? null);
     });
   }, []);
 
@@ -288,6 +294,10 @@ export function UsersManagementContent() {
   }, [usersTablePage, usersTotalPages, queryClient, fetchAdminUsersPage]);
 
   const saveRole = async (user: UserRow) => {
+    if (shouldHideAdminActionsForProtectedRow(user.email, currentUserEmail)) {
+      toast.error("لا يمكن تعديل حساب المدير المحمي إلا من صاحبه.");
+      return;
+    }
     const nextRole = draftRoleMap[user.id];
     if (!nextRole || nextRole === user.role) return;
 
@@ -310,6 +320,10 @@ export function UsersManagementContent() {
   };
 
   const saveTablePermission = async (user: UserRow, key: AppPermissionKey, newValue: boolean) => {
+    if (shouldHideAdminActionsForProtectedRow(user.email, currentUserEmail)) {
+      toast.error("لا يمكن تعديل حساب المدير المحمي إلا من صاحبه.");
+      return;
+    }
     if (user.role === "admin") {
       toast.info("مدير النظام يملك جميع الصلاحيات دائماً — لا يُعدّل من الجدول.");
       return;
@@ -340,6 +354,10 @@ export function UsersManagementContent() {
   };
 
   const quickDeleteUser = async (user: UserRow) => {
+    if (isProtectedSuperAdminEmail(user.email)) {
+      toast.error("لا يمكن حذف حساب المدير المحمي.");
+      return;
+    }
     if (user.id === currentUserId) {
       toast.error("لا يمكنك حذف حسابك أثناء الجلسة الحالية.");
       return;
@@ -535,12 +553,20 @@ export function UsersManagementContent() {
   };
 
   const openPasswordModal = (user: UserRow) => {
+    if (shouldHideAdminActionsForProtectedRow(user.email, currentUserEmail)) {
+      toast.error("لا يمكن تعديل حساب المدير المحمي إلا من صاحبه.");
+      return;
+    }
     setPasswordModalUser(user);
     setNewPassword("");
     setPasswordError(null);
   };
 
   const openEditUser = (user: UserRow) => {
+    if (shouldHideAdminActionsForProtectedRow(user.email, currentUserEmail)) {
+      toast.error("لا يمكن تعديل حساب المدير المحمي إلا من صاحبه.");
+      return;
+    }
     setEditingUser(user);
     setEditUsername(
       displayLoginIdentifier(user.email && user.email !== "غير متوفر" ? user.email : null, user.username),
@@ -604,6 +630,10 @@ export function UsersManagementContent() {
 
   const deleteEditingUser = async () => {
     if (!editingUser) return;
+    if (isProtectedSuperAdminEmail(editingUser.email)) {
+      toast.error("لا يمكن حذف حساب المدير المحمي.");
+      return;
+    }
     setEditSaving(true);
     const res = await fetch(`/api/admin/users/${editingUser.id}`, { method: "DELETE" });
     const data = (await res.json()) as { ok?: boolean; error?: string };
@@ -726,6 +756,8 @@ export function UsersManagementContent() {
               {users.map((user, rowIdx) => {
                 const eff = effectivePermissions(user.role, user.permissions ?? undefined);
                 const isAdminRow = user.role === "admin";
+                const hideActionsForOthers = shouldHideAdminActionsForProtectedRow(user.email, currentUserEmail);
+                const rowQuickLock = isAdminRow || hideActionsForOthers;
                 const globalRowIdx = (usersTablePage - 1) * USERS_TABLE_PAGE_SIZE + rowIdx;
                 const zebraEven = globalRowIdx % 2 === 0;
                 return (
@@ -742,7 +774,14 @@ export function UsersManagementContent() {
                         zebraEven ? "bg-white dark:bg-slate-950" : "bg-slate-50/80 dark:bg-slate-900/40",
                       )}
                     >
-                      {user.full_name}
+                      <span className="inline-flex flex-wrap items-center gap-2">
+                        {user.full_name}
+                        {isProtectedSuperAdminEmail(user.email) ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-950/70 dark:text-amber-200">
+                            محمي
+                          </span>
+                        ) : null}
+                      </span>
                     </td>
                     <td className="max-w-[10rem] truncate px-3 py-2.5 text-slate-700 dark:text-slate-300" title={user.username || user.email}>
                       {user.username || user.email}
@@ -766,7 +805,7 @@ export function UsersManagementContent() {
                         <td key={col.key} className="px-1 py-2 text-center align-middle">
                           <TablePermSwitch
                             checked={on}
-                            disabled={isAdminRow}
+                            disabled={rowQuickLock}
                             saving={saving}
                             ariaLabel={`${col.header} — ${user.full_name}`}
                             onToggle={() => void saveTablePermission(user, col.key, !on)}
@@ -778,6 +817,7 @@ export function UsersManagementContent() {
                       <div className="flex flex-col items-stretch gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
                         <select
                           className="h-9 min-w-[7.5rem] rounded-md border border-slate-200 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-900"
+                          disabled={hideActionsForOthers}
                           value={draftRoleMap[user.id] ?? user.role}
                           onChange={(e) =>
                             setDraftRoleMap((prev) => ({
@@ -796,7 +836,11 @@ export function UsersManagementContent() {
                           type="button"
                           className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
                           onClick={() => void saveRole(user)}
-                          disabled={savingUserId === user.id || (draftRoleMap[user.id] ?? user.role) === user.role}
+                          disabled={
+                            hideActionsForOthers ||
+                            savingUserId === user.id ||
+                            (draftRoleMap[user.id] ?? user.role) === user.role
+                          }
                         >
                           {savingUserId === user.id ? "…" : "حفظ"}
                         </button>
@@ -804,25 +848,34 @@ export function UsersManagementContent() {
                           type="button"
                           className="rounded-md border border-emerald-200 bg-emerald-50/80 px-2 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
                           onClick={() => openPasswordModal(user)}
+                          disabled={hideActionsForOthers}
                         >
                           كلمة المرور
                         </button>
                       </div>
                     </td>
                     <td className="px-3 py-2">
-                      <button
-                        type="button"
-                        className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
-                        onClick={() => openEditUser(user)}
-                      >
-                        تعديل
-                      </button>
+                      {hideActionsForOthers ? (
+                        <span className="text-xs font-medium text-slate-400 dark:text-slate-500">—</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
+                          onClick={() => openEditUser(user)}
+                        >
+                          تعديل
+                        </button>
+                      )}
                     </td>
                     <td className="px-2 py-2 text-center">
                       <button
                         type="button"
                         title="حذف المستخدم"
-                        disabled={user.id === currentUserId || quickDeleteId === user.id}
+                        disabled={
+                          isProtectedSuperAdminEmail(user.email) ||
+                          user.id === currentUserId ||
+                          quickDeleteId === user.id
+                        }
                         onClick={() => void quickDeleteUser(user)}
                         className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/70"
                       >
@@ -1191,7 +1244,9 @@ export function UsersManagementContent() {
 
             <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap gap-2">
-                {deleteConfirm ? (
+                {editingUser && isProtectedSuperAdminEmail(editingUser.email) ? (
+                  <p className="text-xs font-medium text-amber-800 dark:text-amber-200/90">حساب مدير محمي — لا يُحذف من هنا.</p>
+                ) : deleteConfirm ? (
                   <>
                     <button
                       type="button"

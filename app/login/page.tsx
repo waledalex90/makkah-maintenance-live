@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { parseUsernameOrEmailLocalPart, toAuthEmail } from "@/lib/username-auth";
+import { resolveSignInEmail } from "@/lib/username-auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -51,10 +51,9 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      const normalized = parseUsernameOrEmailLocalPart(username);
       let authEmail: string;
       try {
-        authEmail = toAuthEmail(normalized);
+        authEmail = resolveSignInEmail(username);
       } catch (e) {
         setError(e instanceof Error ? e.message : "اسم المستخدم غير صالح.");
         setLoading(false);
@@ -132,7 +131,7 @@ export default function LoginPage() {
     }
     let authEmail: string;
     try {
-      authEmail = toAuthEmail(parseUsernameOrEmailLocalPart(username));
+      authEmail = resolveSignInEmail(username);
     } catch (e) {
       setError(e instanceof Error ? e.message : "اسم المستخدم غير صالح.");
       return;
@@ -170,7 +169,7 @@ export default function LoginPage() {
         <CardContent>
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="username">اسم المستخدم</Label>
+              <Label htmlFor="username">اسم المستخدم أو البريد</Label>
               <Input
                 id="username"
                 dir="ltr"
@@ -179,7 +178,7 @@ export default function LoginPage() {
                 autoComplete="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="بالإنجليزية، مثال: ahmed.khalid"
+                placeholder="مثال: walid_admin أو بريدك الكامل"
                 required
               />
             </div>

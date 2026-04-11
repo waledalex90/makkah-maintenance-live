@@ -46,10 +46,12 @@ type TicketRow = {
 };
 
 type TicketAttachmentRow = {
-  id: string;
+  id: number;
   file_url: string;
   file_type: string;
   created_at: string;
+  file_name: string | null;
+  sort_order: number;
 };
 
 type StaffOptionRow = { staff_id: string; full_name: string };
@@ -373,9 +375,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         .single(),
       supabase
         .from("ticket_attachments")
-        .select("id, file_url, file_type, created_at")
+        .select("id, file_url, file_type, created_at, file_name, sort_order")
         .eq("ticket_id", ticket.id)
-        .order("created_at", { ascending: false }),
+        .order("sort_order", { ascending: true })
+        .order("id", { ascending: true }),
       supabase
         .from("live_locations")
         .select("user_id, latitude, longitude, last_updated, profiles(full_name, role, availability_status)"),
@@ -1081,9 +1084,14 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                   ) : (
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                       {detailAttachments.map((att) => (
-                        <a key={att.id} href={att.file_url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg border border-slate-200">
-                          <img src={att.file_url} alt="ticket attachment" className="h-36 w-full object-cover" />
-                        </a>
+                        <div key={att.id} className="space-y-1">
+                          <a href={att.file_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-slate-200">
+                            <img src={att.file_url} alt={att.file_name ?? "ticket attachment"} className="h-36 w-full object-cover" />
+                          </a>
+                          <p className="text-center text-xs text-slate-600">
+                            الرتبة {att.sort_order + 1} — {att.file_name ?? "—"}
+                          </p>
+                        </div>
                       ))}
                     </div>
                   )}

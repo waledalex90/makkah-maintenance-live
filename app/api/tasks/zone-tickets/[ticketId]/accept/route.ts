@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export async function PATCH(_request: Request, context: { params: Promise<{ ticketId: string }> }) {
   const supabase = await createSupabaseServerClient();
@@ -24,8 +23,7 @@ export async function PATCH(_request: Request, context: { params: Promise<{ tick
 
   const { ticketId } = await context.params;
   try {
-    const admin = createSupabaseAdminClient();
-    const { data: ticket, error: ticketError } = await admin
+    const { data: ticket, error: ticketError } = await supabase
       .from("tickets")
       .select("id, assigned_technician_id, status")
       .eq("id", ticketId)
@@ -37,16 +35,13 @@ export async function PATCH(_request: Request, context: { params: Promise<{ tick
       return NextResponse.json({ error: "Ticket is not assigned to you." }, { status: 403 });
     }
 
-    const { error: updateError } = await admin
-      .from("tickets")
-      .update({ status: "on_the_way" })
-      .eq("id", ticketId);
+    const { error: updateError } = await supabase.from("tickets").update({ status: "on_the_way" }).eq("id", ticketId);
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 400 });
     }
 
     const nowLabel = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
-    await admin.from("ticket_messages").insert({
+    await supabase.from("ticket_messages").insert({
       ticket_id: ticketId,
       sender_id: user.id,
       content: `تكليفات: ${me.full_name} قبل المهمة وبدأ التنفيذ - الساعة ${nowLabel}.`,

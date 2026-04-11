@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { TicketDetailDrawer } from "@/components/ticket-detail-drawer";
@@ -212,12 +213,19 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     }
 
     if (attachments.length > 0) {
+      let sortOrder = 0;
       for (const file of attachments) {
-        const ext = file.name.split(".").pop() ?? "jpg";
+        const compressedImage = await imageCompression(file, {
+          maxSizeMB: 1,
+          maxWidthOrHeight: 1600,
+          useWebWorker: true,
+          initialQuality: 0.8,
+        });
+        const ext = compressedImage.name.split(".").pop() ?? "jpg";
         const filePath = `${ticketData.id}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
         const { error: uploadError } = await supabase.storage
           .from("tickets")
-          .upload(filePath, file, { upsert: false });
+          .upload(filePath, compressedImage, { upsert: false });
         if (uploadError) {
           toast.error(`فشل رفع مرفق: ${file.name}`);
           continue;
@@ -228,7 +236,10 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
           uploaded_by: myUserId,
           file_url: publicData.publicUrl,
           file_type: "image",
+          file_name: file.name,
+          sort_order: sortOrder,
         });
+        sortOrder += 1;
       }
     }
 
@@ -321,7 +332,15 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
               onChange={(e) => setAttachments(Array.from(e.target.files ?? []))}
               className="block w-full text-xs"
             />
-            {attachments.length > 0 ? <p className="mt-1 text-xs text-slate-500">عدد الصور: {attachments.length}</p> : null}
+            {attachments.length > 0 ? (
+              <ul className="mt-2 space-y-1 text-xs text-slate-600">
+                {attachments.map((file, index) => (
+                  <li key={`${file.name}-${index}`}>
+                    الرتبة {index + 1} — {file.name} (ضغط حتى 1MB قبل الرفع)
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
 
           <div className="rounded-lg border border-slate-200 p-3">

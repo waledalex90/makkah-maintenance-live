@@ -32,6 +32,7 @@ export type TicketDetailRow = {
   claimed_at?: string | null;
   zone_id: string | null;
   category_id?: number | null;
+  category?: string | null;
   ticket_categories?: { name: string } | { name: string }[] | null;
   created_at: string;
 };
@@ -75,6 +76,19 @@ function categoryLabel(cat: TicketDetailRow["ticket_categories"]): string {
   return cat.name;
 }
 
+function resolvedCategoryLabel(ticket: TicketDetailRow): string {
+  const fromCol = ticket.category?.trim();
+  if (fromCol) return fromCol;
+  return categoryLabel(ticket.ticket_categories);
+}
+
+type TicketAttachmentListRow = {
+  id: number;
+  file_url: string;
+  file_name: string | null;
+  sort_order: number;
+};
+
 function mapCategoryToSpecialty(categoryName: string): string | null {
   const lower = categoryName.toLowerCase();
   if (lower.includes("حريق") || lower.includes("fire")) return "fire";
@@ -105,6 +119,7 @@ export function TicketDetailDrawer({
   const [dispatching, setDispatching] = useState(false);
   const [actingField, setActingField] = useState(false);
   const fixedUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [ticketAttachments, setTicketAttachments] = useState<TicketAttachmentListRow[]>([]);
 
   const ticketId = ticket?.id;
 
@@ -114,6 +129,26 @@ export function TicketDetailDrawer({
     setSupervisorPick(ticket?.assigned_supervisor_id ?? "");
     setTechnicianPick(ticket?.assigned_technician_id ?? "");
   }, [ticket?.id, ticket?.status, ticket?.assigned_supervisor_id, ticket?.assigned_technician_id]);
+
+  useEffect(() => {
+    if (!open || !ticketId) {
+      return;
+    }
+    const loadAtt = async () => {
+      const { data, error } = await supabase
+        .from("ticket_attachments")
+        .select("id, file_url, file_name, sort_order")
+        .eq("ticket_id", ticketId)
+        .order("sort_order", { ascending: true })
+        .order("id", { ascending: true });
+      if (error) {
+        setTicketAttachments([]);
+        return;
+      }
+      setTicketAttachments((data as TicketAttachmentListRow[]) ?? []);
+    };
+    void loadAtt();
+  }, [open, ticketId]);
 
   useEffect(() => {
     const loadMe = async () => {
@@ -436,11 +471,21 @@ export function TicketDetailDrawer({
       return;
     }
     const { data: publicData } = supabase.storage.from("tickets").getPublicUrl(filePath);
+    const { data: lastRow } = await supabase
+      .from("ticket_attachments")
+      .select("sort_order")
+      .eq("ticket_id", ticketId)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextOrder = (lastRow?.sort_order ?? -1) + 1;
     await supabase.from("ticket_attachments").insert({
       ticket_id: ticketId,
       uploaded_by: myUserId,
       file_url: publicData.publicUrl,
       file_type: "image",
+      file_name: compressedImage.name,
+      sort_order: nextOrder,
     });
     const { error } = await supabase.from("tickets").update({ status: "fixed" }).eq("id", ticketId);
     setActingField(false);
@@ -449,6 +494,13 @@ export function TicketDetailDrawer({
       return;
     }
     toast.success("تم إغلاق البلاغ مع صورة بعد الإصلاح.");
+    const { data: refreshed } = await supabase
+      .from("ticket_attachments")
+      .select("id, file_url, file_name, sort_order")
+      .eq("ticket_id", ticketId)
+      .order("sort_order", { ascending: true })
+      .order("id", { ascending: true });
+    setTicketAttachments((refreshed as TicketAttachmentListRow[]) ?? []);
     await onTicketUpdated();
   };
 
@@ -505,7 +557,7 @@ export function TicketDetailDrawer({
                 <h3 className="mb-3 text-sm font-semibold text-slate-900">إدارة التوجيه والبيانات</h3>
                 <div className="space-y-2 text-sm">
                   <p>
-                    <span className="font-medium">التصنيف:</span> {categoryLabel(ticket.ticket_categories)}
+                    <span className="font-medium">التصنيف:</span> {resolvedCategoryLabel(ticket)}
                   </p>
                   <p>
                     <span className="font-medium">المنطقة:</span> {zoneName || "-"}
@@ -660,6 +712,26 @@ export function TicketDetailDrawer({
                     </div>
                   </div>
                 ) : null}
+              </section>
+
+              <section className="rounded-xl border border-slate-200 bg-white p-4">
+                <h3 className="mb-2 text-sm font-semibold text-slate-900">المرفقات (باكت tickets)</h3>
+                {ticketAttachments.length === 0 ? (
+                  <p className="text-xs text-slate-500">لا توجد مرفقات مسجلة لهذا البلاغ.</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {ticketAttachments.map((att) => (
+                      <li key={att.id} className="text-xs text-slate-700">
+                        <a href={att.file_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-slate-200">
+                          <img src={att.file_url} alt={att.file_name ?? "مرفق"} className="h-32 w-full object-cover" />
+                        </a>
+                        <p className="mt-1 text-right">
+                          الرتبة {att.sort_order + 1} — {att.file_name ?? "بدون اسم"}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </section>
 
               {ticketId ? (

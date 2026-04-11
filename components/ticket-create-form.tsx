@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -140,12 +141,19 @@ export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateForm
     }
 
     if (attachments.length > 0) {
+      let sortOrder = 0;
       for (const file of attachments) {
-        const ext = file.name.split(".").pop() ?? "jpg";
+        const compressedImage = await imageCompression(file, {
+          maxSizeMB: 1,
+          maxWidthOrHeight: 1600,
+          useWebWorker: true,
+          initialQuality: 0.8,
+        });
+        const ext = compressedImage.name.split(".").pop() ?? "jpg";
         const filePath = `${ticketData.id}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
         const { error: uploadError } = await supabase.storage
           .from("tickets")
-          .upload(filePath, file, { upsert: false });
+          .upload(filePath, compressedImage, { upsert: false });
         if (uploadError) {
           toast.error(`فشل رفع مرفق: ${file.name}`);
           continue;
@@ -156,7 +164,10 @@ export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateForm
           uploaded_by: user.id,
           file_url: publicData.publicUrl,
           file_type: "image",
+          file_name: file.name,
+          sort_order: sortOrder,
         });
+        sortOrder += 1;
       }
     }
 
@@ -243,6 +254,15 @@ export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateForm
           onChange={(e) => setAttachments(Array.from(e.target.files ?? []))}
           className="block w-full text-xs"
         />
+        {attachments.length > 0 ? (
+          <ul className="mt-2 space-y-1 text-xs text-slate-600">
+            {attachments.map((file, index) => (
+              <li key={`${file.name}-${index}`}>
+                الرتبة {index + 1} — {file.name} (ضغط حتى 1MB قبل الرفع إلى باكت tickets)
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
       <div className="rounded-lg border border-slate-200 p-3">

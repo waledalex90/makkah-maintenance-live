@@ -24,7 +24,6 @@ import { arabicErrorMessage } from "@/lib/arabic-errors";
 import {
   formatSaudiDateTime,
   formatSaudiNow,
-  formatSaudiTime,
   getAgeMinutes,
   relativeAgeLabelSaudi,
 } from "@/lib/saudi-time";
@@ -78,9 +77,6 @@ type TicketAttachmentRow = {
   file_name: string | null;
   sort_order: number;
 };
-
-type StaffOptionRow = { staff_id: string; full_name: string };
-type AssignableProfileRow = { id: string; full_name: string; specialty?: string | null };
 
 type DetailStaffRow = {
   user_id: string;
@@ -142,16 +138,6 @@ function normalizeCategoryName(category: CategoryJoin | undefined): string {
   return category.name;
 }
 
-function mapCategoryToSpecialty(categoryName: string): string | null {
-  const lower = categoryName.toLowerCase();
-  if (lower.includes("حريق") || lower.includes("fire")) return "fire";
-  if (lower.includes("كهرباء") || lower.includes("electric")) return "electricity";
-  if (lower.includes("تكييف") || lower.includes("ac")) return "ac";
-  if (lower.includes("مدني") || lower.includes("مدنى") || lower.includes("civil")) return "civil";
-  if (lower.includes("مطابخ") || lower.includes("kitchen")) return "kitchens";
-  return null;
-}
-
 /** ترتيب مسؤول البلاغات: متأخر الاستلام أولاً، ثم قيد التنفيذ، ثم الباقي (الأحدث داخل كل مجموعة) */
 function sortReporterTickets(rows: TicketRow[], nowMs: number): TicketRow[] {
   return [...rows].sort((a, b) => {
@@ -206,17 +192,11 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailAttachments, setDetailAttachments] = useState<TicketAttachmentRow[]>([]);
   const [detailNearbyStaff, setDetailNearbyStaff] = useState<DetailStaffRow[]>([]);
-  const [modalSupervisorOptions, setModalSupervisorOptions] = useState<StaffOptionRow[]>([]);
-  const [modalTechnicianOptions, setModalTechnicianOptions] = useState<StaffOptionRow[]>([]);
-  const [modalSupervisorPick, setModalSupervisorPick] = useState("");
-  const [modalTechnicianPick, setModalTechnicianPick] = useState("");
-  const [modalDispatching, setModalDispatching] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [latestChatMap, setLatestChatMap] = useState<Record<string, string>>({});
   const [lastReadMap, setLastReadMap] = useState<Record<string, string>>({});
   const [nowTs, setNowTs] = useState(() => Date.now());
-  const [myUserId, setMyUserId] = useState<string | null>(null);
   const [pullStartY, setPullStartY] = useState<number | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
   const [pullRefreshing, setPullRefreshing] = useState(false);
@@ -242,16 +222,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   useEffect(() => {
     window.localStorage.setItem(LAST_READ_STORAGE_KEY, JSON.stringify(lastReadMap));
   }, [lastReadMap]);
-
-  useEffect(() => {
-    const loadMyUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      setMyUserId(user?.id ?? null);
-    };
-    void loadMyUser();
-  }, []);
 
   const loadZones = async () => {
     const { data, error } = await supabase
@@ -452,128 +422,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       return distanceMeters(row.latitude, row.longitude, focusLat, focusLng) <= NEARBY_RADIUS_METERS;
     });
     setDetailNearbyStaff(rows);
-    const isTopLevel = role === "admin" || role === "projects_director";
-    const isProjectManager = role === "project_manager";
-    const ticketSpecialty = mapCategoryToSpecialty(normalizeCategoryName(ticketData.ticket_categories));
-
-    let profileIds: string[] = [];
-    if (!isTopLevel && !isProjectManager) {
-      if (!ticketData.zone_id) {
-        setModalSupervisorOptions([]);
-        setModalTechnicianOptions([]);
-      } else {
-        const { data: zoneLinks } = await supabase.from("zone_profiles").select("profile_id").eq("zone_id", ticketData.zone_id);
-        profileIds = (zoneLinks ?? []).map((row) => row.profile_id as string);
-      }
-    }
-
-    let supervisorsQuery = supabase
-      .from("profiles")
-      .select("id, full_name")
-      .eq("role", "supervisor")
-      .or("availability_status.eq.available,availability_status.is.null")
-      .order("full_name");
-    if (!isTopLevel && !isProjectManager) {
-      if (profileIds.length === 0) {
-        setModalSupervisorOptions([]);
-      } else {
-        supervisorsQuery = supervisorsQuery.in("id", profileIds);
-        const { data: supervisors } = await supervisorsQuery;
-        setModalSupervisorOptions(
-          ((supervisors as AssignableProfileRow[]) ?? []).map((row) => ({ staff_id: row.id, full_name: row.full_name })),
-        );
-      }
-    } else {
-      const { data: supervisors } = await supervisorsQuery;
-      setModalSupervisorOptions(
-        ((supervisors as AssignableProfileRow[]) ?? []).map((row) => ({ staff_id: row.id, full_name: row.full_name })),
-      );
-    }
-
-    let techQuery = supabase
-      .from("profiles")
-      .select("id, full_name, specialty")
-      .eq("role", "technician")
-      .or("availability_status.eq.available,availability_status.is.null")
-      .order("full_name");
-    if (!isTopLevel && !isProjectManager) {
-      if (profileIds.length === 0) {
-        setModalTechnicianOptions([]);
-      } else {
-        techQuery = techQuery.in("id", profileIds);
-        if (ticketSpecialty) techQuery = techQuery.eq("specialty", ticketSpecialty);
-        const { data: technicians } = await techQuery;
-        setModalTechnicianOptions(
-          ((technicians as AssignableProfileRow[]) ?? []).map((row) => ({ staff_id: row.id, full_name: row.full_name })),
-        );
-      }
-    } else {
-      if (ticketSpecialty) techQuery = techQuery.eq("specialty", ticketSpecialty);
-      const { data: technicians } = await techQuery;
-      setModalTechnicianOptions(
-        ((technicians as AssignableProfileRow[]) ?? []).map((row) => ({ staff_id: row.id, full_name: row.full_name })),
-      );
-    }
-    setModalSupervisorPick(ticketData.assigned_supervisor_id ?? "");
-    setModalTechnicianPick(ticketData.assigned_technician_id ?? "");
     setDetailLoading(false);
     toast.success("تم فتح تفاصيل البلاغ.");
-  };
-
-  const saveModalSupervisor = async () => {
-    if (!selectedTicket) return;
-    setModalDispatching(true);
-    const supId = modalSupervisorPick || null;
-    const nextStatus = selectedTicket.status === "not_received" && supId ? "received" : selectedTicket.status;
-    const { error } = await supabase
-      .from("tickets")
-      .update({ assigned_supervisor_id: supId, status: nextStatus })
-      .eq("id", selectedTicket.id);
-    setModalDispatching(false);
-    if (error) {
-      toast.error(arabicErrorMessage(error.message));
-      return;
-    }
-    if (supId && myUserId) {
-      const actor = modalSupervisorOptions.find((o) => o.staff_id === myUserId)?.full_name ?? "المهندس";
-      const selectedName = modalSupervisorOptions.find((o) => o.staff_id === supId)?.full_name ?? "مراقب";
-      const nowLabel = formatSaudiTime(Date.now());
-      await supabase.from("ticket_messages").insert({
-        ticket_id: selectedTicket.id,
-        sender_id: myUserId,
-        content: `تكليفات: ${actor} عيّن المراقب ${selectedName} - الساعة ${nowLabel}.`,
-      });
-    }
-    toast.success(supId ? "تم تعيين المشرف." : "تم إلغاء تعيين المشرف.");
-    await refreshAfterDetailAction();
-  };
-
-  const saveModalTechnician = async () => {
-    if (!selectedTicket) return;
-    setModalDispatching(true);
-    const techId = modalTechnicianPick || null;
-    const nextStatus = selectedTicket.status === "not_received" && techId ? "received" : selectedTicket.status;
-    const { error } = await supabase
-      .from("tickets")
-      .update({ assigned_technician_id: techId, status: nextStatus })
-      .eq("id", selectedTicket.id);
-    setModalDispatching(false);
-    if (error) {
-      toast.error(arabicErrorMessage(error.message));
-      return;
-    }
-    if (techId && myUserId) {
-      const actor = modalSupervisorOptions.find((o) => o.staff_id === myUserId)?.full_name ?? "المشرف";
-      const selectedName = modalTechnicianOptions.find((o) => o.staff_id === techId)?.full_name ?? "فني";
-      const nowLabel = formatSaudiTime(Date.now());
-      await supabase.from("ticket_messages").insert({
-        ticket_id: selectedTicket.id,
-        sender_id: myUserId,
-        content: `تكليفات: ${actor} عيّن الفني ${selectedName} - الساعة ${nowLabel}.`,
-      });
-    }
-    toast.success(techId ? "تم تكليف الفني." : "تم إلغاء تكليف الفني.");
-    await refreshAfterDetailAction();
   };
 
   const openTicketById = async (ticketId: string) => {
@@ -615,8 +465,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       if (data) {
         const row = data as unknown as TicketRow;
         setSelectedTicket(row);
-        setModalSupervisorPick(row.assigned_supervisor_id ?? "");
-        setModalTechnicianPick(row.assigned_technician_id ?? "");
       }
     }
   };
@@ -649,8 +497,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           setPageTickets((prev) => prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)));
           if (selectedTicket?.id === updated.id) {
             setSelectedTicket((prev) => (prev ? { ...prev, ...updated } : prev));
-            setModalSupervisorPick(updated.assigned_supervisor_id ?? "");
-            setModalTechnicianPick(updated.assigned_technician_id ?? "");
           }
           await Promise.all([loadTicketStats(), loadPage()]);
         },
@@ -677,8 +523,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     return map;
   }, [zones]);
 
-  const canSetSupervisorInModal = ["engineer", "admin", "project_manager", "projects_director"].includes(role);
-  const canSetTechnicianInModal = ["admin", "project_manager", "projects_director", "supervisor"].includes(role);
   const canPostChatInModal = [
     "engineer",
     "supervisor",
@@ -1155,53 +999,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                     </div>
                   </div>
                 </div>
-
-                {canSetSupervisorInModal ? (
-                  <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
-                    <p className="mb-2 text-sm font-semibold text-indigo-900">توجيه هرمي — تعيين المشرف</p>
-                    <select
-                      className="mb-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                      value={modalSupervisorPick}
-                      onChange={(e) => setModalSupervisorPick(e.target.value)}
-                    >
-                      <option value="">— بدون —</option>
-                      {modalSupervisorOptions.map((o) => (
-                        <option key={o.staff_id} value={o.staff_id}>
-                          {o.full_name}
-                        </option>
-                      ))}
-                    </select>
-                    <Button className="w-full sm:w-auto" disabled={modalDispatching} onClick={() => void saveModalSupervisor()}>
-                      {modalDispatching ? "جاري الحفظ..." : "حفظ المشرف"}
-                    </Button>
-                  </div>
-                ) : null}
-
-                {canSetTechnicianInModal ? (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
-                    <p className="mb-2 text-sm font-semibold text-emerald-900">توجيه هرمي — تكليف الفني (إدارة)</p>
-                    <select
-                      className="mb-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                      value={modalTechnicianPick}
-                      onChange={(e) => setModalTechnicianPick(e.target.value)}
-                    >
-                      <option value="">— بدون —</option>
-                      {modalTechnicianOptions.map((o) => (
-                        <option key={o.staff_id} value={o.staff_id}>
-                          {o.full_name}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      className="w-full sm:w-auto"
-                      variant="outline"
-                      disabled={modalDispatching}
-                      onClick={() => void saveModalTechnician()}
-                    >
-                      {modalDispatching ? "جاري الحفظ..." : "حفظ الفني"}
-                    </Button>
-                  </div>
-                ) : null}
 
                 {selectedTicket.id ? (
                   <TicketChatPanel

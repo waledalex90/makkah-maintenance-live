@@ -1,11 +1,15 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
+import { Camera, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { pushLiveLocationOnce } from "@/lib/push-live-location";
 import {
   Sheet,
   SheetContent,
@@ -14,8 +18,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { TicketChatPanel } from "@/components/ticket-chat-panel";
-import { ensureGpsPermission } from "@/lib/gps-permission";
-import { formatSaudiDateTime, formatSaudiTime } from "@/lib/saudi-time";
+import { formatSaudiDateTime } from "@/lib/saudi-time";
 import {
   TICKET_STATUS_VALUES,
   type TicketStatus,
@@ -46,18 +49,13 @@ export type TicketDetailRow = {
   ticket_categories?: { name: string } | { name: string }[] | null;
   created_at: string;
   closed_at?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   closed_by?: string | null;
   assigned_technician?: { full_name: string } | null;
   assigned_supervisor?: { full_name: string } | null;
   assigned_engineer?: { full_name: string } | null;
   closed_by_profile?: { full_name: string } | null;
-};
-
-type StaffOption = { staff_id: string; full_name: string };
-type ProfileOptionRow = {
-  id: string;
-  full_name: string;
-  specialty?: string | null;
 };
 
 type TicketDetailDrawerProps = {
@@ -67,7 +65,17 @@ type TicketDetailDrawerProps = {
   zoneName: string;
   onTicketUpdated: () => Promise<void>;
   onMarkTicketRead: (ticketId: string, readAt: string) => void;
+  /** عرض الخريطة المصغّرة (صلاحية الخريطة) */
+  canViewMap?: boolean;
 };
+
+const TicketMiniMap = dynamic(
+  () => import("@/components/ticket-detail-live-map").then((m) => m.TicketDetailLiveMap),
+  {
+    ssr: false,
+    loading: () => <div className="h-44 w-full animate-pulse rounded-xl bg-slate-100" />,
+  },
+);
 
 function categoryLabel(cat: TicketDetailRow["ticket_categories"]): string {
   if (!cat) return "-";
@@ -89,16 +97,6 @@ type TicketAttachmentListRow = {
   sort_order: number;
 };
 
-function mapCategoryToSpecialty(categoryName: string): string | null {
-  const lower = categoryName.toLowerCase();
-  if (lower.includes("حريق") || lower.includes("fire")) return "fire";
-  if (lower.includes("كهرباء") || lower.includes("electric")) return "electricity";
-  if (lower.includes("تكييف") || lower.includes("ac")) return "ac";
-  if (lower.includes("مدني") || lower.includes("مدنى") || lower.includes("civil")) return "civil";
-  if (lower.includes("مطابخ") || lower.includes("kitchen")) return "kitchens";
-  return null;
-}
-
 export function TicketDetailDrawer({
   open,
   onOpenChange,
@@ -106,29 +104,26 @@ export function TicketDetailDrawer({
   zoneName,
   onTicketUpdated,
   onMarkTicketRead,
+  canViewMap = false,
 }: TicketDetailDrawerProps) {
   const [senderNameMap, setSenderNameMap] = useState<Record<string, string>>({});
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [statusDraft, setStatusDraft] = useState<TicketStatus | "">("");
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<string | null>(null);
-  const [supervisorOptions, setSupervisorOptions] = useState<StaffOption[]>([]);
-  const [technicianOptions, setTechnicianOptions] = useState<StaffOption[]>([]);
-  const [supervisorPick, setSupervisorPick] = useState("");
-  const [technicianPick, setTechnicianPick] = useState("");
-  const [dispatching, setDispatching] = useState(false);
+  const [trackedLivePin, setTrackedLivePin] = useState<{ latitude: number; longitude: number } | null>(null);
   const [actingField, setActingField] = useState(false);
   const fixedUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const dropzoneInputRef = useRef<HTMLInputElement | null>(null);
   const [ticketAttachments, setTicketAttachments] = useState<TicketAttachmentListRow[]>([]);
+  const [dropHighlight, setDropHighlight] = useState(false);
 
   const ticketId = ticket?.id;
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatusDraft(ticket?.status ?? "");
-    setSupervisorPick(ticket?.assigned_supervisor_id ?? "");
-    setTechnicianPick(ticket?.assigned_technician_id ?? "");
-  }, [ticket?.id, ticket?.status, ticket?.assigned_supervisor_id, ticket?.assigned_technician_id]);
+  }, [ticket?.id, ticket?.status]);
 
   useEffect(() => {
     if (!open || !ticketId) {
@@ -170,75 +165,57 @@ export function TicketDetailDrawer({
     void loadMe();
   }, []);
 
-  const loadAssignable = async () => {
-    if (!ticketId) {
-      setSupervisorOptions([]);
-      setTechnicianOptions([]);
-      return;
-    }
-    const ticketSpecialty = mapCategoryToSpecialty(categoryLabel(ticket.ticket_categories));
-    const isTopLevel = myRole === "admin" || myRole === "projects_director";
-    const isProjectManager = myRole === "project_manager";
-
-    let profileIds: string[] = [];
-    if (!isTopLevel && !isProjectManager) {
-      if (!ticket?.zone_id) {
-        setSupervisorOptions([]);
-        setTechnicianOptions([]);
-        return;
-      }
-      const { data: zoneLinks } = await supabase.from("zone_profiles").select("profile_id").eq("zone_id", ticket.zone_id);
-      profileIds = (zoneLinks ?? []).map((row) => row.profile_id as string);
-      if (profileIds.length === 0) {
-        setSupervisorOptions([]);
-        setTechnicianOptions([]);
-        return;
-      }
-    }
-
-    let supervisorsQuery = supabase
-      .from("profiles")
-      .select("id, full_name")
-      .eq("role", "supervisor")
-      .or("availability_status.eq.available,availability_status.is.null")
-      .order("full_name");
-    if (!isTopLevel && !isProjectManager) {
-      supervisorsQuery = supervisorsQuery.in("id", profileIds);
-    }
-    const { data: supervisors } = await supervisorsQuery;
-    setSupervisorOptions(
-      ((supervisors as ProfileOptionRow[]) ?? []).map((row) => ({
-        staff_id: row.id,
-        full_name: row.full_name,
-      })),
+  const trackedStaffId = useMemo(() => {
+    if (!ticket) return null;
+    return (
+      ticket.assigned_technician_id ?? ticket.assigned_engineer_id ?? ticket.assigned_supervisor_id ?? null
     );
+  }, [ticket]);
 
-    let techniciansQuery = supabase
-      .from("profiles")
-      .select("id, full_name, specialty")
-      .eq("role", "technician")
-      .or("availability_status.eq.available,availability_status.is.null")
-      .order("full_name");
-    if (!isTopLevel && !isProjectManager) {
-      techniciansQuery = techniciansQuery.in("id", profileIds);
+  const trackedStaffLabel = useMemo(() => {
+    if (!ticket || !trackedStaffId) return "موقع الموظف";
+    if (ticket.assigned_technician_id === trackedStaffId) {
+      return ticket.assigned_technician?.full_name ?? "الفني";
     }
-    if (ticketSpecialty) {
-      techniciansQuery = techniciansQuery.eq("specialty", ticketSpecialty);
+    if (ticket.assigned_engineer_id === trackedStaffId) {
+      return ticket.assigned_engineer?.full_name ?? "المهندس";
     }
-    const { data: technicians } = await techniciansQuery;
-    setTechnicianOptions(
-      ((technicians as ProfileOptionRow[]) ?? []).map((row) => ({
-        staff_id: row.id,
-        full_name: row.full_name,
-      })),
-    );
-  };
+    if (ticket.assigned_supervisor_id === trackedStaffId) {
+      return ticket.assigned_supervisor?.full_name ?? "المشرف";
+    }
+    return "موقع الموظف";
+  }, [ticket, trackedStaffId]);
 
   useEffect(() => {
-    if (!open || !ticketId) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- load RPC options when drawer opens
-    void loadAssignable();
-  }, [open, ticketId]);
+    if (!open || !canViewMap || !trackedStaffId || ticket?.status === "not_received") {
+      setTrackedLivePin(null);
+      return;
+    }
+    const loadLoc = async () => {
+      const { data } = await supabase
+        .from("live_locations")
+        .select("latitude, longitude")
+        .eq("user_id", trackedStaffId)
+        .maybeSingle();
+      if (data) {
+        setTrackedLivePin({ latitude: data.latitude, longitude: data.longitude });
+      } else {
+        setTrackedLivePin(null);
+      }
+    };
+    void loadLoc();
+    const channel = supabase
+      .channel(`drawer-live-loc-${trackedStaffId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "live_locations", filter: `user_id=eq.${trackedStaffId}` },
+        () => void loadLoc(),
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [open, canViewMap, trackedStaffId, ticket?.status, ticket?.id]);
 
   const loadRoleNameMap = async () => {
     if (!ticketId || !ticket) return;
@@ -278,7 +255,6 @@ export function TicketDetailDrawer({
         { event: "UPDATE", schema: "public", table: "tickets", filter: `id=eq.${ticketId}` },
         async () => {
           await onTicketUpdated();
-          void loadAssignable();
           void loadRoleNameMap();
         },
       )
@@ -293,6 +269,7 @@ export function TicketDetailDrawer({
     setStatusUpdating(true);
     const { error: rpcError } = await supabase.rpc("claim_ticket", { p_ticket_id: ticketId });
     if (!rpcError) {
+      await pushLiveLocationOnce();
       toast.success("تم استلام المهمة بنجاح.");
       await onTicketUpdated();
       setStatusUpdating(false);
@@ -308,6 +285,7 @@ export function TicketDetailDrawer({
       toast.error(error.message);
       return;
     }
+    await pushLiveLocationOnce();
     toast.success("تم استلام المهمة بنجاح.");
     await onTicketUpdated();
   };
@@ -341,105 +319,6 @@ export function TicketDetailDrawer({
     setStatusUpdating(false);
   };
 
-  const saveSupervisor = async () => {
-    if (!ticketId || !ticket) return;
-    setDispatching(true);
-    const supId = supervisorPick || null;
-    const nextStatus: TicketStatus = ticket.status === "not_received" && supId ? "received" : ticket.status;
-    const { error } = await supabase
-      .from("tickets")
-      .update({ assigned_supervisor_id: supId, status: nextStatus })
-      .eq("id", ticketId);
-    setDispatching(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    if (supId && myUserId) {
-      const actorName = senderNameMap[myUserId] ?? "المهندس";
-      const selectedName = supervisorOptions.find((o) => o.staff_id === supId)?.full_name ?? "مراقب";
-      const nowLabel = formatSaudiTime(Date.now());
-      await supabase.from("ticket_messages").insert({
-        ticket_id: ticketId,
-        sender_id: myUserId,
-        content: `تكليفات: ${actorName} عيّن المراقب ${selectedName} - الساعة ${nowLabel}.`,
-      });
-    }
-    toast.success(supId ? "تم تعيين المشرف." : "تم إلغاء تعيين المشرف.");
-    await onTicketUpdated();
-  };
-
-  const saveTechnician = async () => {
-    if (!ticketId || !ticket) return;
-    setDispatching(true);
-    const techId = technicianPick || null;
-    const nextStatus: TicketStatus = techId && ticket.status === "not_received" ? "received" : ticket.status;
-    const { error } = await supabase
-      .from("tickets")
-      .update({ assigned_technician_id: techId, status: nextStatus })
-      .eq("id", ticketId);
-    setDispatching(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    if (techId && myUserId) {
-      const actorName = senderNameMap[myUserId] ?? "المشرف";
-      const selectedName = technicianOptions.find((o) => o.staff_id === techId)?.full_name ?? "فني";
-      const nowLabel = formatSaudiTime(Date.now());
-      await supabase.from("ticket_messages").insert({
-        ticket_id: ticketId,
-        sender_id: myUserId,
-        content: `تكليفات: ${actorName} عيّن الفني ${selectedName} - الساعة ${nowLabel}.`,
-      });
-    }
-    toast.success(techId ? "تم تكليف الفني المنفذ." : "تم إلغاء تكليف الفني.");
-    await onTicketUpdated();
-  };
-
-  const pushCurrentGps = async () => {
-    if (!myUserId) return;
-    const permission = await ensureGpsPermission();
-    if (permission === "unsupported") return;
-    if (permission === "insecure") {
-      toast.error("تحديث GPS يتطلب HTTPS في بيئة الإنتاج.");
-      return;
-    }
-    if (permission === "denied") {
-      toast.error("صلاحية GPS مرفوضة. فعّلها من إعدادات المتصفح.");
-      return;
-    }
-    return new Promise<void>((resolve) => {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const latitude = Number(position.coords.latitude.toFixed(6));
-          const longitude = Number(position.coords.longitude.toFixed(6));
-          const nowIso = new Date().toISOString();
-          await Promise.all([
-            supabase.from("live_locations").upsert({
-              user_id: myUserId,
-              latitude,
-              longitude,
-              last_updated: nowIso,
-            }),
-            supabase
-              .from("profiles")
-              .update({
-                current_latitude: latitude,
-                current_longitude: longitude,
-                last_location_at: nowIso,
-                availability_status: "busy",
-              })
-              .eq("id", myUserId),
-          ]);
-          resolve();
-        },
-        () => resolve(),
-        { enableHighAccuracy: true, timeout: 8000 },
-      );
-    });
-  };
-
   const fieldUpdateStatus = async (next: TicketStatus) => {
     if (!ticketId) return;
     setActingField(true);
@@ -454,7 +333,7 @@ export function TicketDetailDrawer({
   };
 
   const onStartDriving = async () => {
-    await pushCurrentGps();
+    await pushLiveLocationOnce();
     await fieldUpdateStatus("received");
   };
 
@@ -513,11 +392,112 @@ export function TicketDetailDrawer({
     await onTicketUpdated();
   };
 
+  const reloadAttachments = async () => {
+    if (!ticketId) return;
+    const { data } = await supabase
+      .from("ticket_attachments")
+      .select("id, file_url, file_name, file_type, sort_order")
+      .eq("ticket_id", ticketId)
+      .order("sort_order", { ascending: true })
+      .order("id", { ascending: true });
+    setTicketAttachments((data as TicketAttachmentListRow[]) ?? []);
+  };
+
+  const addAttachmentsFromFiles = async (files: FileList | File[] | null) => {
+    if (!files || !ticketId || !myUserId) return;
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
+    setActingField(true);
+    try {
+      for (const file of list) {
+        if (file.size > MAX_VIDEO_BYTES && file.type.startsWith("video/")) {
+          toast.error(`الملف كبير جداً: ${file.name}`);
+          continue;
+        }
+        const isVideo =
+          file.type.startsWith("video/") || /\.(mp4|webm|mov|ogg)(\?|$)/i.test(file.name);
+        let body: File | Blob = file;
+        if (!isVideo && file.type.startsWith("image/")) {
+          body = await imageCompression(file, {
+            maxSizeMB: 4,
+            maxWidthOrHeight: 1920,
+            useWebWorker: true,
+            initialQuality: 0.85,
+          });
+        }
+        const ext =
+          body instanceof File
+            ? body.name.split(".").pop() ?? (isVideo ? "mp4" : "jpg")
+            : isVideo
+              ? "mp4"
+              : "jpg";
+        const filePath = `${ticketId}-up-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error: uploadError } = await supabase.storage.from("tickets").upload(filePath, body, { upsert: false });
+        if (uploadError) {
+          toast.error(uploadError.message);
+          continue;
+        }
+        const { data: publicData } = supabase.storage.from("tickets").getPublicUrl(filePath);
+        const { data: lastRow } = await supabase
+          .from("ticket_attachments")
+          .select("sort_order")
+          .eq("ticket_id", ticketId)
+          .order("sort_order", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const nextOrder = (lastRow?.sort_order ?? -1) + 1;
+        await supabase.from("ticket_attachments").insert({
+          ticket_id: ticketId,
+          uploaded_by: myUserId,
+          file_url: publicData.publicUrl,
+          file_type: isVideo ? "video" : "image",
+          file_name: file.name,
+          sort_order: nextOrder,
+        });
+      }
+      toast.success("تم رفع الملفات.");
+      await reloadAttachments();
+      await onTicketUpdated();
+    } finally {
+      setActingField(false);
+    }
+  };
+
   const title = useMemo(() => {
     if (!ticket) return "تفاصيل البلاغ";
     if (ticket.external_ticket_number) return `بلاغ ${ticket.external_ticket_number}`;
     if (ticket.ticket_number) return `بلاغ #${ticket.ticket_number}`;
     return `بلاغ ${ticket.id.slice(0, 8)}`;
+  }, [ticket]);
+
+  const mapFocusPoint = useMemo<[number, number]>(() => {
+    if (ticket?.latitude != null && ticket?.longitude != null) {
+      return [Number(ticket.latitude), Number(ticket.longitude)];
+    }
+    return [21.4225, 39.8262];
+  }, [ticket?.latitude, ticket?.longitude]);
+
+  const mapStaffPins = useMemo(
+    () =>
+      trackedLivePin && trackedStaffId
+        ? [
+            {
+              user_id: trackedStaffId,
+              full_name: trackedStaffLabel,
+              role: "field",
+              status: "busy" as const,
+              latitude: trackedLivePin.latitude,
+              longitude: trackedLivePin.longitude,
+            },
+          ]
+        : [],
+    [trackedLivePin, trackedStaffId, trackedStaffLabel],
+  );
+
+  const mapTicketLabel = useMemo(() => {
+    if (!ticket) return "";
+    return ticket.external_ticket_number || (ticket.ticket_number != null ? `#${ticket.ticket_number}` : ticket.id.slice(0, 8));
   }, [ticket]);
 
   const canUpdateStatus =
@@ -538,15 +518,6 @@ export function TicketDetailDrawer({
     myRole === "project_manager" ||
     myRole === "projects_director";
 
-  const canDispatchSupervisor =
-    myRole === "engineer" || myRole === "admin" || myRole === "project_manager" || myRole === "projects_director";
-
-  const canDispatchTechnician =
-    myRole === "admin" ||
-    myRole === "project_manager" ||
-    myRole === "projects_director" ||
-    (myRole === "supervisor" && ticket?.assigned_supervisor_id === myUserId);
-
   const showFieldQuickActions =
     (myRole === "technician" || myRole === "supervisor" || myRole === "engineer") &&
     ticket?.status !== "finished";
@@ -562,14 +533,12 @@ export function TicketDetailDrawer({
           <div className="flex h-full min-h-0 flex-col gap-4">
             <SheetHeader className="shrink-0 space-y-1 text-right">
               <SheetTitle>{title}</SheetTitle>
-              <SheetDescription>
-                إدارة التوجيه ومركز التواصل والمرفقات لنفس البلاغ.
-              </SheetDescription>
+              <SheetDescription>تفاصيل البلاغ، المرفقات، الدردشة، والتتبع عند توفر الصلاحيات.</SheetDescription>
             </SheetHeader>
 
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-0.5 pr-1 pb-2">
               <section className="rounded-xl border border-slate-200 bg-white p-4">
-                <h3 className="mb-3 text-sm font-semibold text-slate-900">إدارة التوجيه والبيانات</h3>
+                <h3 className="mb-3 text-sm font-semibold text-slate-900">بيانات البلاغ</h3>
                 <div className="space-y-2 text-sm">
                   <p>
                     <span className="font-medium">التصنيف:</span> {resolvedCategoryLabel(ticket)}
@@ -631,55 +600,18 @@ export function TicketDetailDrawer({
                   </div>
                 </div>
 
-                {canDispatchSupervisor ? (
-                  <div className="mt-4 space-y-2 rounded-lg border border-indigo-200 bg-white p-3">
-                    <p className="text-xs font-semibold text-indigo-900">تعيين المشرف / المراقب</p>
-                    <select
-                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                      value={supervisorPick}
-                      onChange={(e) => setSupervisorPick(e.target.value)}
-                    >
-                      <option value="">— بدون —</option>
-                      {supervisorOptions.map((o) => (
-                        <option key={o.staff_id} value={o.staff_id}>
-                          {o.full_name}
-                        </option>
-                      ))}
-                    </select>
-                    <Button className="w-full" disabled={dispatching} onClick={() => void saveSupervisor()}>
-                      {dispatching ? "جاري الحفظ..." : "حفظ تعيين المشرف"}
-                    </Button>
-                  </div>
-                ) : null}
-
-                {canDispatchTechnician ? (
-                  <div className="mt-3 space-y-2 rounded-lg border border-emerald-200 bg-white p-3">
-                    <p className="text-xs font-semibold text-emerald-900">تكليف الفني المنفذ</p>
-                    <select
-                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                      value={technicianPick}
-                      onChange={(e) => setTechnicianPick(e.target.value)}
-                    >
-                      <option value="">— بدون —</option>
-                      {technicianOptions.map((o) => (
-                        <option key={o.staff_id} value={o.staff_id}>
-                          {o.full_name}
-                        </option>
-                      ))}
-                    </select>
-                    <Button className="w-full" variant="outline" disabled={dispatching} onClick={() => void saveTechnician()}>
-                      {dispatching ? "جاري الحفظ..." : "حفظ تكليف الفني"}
-                    </Button>
-                  </div>
-                ) : null}
-
                 {myRole === "engineer" ? (
                   <div className="mt-3">
                     <Button
                       onClick={() => void claimTask()}
                       disabled={statusUpdating || ticket.assigned_engineer_id === myUserId}
+                      className={
+                        ticket.assigned_engineer_id === myUserId
+                          ? "pointer-events-none bg-slate-200 text-slate-600 hover:bg-slate-200"
+                          : undefined
+                      }
                     >
-                      {ticket.assigned_engineer_id === myUserId ? "تم الاستلام" : "استلام المهمة"}
+                      {ticket.assigned_engineer_id === myUserId ? "تم الاستلام / قيد المباشرة" : "استلام المهمة"}
                     </Button>
                   </div>
                 ) : null}
@@ -738,14 +670,57 @@ export function TicketDetailDrawer({
               </section>
 
               <section className="rounded-xl border border-slate-200 bg-white p-4">
-                <h3 className="mb-2 text-sm font-semibold text-slate-900">المرفقات</h3>
+                <h3 className="mb-3 text-sm font-semibold text-slate-900">المرفقات والتوثيق</h3>
+                <input
+                  ref={dropzoneInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    void addAttachmentsFromFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={!ticketId || !myUserId || actingField}
+                  onClick={() => dropzoneInputRef.current?.click()}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDropHighlight(true);
+                  }}
+                  onDragLeave={() => setDropHighlight(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDropHighlight(false);
+                    void addAttachmentsFromFiles(e.dataTransfer.files);
+                  }}
+                  className={cn(
+                    "flex min-h-[120px] w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-6 text-center transition",
+                    dropHighlight ? "border-emerald-400 bg-emerald-50/80" : "border-slate-300 bg-slate-50/80",
+                    (!ticketId || !myUserId || actingField) && "cursor-not-allowed opacity-60",
+                  )}
+                >
+                  <div className="flex items-center gap-2 text-slate-600">
+                    <Camera className="h-7 w-7" aria-hidden />
+                    <Plus className="h-6 w-6" aria-hidden />
+                  </div>
+                  <p className="text-sm font-medium text-slate-800">اسحب الصور أو الفيديو هنا أو انقر للرفع</p>
+                  <p className="text-xs text-slate-500">لتوثيق الموقع أو الإصلاح (صور وفيديو)</p>
+                </button>
                 {ticketAttachments.length === 0 ? (
-                  <p className="text-xs text-slate-500">لا توجد مرفقات مسجلة لهذا البلاغ.</p>
+                  <p className="mt-3 text-xs text-slate-500">لا توجد مرفقات مسجلة بعد.</p>
                 ) : (
-                  <ul className="space-y-3">
+                  <ul className="mt-4 space-y-3">
                     {ticketAttachments.map((att) => (
                       <li key={att.id} className="text-xs text-slate-700">
-                        <a href={att.file_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-slate-200">
+                        <a
+                          href={att.file_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block overflow-hidden rounded-lg border border-slate-200"
+                        >
                           {att.file_type === "video" || /\.(mp4|webm|mov|ogg)(\?|$)/i.test(att.file_url) ? (
                             <video src={att.file_url} className="h-32 w-full object-cover" controls muted playsInline />
                           ) : (
@@ -760,6 +735,19 @@ export function TicketDetailDrawer({
                   </ul>
                 )}
               </section>
+
+              {canViewMap ? (
+                <section className="rounded-xl border border-slate-200 bg-white p-4">
+                  <h3 className="mb-2 text-sm font-semibold text-slate-900">الموقع والخريطة</h3>
+                  {ticket.status === "not_received" ? (
+                    <p className="rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                      في انتظار مباشرة المهمة لبدء التتبع
+                    </p>
+                  ) : (
+                    <TicketMiniMap focusPoint={mapFocusPoint} staffPins={mapStaffPins} ticketLabel={mapTicketLabel} />
+                  )}
+                </section>
+              ) : null}
 
               {ticketId ? (
                 <TicketChatPanel

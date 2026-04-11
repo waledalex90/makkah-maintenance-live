@@ -19,7 +19,7 @@ export const ZONE_TICKET_WITH_HANDLER_PROFILES =
 
 /** لوحة تفاصيل البلاغ (فني/مشرف) */
 export const TICKET_DRAWER_WITH_HANDLER_PROFILES =
-  "id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, location, description, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, category_id, category, ticket_categories(name), zones(name), created_at, closed_at, closed_by, " +
+  "id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, category_id, category, ticket_categories(name), zones(name), created_at, closed_at, closed_by, " +
   "assigned_technician:profiles!assigned_technician_id(full_name), " +
   "assigned_supervisor:profiles!assigned_supervisor_id(full_name), " +
   "assigned_engineer:profiles!assigned_engineer_id(full_name), " +

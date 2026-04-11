@@ -527,6 +527,7 @@ export function OperationsMap() {
         onMarkTicketRead={(_ticketId, _readAt) => {
           /* unread counts not shown on map */
         }}
+        canViewMap
       />
     </section>
   );

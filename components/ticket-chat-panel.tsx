@@ -5,6 +5,7 @@ import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { formatSaudiTime } from "@/lib/saudi-time";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -234,44 +235,63 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
   };
 
   return (
-    <div className="rounded-xl border border-slate-200 dark:border-slate-700">
-      <h3 className="border-b border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+    <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm dark:border-slate-700">
+      <h3 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
         الدردشة والتوثيق
       </h3>
-      <div className="max-h-72 space-y-2 overflow-y-auto bg-[#e5ddd5] p-3 dark:bg-slate-800">
-        {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.sender_id === myUserId ? "justify-end" : "justify-start"}`}>
-            <div
-              className={`max-w-[85%] rounded-xl p-2 text-sm shadow-sm ${
-                msg.sender_id === myUserId ? "bg-[#dcf8c6] text-slate-900" : "bg-white text-slate-900"
-              }`}
-            >
-              <p className="text-[11px] text-slate-500">{senderNameMap[msg.sender_id] ?? msg.sender_id.slice(0, 8)}</p>
-              <p className="mt-1 whitespace-pre-wrap">{msg.content}</p>
-            {msg.image_url ? (
-              <>
-                <a href={msg.image_url} target="_blank" rel="noreferrer" className="mt-2 block">
-                  <img src={msg.image_url} alt="" className="max-h-40 rounded-md border border-slate-200" />
-                </a>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  بواسطة: {senderNameMap[msg.sender_id] ?? msg.sender_id.slice(0, 8)} - {senderRoleMap[msg.sender_id] ?? "غير محدد"}
+      <div className="max-h-80 space-y-3 overflow-y-auto bg-gradient-to-b from-slate-100/90 to-slate-50 p-3 dark:from-slate-900 dark:to-slate-950">
+        {messages.map((msg) => {
+          const mine = msg.sender_id === myUserId;
+          return (
+            <div key={msg.id} className={cn("flex w-full", mine ? "justify-end" : "justify-start")}>
+              <div
+                className={cn(
+                  "max-w-[88%] rounded-2xl px-3 py-2 text-sm shadow-sm ring-1 ring-black/5",
+                  mine
+                    ? "rounded-br-md bg-emerald-600 text-white"
+                    : "rounded-bl-md bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100",
+                )}
+              >
+                <p className={cn("text-[11px] font-medium leading-tight", mine ? "text-emerald-100" : "text-slate-500")}>
+                  {senderNameMap[msg.sender_id] ?? msg.sender_id.slice(0, 8)}
+                  {!mine ? (
+                    <span className="text-slate-400"> · {senderRoleMap[msg.sender_id] ?? "—"}</span>
+                  ) : null}
                 </p>
-              </>
-            ) : null}
-            {msg.audio_url ? <audio className="mt-2 w-full" controls preload="none" src={msg.audio_url} /> : null}
-              <p className="mt-1 text-[11px] text-slate-500">{formatSaudiTime(msg.created_at)}</p>
+                <p className={cn("mt-1 whitespace-pre-wrap leading-relaxed", mine && "text-white")}>{msg.content}</p>
+                {msg.image_url ? (
+                  <a href={msg.image_url} target="_blank" rel="noreferrer" className="mt-2 block">
+                    <img
+                      src={msg.image_url}
+                      alt=""
+                      className={cn("max-h-40 rounded-lg border object-cover", mine ? "border-emerald-500/50" : "border-slate-200")}
+                    />
+                  </a>
+                ) : null}
+                {msg.audio_url ? (
+                  <audio
+                    className={cn("mt-2 w-full", mine && "[&::-webkit-media-controls-panel]:bg-emerald-700")}
+                    controls
+                    preload="none"
+                    src={msg.audio_url}
+                  />
+                ) : null}
+                <p className={cn("mt-1.5 text-[10px] tabular-nums", mine ? "text-emerald-200/90" : "text-slate-400")}>
+                  {formatSaudiTime(msg.created_at)}
+                </p>
+              </div>
             </div>
-          </div>
-        ))}
-        {messages.length === 0 ? <p className="p-2 text-sm text-slate-500">لا توجد رسائل بعد.</p> : null}
+          );
+        })}
+        {messages.length === 0 ? <p className="p-2 text-center text-sm text-slate-500">لا توجد رسائل بعد.</p> : null}
       </div>
       {canPost ? (
-        <div className="sticky bottom-0 border-t border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+        <div className="border-t border-slate-200 bg-white p-3 shadow-[0_-4px_14px_rgba(15,23,42,0.06)] dark:border-slate-700 dark:bg-slate-900">
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="رسالة ميدانية / توثيق إجراء / ملاحظة إدارة المشروع..."
-            className="min-h-[72px] bg-white dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            className="min-h-[72px] rounded-xl border-2 border-slate-200 bg-white shadow-sm transition focus-visible:border-emerald-500 focus-visible:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
           />
           <div className="mt-2 space-y-1">
             <input

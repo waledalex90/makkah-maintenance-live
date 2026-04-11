@@ -8,6 +8,8 @@ import { supabase } from "@/lib/supabase";
 import { playWorkNotificationSound } from "@/lib/work-notification";
 import { TicketDetailDrawer, type TicketDetailRow } from "@/components/ticket-detail-drawer";
 import { TicketReceptionCaption } from "@/components/ticket-reception-caption";
+import { pushLiveLocationOnce } from "@/lib/push-live-location";
+import { effectivePermissions } from "@/lib/permissions";
 import { TICKET_DRAWER_WITH_HANDLER_PROFILES } from "@/lib/ticket-handler-select";
 import { formatSaudiDateTime } from "@/lib/saudi-time";
 import { type TicketStatus, statusLabelAr } from "@/lib/ticket-status";
@@ -72,6 +74,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
   const [drawerZoneName, setDrawerZoneName] = useState("-");
   const drawerTicketIdRef = useRef<string | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [canViewMap, setCanViewMap] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pullStartY, setPullStartY] = useState<number | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
@@ -93,6 +96,15 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       return;
     }
     setMyUserId(user.id);
+
+    const { data: profileRow } = await supabase
+      .from("profiles")
+      .select("role, permissions")
+      .eq("id", user.id)
+      .maybeSingle();
+    setCanViewMap(
+      effectivePermissions(profileRow?.role, profileRow?.permissions as Record<string, unknown> | null).view_map,
+    );
 
     const res = await fetch("/api/tasks/zone-tickets", { cache: "no-store" });
     const payload = (await res.json()) as {
@@ -255,6 +267,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       toast.error(payload.error ?? "تعذر قبول البلاغ.");
       return;
     }
+    void pushLiveLocationOnce();
     toast.success("تم قبول البلاغ وتحويله لك.");
     await loadTickets();
   };
@@ -268,6 +281,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       toast.error(payload.error ?? "تعذر قبول المهمة.");
       return;
     }
+    void pushLiveLocationOnce();
     toast.success("تم قبول المهمة وبدء التنفيذ.");
     await loadTickets();
   };
@@ -374,13 +388,31 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                       <p className="mt-1 text-slate-700">{ticket.title ?? ticket.location}</p>
                     </button>
                     {role === "technician" && tab === "area" && ticket.status !== "finished" ? (
-                      <button
-                        type="button"
-                        className="mt-2 min-h-11 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
-                        onClick={() => void claimTicket(ticket.id)}
-                      >
-                        قبول البلاغ
-                      </button>
+                      !ticket.assigned_technician_id ? (
+                        <button
+                          type="button"
+                          className="mt-2 min-h-11 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                          onClick={() => void claimTicket(ticket.id)}
+                        >
+                          قبول البلاغ
+                        </button>
+                      ) : ticket.assigned_technician_id === myUserId ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="mt-2 min-h-11 cursor-not-allowed rounded-md border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-500"
+                        >
+                          تم الاستلام / قيد المباشرة
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          className="mt-2 min-h-11 cursor-not-allowed rounded-md border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-500"
+                        >
+                          مُعيَّن لفني آخر
+                        </button>
+                      )
                     ) : null}
                     {role === "technician" &&
                     tab === "mine" &&
@@ -421,6 +453,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
           }
         }}
         onMarkTicketRead={() => {}}
+        canViewMap={canViewMap}
       />
     </div>
   );

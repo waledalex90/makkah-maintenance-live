@@ -25,6 +25,38 @@ const PERM_LABELS_AR: Record<AppPermissionKey, string> = {
   view_settings: "الإعدادات",
 };
 
+/** مناطق مختصرة + تلميح بالقائمة الكاملة عند التمرير */
+function RegionsCell({ zones }: { zones: Array<{ id: string; name: string }> | undefined }) {
+  const list = zones ?? [];
+  if (list.length === 0) {
+    return <span className="text-slate-400">—</span>;
+  }
+  const fullLabel = list.map((z) => z.name).join("، ");
+  if (list.length <= 2) {
+    return (
+      <span className="block max-w-[10rem] cursor-default truncate text-xs text-slate-600 dark:text-slate-400" title={fullLabel}>
+        {fullLabel}
+      </span>
+    );
+  }
+  const firstTwo = list
+    .slice(0, 2)
+    .map((z) => z.name)
+    .join("، ");
+  const rest = list.length - 2;
+  return (
+    <span
+      className="block max-w-[10rem] cursor-help text-xs leading-snug text-slate-600 dark:text-slate-400"
+      title={fullLabel}
+    >
+      <span className="line-clamp-2 break-words">{firstTwo}</span>
+      <span className="mt-0.5 block whitespace-nowrap text-[11px] font-medium text-slate-500 dark:text-slate-500">
+        +{rest} أخرى
+      </span>
+    </span>
+  );
+}
+
 /** تبديل مضغوط لصفوف الجدول — أخضر عند التفعيل، رمادي عند الإيقاف */
 function TablePermSwitch({
   checked,
@@ -48,7 +80,7 @@ function TablePermSwitch({
       disabled={disabled || saving}
       onClick={onToggle}
       className={cn(
-        "relative mx-auto block h-7 w-[2.75rem] shrink-0 rounded-full transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1",
+        "relative mx-auto block h-6 w-10 shrink-0 rounded-full transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1",
         checked
           ? "bg-emerald-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]"
           : "bg-slate-300 dark:bg-slate-600",
@@ -57,8 +89,8 @@ function TablePermSwitch({
     >
       <span
         className={cn(
-          "absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all",
-          checked ? "start-5" : "start-0.5",
+          "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all",
+          checked ? "start-[1.125rem]" : "start-0.5",
         )}
       />
     </button>
@@ -677,7 +709,7 @@ export function UsersManagementContent() {
   };
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" dir="rtl" lang="ar">
+    <section className="w-full min-w-0 max-w-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm" dir="rtl" lang="ar">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold">إدارة المستخدمين</h1>
         <div className="flex flex-wrap items-center gap-2">
@@ -728,28 +760,45 @@ export function UsersManagementContent() {
         </div>
       ) : (
         <>
-        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800">
-          <table className="min-w-[1100px] w-full border-collapse text-right text-sm">
+        <div className="w-full max-w-full overflow-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 max-h-[min(72vh,calc(100vh-13rem))]">
+          <table className="min-w-[1100px] w-full table-fixed border-collapse text-right text-sm">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-100">
-                <th className="sticky right-0 z-10 min-w-[8rem] bg-slate-100 px-3 py-3 font-semibold shadow-[4px_0_8px_-4px_rgba(0,0,0,0.08)] dark:bg-slate-900/80">
+              <tr className="border-b border-slate-200 text-slate-800 dark:border-slate-700 dark:text-slate-100">
+                <th className="sticky right-0 top-0 z-[21] min-w-[7.5rem] max-w-[9rem] bg-slate-100 px-2 py-2 text-xs font-semibold shadow-[4px_0_8px_-4px_rgba(0,0,0,0.08)] dark:bg-slate-900 dark:shadow-[4px_0_8px_-4px_rgba(0,0,0,0.25)]">
                   الاسم
                 </th>
-                <th className="px-3 py-3 font-semibold">اسم المستخدم</th>
-                <th className="px-3 py-3 font-semibold">الجوال</th>
-                <th className="px-3 py-3 font-semibold">المهنة</th>
-                <th className="px-3 py-3 font-semibold">التصنيف</th>
-                <th className="min-w-[7rem] px-3 py-3 font-semibold">المناطق</th>
-                <th className="px-3 py-3 font-semibold">الدور</th>
-                <th className="px-3 py-3 font-semibold">الحالة</th>
+                <th className="sticky top-0 z-20 min-w-[6.5rem] max-w-[7rem] bg-slate-100 px-2 py-2 text-xs font-semibold dark:bg-slate-900">
+                  المستخدم
+                </th>
+                <th className="sticky top-0 z-20 w-[6.5rem] min-w-[6rem] bg-slate-100 px-2 py-2 text-xs font-semibold dark:bg-slate-900">
+                  الجوال
+                </th>
+                <th className="sticky top-0 z-20 min-w-[6rem] max-w-[7rem] bg-slate-100 px-2 py-2 text-xs font-semibold dark:bg-slate-900">
+                  المهنة
+                </th>
+                <th className="sticky top-0 z-20 w-[4.5rem] min-w-[4rem] bg-slate-100 px-2 py-2 text-xs font-semibold dark:bg-slate-900">
+                  التصنيف
+                </th>
+                <th className="sticky top-0 z-20 min-w-[7rem] max-w-[8.5rem] bg-slate-100 px-2 py-2 text-xs font-semibold dark:bg-slate-900">
+                  المناطق
+                </th>
+                <th className="sticky top-0 z-20 min-w-[5.5rem] bg-slate-100 px-2 py-2 text-xs font-semibold dark:bg-slate-900">
+                  الدور
+                </th>
+                <th className="sticky top-0 z-20 w-[4rem] bg-slate-100 px-2 py-2 text-xs font-semibold dark:bg-slate-900">
+                  الحالة
+                </th>
                 {TABLE_QUICK_PERMS.map((col) => (
-                  <th key={col.key} className="w-[5.5rem] min-w-[5.5rem] px-2 py-3 text-center text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  <th
+                    key={col.key}
+                    className="sticky top-0 z-20 w-[4.25rem] min-w-[4.25rem] bg-slate-100 px-1 py-2 text-center text-[11px] font-semibold leading-tight text-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                  >
                     {col.header}
                   </th>
                 ))}
-                <th className="min-w-[12rem] px-3 py-3 font-semibold">تعيين الدور</th>
-                <th className="px-3 py-3 font-semibold">البيانات</th>
-                <th className="w-24 px-3 py-3 text-center font-semibold">إجراءات</th>
+                <th className="sticky top-0 z-20 min-w-[14rem] bg-slate-100 px-2 py-2 text-xs font-semibold dark:bg-slate-900">
+                  إجراءات
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -760,49 +809,68 @@ export function UsersManagementContent() {
                 const rowQuickLock = isAdminRow || hideActionsForOthers;
                 const globalRowIdx = (usersTablePage - 1) * USERS_TABLE_PAGE_SIZE + rowIdx;
                 const zebraEven = globalRowIdx % 2 === 0;
+                const rowBg = zebraEven ? "bg-white dark:bg-slate-950" : "bg-slate-50/80 dark:bg-slate-900/40";
+                const jobTitle = user.job_title || "—";
                 return (
                   <tr
                     key={user.id}
                     className={cn(
-                      "border-b border-slate-100 transition-colors dark:border-slate-800",
-                      zebraEven ? "bg-white dark:bg-slate-950" : "bg-slate-50/80 dark:bg-slate-900/40",
+                      "h-14 max-h-14 border-b border-slate-100 align-middle transition-colors dark:border-slate-800",
+                      rowBg,
                     )}
                   >
                     <td
                       className={cn(
-                        "sticky right-0 z-[1] px-3 py-2.5 font-medium text-slate-900 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.06)] dark:text-slate-50",
-                        zebraEven ? "bg-white dark:bg-slate-950" : "bg-slate-50/80 dark:bg-slate-900/40",
+                        "sticky right-0 z-[11] max-w-[9rem] px-2 py-1.5 align-middle font-medium shadow-[4px_0_8px_-4px_rgba(0,0,0,0.06)] dark:text-slate-50",
+                        rowBg,
                       )}
                     >
-                      <span className="inline-flex flex-wrap items-center gap-2">
-                        {user.full_name}
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="min-w-0 flex-1 truncate text-slate-900" title={user.full_name}>
+                          {user.full_name}
+                        </span>
                         {isProtectedSuperAdminEmail(user.email) ? (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-950/70 dark:text-amber-200">
+                          <span
+                            className="inline-flex shrink-0 items-center rounded border border-amber-300/80 bg-amber-50 px-1 py-px text-[9px] font-semibold leading-none text-amber-900 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-200"
+                            title="حساب مدير محمي"
+                          >
                             محمي
                           </span>
                         ) : null}
-                      </span>
+                      </div>
                     </td>
-                    <td className="max-w-[10rem] truncate px-3 py-2.5 text-slate-700 dark:text-slate-300" title={user.username || user.email}>
+                    <td
+                      className="max-w-[7rem] truncate px-2 py-1.5 align-middle text-xs text-slate-700 dark:text-slate-300"
+                      title={user.username || user.email}
+                    >
                       {user.username || user.email}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2.5 text-slate-700 dark:text-slate-300">{user.mobile}</td>
-                    <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">{user.job_title || "—"}</td>
-                    <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">
+                    <td className="whitespace-nowrap px-2 py-1.5 align-middle text-xs text-slate-700 dark:text-slate-300">
+                      {user.mobile}
+                    </td>
+                    <td
+                      className="max-w-[7rem] truncate px-2 py-1.5 align-middle text-xs text-slate-700 dark:text-slate-300"
+                      title={jobTitle}
+                    >
+                      {jobTitle}
+                    </td>
+                    <td className="truncate px-2 py-1.5 align-middle text-xs text-slate-700 dark:text-slate-300">
                       {SPECIALTY_OPTIONS.find((option) => option.value === user.specialty)?.label ?? "—"}
                     </td>
-                    <td className="max-w-[9rem] px-3 py-2.5 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-                      {(user.zones ?? []).length > 0 ? (user.zones ?? []).map((zone) => zone.name).join("، ") : "—"}
+                    <td className="max-h-14 min-w-0 overflow-hidden px-2 py-1 align-middle">
+                      <RegionsCell zones={user.zones} />
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2.5 text-slate-800 dark:text-slate-200">
+                    <td className="truncate px-2 py-1.5 align-middle text-xs text-slate-800 dark:text-slate-200" title={ROLE_OPTIONS.find((o) => o.value === user.role)?.label}>
                       {ROLE_OPTIONS.find((option) => option.value === user.role)?.label ?? user.role}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2.5 text-slate-700 dark:text-slate-300">{user.account_status}</td>
+                    <td className="truncate px-2 py-1.5 align-middle text-xs text-slate-700 dark:text-slate-300">
+                      {user.account_status}
+                    </td>
                     {TABLE_QUICK_PERMS.map((col) => {
                       const on = eff[col.key];
                       const saving = permRowSaving === `${user.id}-${col.key}`;
                       return (
-                        <td key={col.key} className="px-1 py-2 text-center align-middle">
+                        <td key={col.key} className="px-0.5 py-1 text-center align-middle">
                           <TablePermSwitch
                             checked={on}
                             disabled={rowQuickLock}
@@ -813,10 +881,10 @@ export function UsersManagementContent() {
                         </td>
                       );
                     })}
-                    <td className="px-3 py-2">
-                      <div className="flex flex-col items-stretch gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+                    <td className="min-w-[14rem] max-w-[18rem] px-1.5 py-1 align-middle">
+                      <div className="flex flex-nowrap items-center justify-end gap-0.5 overflow-x-auto [scrollbar-width:thin]">
                         <select
-                          className="h-9 min-w-[7.5rem] rounded-md border border-slate-200 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-900"
+                          className="h-7 min-w-[5.5rem] max-w-[6.5rem] flex-shrink rounded border border-slate-200 bg-white px-1 text-[11px] dark:border-slate-600 dark:bg-slate-900"
                           disabled={hideActionsForOthers}
                           value={draftRoleMap[user.id] ?? user.role}
                           onChange={(e) =>
@@ -834,7 +902,7 @@ export function UsersManagementContent() {
                         </select>
                         <button
                           type="button"
-                          className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+                          className="h-7 shrink-0 rounded border border-slate-200 bg-white px-1.5 text-[11px] font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
                           onClick={() => void saveRole(user)}
                           disabled={
                             hideActionsForOthers ||
@@ -846,52 +914,48 @@ export function UsersManagementContent() {
                         </button>
                         <button
                           type="button"
-                          className="rounded-md border border-emerald-200 bg-emerald-50/80 px-2 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
+                          className="h-7 shrink-0 whitespace-nowrap rounded border border-emerald-200 bg-emerald-50/90 px-1.5 text-[10px] font-medium leading-none text-emerald-900 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
                           onClick={() => openPasswordModal(user)}
                           disabled={hideActionsForOthers}
                         >
                           كلمة المرور
                         </button>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      {hideActionsForOthers ? (
-                        <span className="text-xs font-medium text-slate-400 dark:text-slate-500">—</span>
-                      ) : (
+                        {hideActionsForOthers ? (
+                          <span className="text-[11px] text-slate-400 dark:text-slate-500">—</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="h-7 shrink-0 rounded bg-indigo-600 px-2 text-[11px] font-semibold text-white shadow-sm hover:bg-indigo-700"
+                            onClick={() => openEditUser(user)}
+                          >
+                            تعديل
+                          </button>
+                        )}
                         <button
                           type="button"
-                          className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
-                          onClick={() => openEditUser(user)}
+                          title="حذف المستخدم"
+                          disabled={
+                            isProtectedSuperAdminEmail(user.email) ||
+                            user.id === currentUserId ||
+                            quickDeleteId === user.id
+                          }
+                          onClick={() => void quickDeleteUser(user)}
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-red-200 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400"
                         >
-                          تعديل
+                          {quickDeleteId === user.id ? (
+                            <span className="text-[10px]">…</span>
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" strokeWidth={2.25} />
+                          )}
                         </button>
-                      )}
-                    </td>
-                    <td className="px-2 py-2 text-center">
-                      <button
-                        type="button"
-                        title="حذف المستخدم"
-                        disabled={
-                          isProtectedSuperAdminEmail(user.email) ||
-                          user.id === currentUserId ||
-                          quickDeleteId === user.id
-                        }
-                        onClick={() => void quickDeleteUser(user)}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/70"
-                      >
-                        {quickDeleteId === user.id ? (
-                          <span className="text-xs">…</span>
-                        ) : (
-                          <Trash2 className="h-4 w-4" strokeWidth={2.25} />
-                        )}
-                      </button>
+                      </div>
                     </td>
                   </tr>
                 );
               })}
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="px-3 py-10 text-center text-slate-500">
+                  <td colSpan={12} className="px-3 py-10 text-center text-slate-500">
                     لا يوجد مستخدمون حالياً.
                   </td>
                 </tr>

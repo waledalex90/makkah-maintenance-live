@@ -10,6 +10,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { TicketCreateForm } from "@/components/ticket-create-form";
 import { TicketChatPanel } from "@/components/ticket-chat-panel";
+import {
+  type TicketStatus,
+  statusBadgeVariant,
+  statusDotClass,
+  statusLabelAr,
+} from "@/lib/ticket-status";
 
 type Zone = {
   id: string;
@@ -20,7 +26,6 @@ type Zone = {
   longitude?: number | null;
 };
 
-type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
 type StatFilter = "all" | "active" | "pending" | "completed" | "overdue";
 type CategoryJoin = { name: string } | { name: string }[] | null;
 
@@ -29,6 +34,7 @@ type TicketRow = {
   ticket_number?: number | null;
   external_ticket_number?: string | null;
   reporter_name?: string | null;
+  reporter_phone?: string | null;
   title?: string | null;
   category_id?: number | null;
   shaqes_notes?: string | null;
@@ -83,7 +89,7 @@ type AdminDashboardContentProps = {
   tableOnly?: boolean;
 };
 
-const IN_PROGRESS_STATUSES: TicketStatus[] = ["assigned", "on_the_way", "arrived"];
+const IN_PROGRESS_STATUSES: TicketStatus[] = ["received"];
 const PAGE_SIZE = 10;
 const LAST_READ_STORAGE_KEY = "admin_ticket_last_read_map";
 const OVERDUE_HOURS = 4;
@@ -99,13 +105,6 @@ const TicketDetailLiveMap = dynamic(
     ),
   },
 );
-
-function statusBadgeVariant(status: TicketStatus): "red" | "yellow" | "green" | "muted" {
-  if (status === "new") return "red";
-  if (status === "on_the_way") return "yellow";
-  if (status === "fixed") return "green";
-  return "muted";
-}
 
 function categoryBadgeColor(categoryName: string): string {
   const lower = categoryName.toLowerCase();
@@ -132,14 +131,6 @@ function normalizeCategoryName(category: CategoryJoin | undefined): string {
   if (!category) return "-";
   if (Array.isArray(category)) return category[0]?.name ?? "-";
   return category.name;
-}
-
-function statusText(status: TicketStatus): string {
-  if (status === "new") return "جديد";
-  if (status === "assigned") return "تم التكليف";
-  if (status === "on_the_way") return "في الطريق";
-  if (status === "arrived") return "وصل";
-  return "تم الإنجاز";
 }
 
 function mapCategoryToSpecialty(categoryName: string): string | null {
@@ -245,7 +236,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const loadStats = async () => {
     const { data, error } = await supabase
       .from("tickets")
-      .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
+      .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -287,7 +278,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
     let query = supabase
       .from("tickets")
-      .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at", { count: "exact" })
+      .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(from, to);
 
@@ -301,12 +292,12 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     if (statFilter === "active") {
       query = query.in("status", IN_PROGRESS_STATUSES);
     } else if (statFilter === "pending") {
-      query = query.eq("status", "new");
+      query = query.eq("status", "not_received");
     } else if (statFilter === "completed") {
-      query = query.eq("status", "fixed");
+      query = query.eq("status", "finished");
     } else if (statFilter === "overdue") {
       const overdueCutoff = new Date(nowTs - OVERDUE_HOURS * 60 * 60 * 1000).toISOString();
-      query = query.neq("status", "fixed").lt("created_at", overdueCutoff);
+      query = query.neq("status", "finished").lt("created_at", overdueCutoff);
     }
 
     const q = searchTerm.trim();
@@ -370,7 +361,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     const [ticketRes, attachmentsRes, staffRes] = await Promise.all([
       supabase
         .from("tickets")
-        .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
+        .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
         .eq("id", ticket.id)
         .single(),
       supabase
@@ -481,7 +472,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     if (!selectedTicket) return;
     setModalDispatching(true);
     const supId = modalSupervisorPick || null;
-    const nextStatus = selectedTicket.status === "new" && supId ? "assigned" : selectedTicket.status;
+    const nextStatus = selectedTicket.status === "not_received" && supId ? "received" : selectedTicket.status;
     const { error } = await supabase
       .from("tickets")
       .update({ assigned_supervisor_id: supId, status: nextStatus })
@@ -509,7 +500,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     if (!selectedTicket) return;
     setModalDispatching(true);
     const techId = modalTechnicianPick || null;
-    const nextStatus = selectedTicket.status === "new" && techId ? "assigned" : selectedTicket.status;
+    const nextStatus = selectedTicket.status === "not_received" && techId ? "received" : selectedTicket.status;
     const { error } = await supabase
       .from("tickets")
       .update({ assigned_technician_id: techId, status: nextStatus })
@@ -536,12 +527,12 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const openTicketById = async (ticketId: string) => {
     const { data, error } = await supabase
       .from("tickets")
-      .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
+      .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
       .eq("id", ticketId)
       .single();
 
     if (error || !data) {
-      toast.error("Unable to open ticket details.");
+      toast.error("تعذر فتح تفاصيل البلاغ.");
       return;
     }
 
@@ -553,7 +544,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     if (selectedTicket) {
       const { data } = await supabase
         .from("tickets")
-        .select("id, ticket_number, external_ticket_number, reporter_name, title, category_id, ticket_categories(name), shaqes_notes, location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
+        .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at")
         .eq("id", selectedTicket.id)
         .single();
 
@@ -573,9 +564,9 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         { event: "INSERT", schema: "public", table: "tickets" },
         (payload) => {
           const newTicket = payload.new as TicketRow;
-          toast.success(`New ticket: ${newTicket.location}`, {
+          toast.success(`بلاغ جديد: ${newTicket.title ?? newTicket.location ?? newTicket.id}`, {
             action: {
-              label: "Open",
+              label: "فتح",
               onClick: () => {
                 void openTicketById(newTicket.id);
               },
@@ -622,10 +613,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
   const stats = useMemo(() => {
     const active = allTickets.filter((t) => IN_PROGRESS_STATUSES.includes(t.status)).length;
-    const pending = allTickets.filter((t) => t.status === "new").length;
-    const completed = allTickets.filter((t) => t.status === "fixed").length;
+    const pending = allTickets.filter((t) => t.status === "not_received").length;
+    const completed = allTickets.filter((t) => t.status === "finished").length;
     const overdue = allTickets.filter((t) => {
-      if (t.status === "fixed") return false;
+      if (t.status === "finished") return false;
       const createdMs = new Date(t.created_at).getTime();
       return nowTs - createdMs > OVERDUE_HOURS * 60 * 60 * 1000;
     }).length;
@@ -658,7 +649,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       ticket.zone_id ? zoneNameMap.get(ticket.zone_id) ?? "-" : "-",
       ticket.reporter_name || "-",
       (ticket.description || ticket.title || ticket.location || "-").replace(/\r?\n/g, " "),
-      statusText(ticket.status),
+      statusLabelAr(ticket.status),
       relativeAgeLabel(ticket.created_at, nowTs),
     ]);
     const csv = [headers, ...rows]
@@ -707,9 +698,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
   return (
     <div
-      className="relative space-y-6"
+      className="relative space-y-6 bg-white text-slate-900"
       dir="rtl"
       lang="ar"
+      style={{ colorScheme: "light" }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -719,19 +711,36 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           {pullRefreshing ? "جاري التحديث..." : pullDistance > 35 ? "افلت للتحديث" : "اسحب للتحديث"}
         </div>
       </div>
+
+      <header className="flex flex-col gap-3 border-b border-slate-200 bg-white pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">{tableOnly ? "البلاغات" : "لوحة التحكم"}</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            {tableOnly ? "عرض وإدارة البلاغات" : "مؤشرات البلاغات وإنشاء بلاغ جديد"}
+          </p>
+        </div>
+        <Button
+          type="button"
+          className="h-11 min-w-[200px] shrink-0 bg-slate-900 text-base text-white hover:bg-slate-800"
+          onClick={() => setCreateModalOpen(true)}
+        >
+          + إنشاء بلاغ جديد
+        </Button>
+      </header>
+
       {!tableOnly ? (
         <section className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
           <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "active" ? "all" : "active"))}>
-            <Card className={statFilter === "active" ? "ring-2 ring-sky-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">البلاغات النشطة (Active)</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-sky-700 md:text-3xl">{stats.active}</p></CardContent></Card>
+            <Card className={statFilter === "active" ? "ring-2 ring-amber-400" : ""}><CardHeader><CardTitle className="text-base md:text-lg">قيد المعالجة (تم الاستلام)</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-amber-600 md:text-3xl">{stats.active}</p></CardContent></Card>
           </button>
           <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "pending" ? "all" : "pending"))}>
-            <Card className={statFilter === "pending" ? "ring-2 ring-amber-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">البلاغات المعلقة (Pending)</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-amber-600 md:text-3xl">{stats.pending}</p></CardContent></Card>
+            <Card className={statFilter === "pending" ? "ring-2 ring-red-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">لم يستلم بعد</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-red-600 md:text-3xl">{stats.pending}</p></CardContent></Card>
           </button>
           <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "completed" ? "all" : "completed"))}>
-            <Card className={statFilter === "completed" ? "ring-2 ring-green-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">البلاغات المنتهية (Completed)</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-green-600 md:text-3xl">{stats.completed}</p></CardContent></Card>
+            <Card className={statFilter === "completed" ? "ring-2 ring-emerald-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">تم الانتهاء</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-emerald-600 md:text-3xl">{stats.completed}</p></CardContent></Card>
           </button>
           <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "overdue" ? "all" : "overdue"))}>
-            <Card className={statFilter === "overdue" ? "ring-2 ring-red-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">البلاغات المتأخرة (Overdue)</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-red-600 md:text-3xl">{stats.overdue}</p></CardContent></Card>
+            <Card className={statFilter === "overdue" ? "ring-2 ring-orange-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">بلاغات متأخرة</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-orange-600 md:text-3xl">{stats.overdue}</p></CardContent></Card>
           </button>
         </section>
       ) : null}
@@ -765,11 +774,9 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
               onChange={(e) => setStatusFilter(e.target.value)}
             >
               <option value="all">كل الحالات</option>
-              <option value="new">جديد</option>
-              <option value="assigned">تم التكليف</option>
-              <option value="on_the_way">في الطريق</option>
-              <option value="arrived">وصل</option>
-              <option value="fixed">تم الإنجاز</option>
+              <option value="not_received">لم يستلم</option>
+              <option value="received">تم الاستلام</option>
+              <option value="finished">تم الانتهاء</option>
             </select>
           </div>
 
@@ -795,7 +802,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         <p className="mb-2 text-xs text-slate-500">مرتبة من الأحدث إلى الأقدم</p>
 
         {loading ? (
-          <p className="text-sm text-slate-500">Loading tickets...</p>
+          <p className="text-sm text-slate-500">جاري تحميل البلاغات...</p>
         ) : (
           <>
             <div className="hidden overflow-x-auto md:block">
@@ -839,11 +846,9 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
                           <span
-                            className={`inline-block h-2.5 w-2.5 rounded-full ${
-                              ticket.status === "fixed" ? "bg-green-500" : ticket.status === "new" ? "bg-red-500" : "bg-amber-500"
-                            }`}
+                            className={`inline-block h-2.5 w-2.5 rounded-full ${statusDotClass(ticket.status)}`}
                           />
-                          <Badge variant={statusBadgeVariant(ticket.status)}>{ticket.status}</Badge>
+                          <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabelAr(ticket.status)}</Badge>
                           {hasUnread ? <span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> : null}
                         </div>
                       </td>
@@ -877,7 +882,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                       <p className="text-base font-semibold text-slate-900">
                         {ticket.external_ticket_number || ticket.ticket_number || ticket.id.slice(0, 8)}
                       </p>
-                      <Badge variant={statusBadgeVariant(ticket.status)}>{statusText(ticket.status)}</Badge>
+                      <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabelAr(ticket.status)}</Badge>
                     </div>
                     <p className="mb-2 text-sm text-slate-700">
                       {ticket.description || ticket.title || ticket.location}
@@ -925,16 +930,13 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </div>
       </section>
 
-      <Button
-        className="fixed bottom-24 left-4 z-30 min-h-12 rounded-full px-5 text-base shadow-lg md:bottom-8 md:left-8"
-        onClick={() => setCreateModalOpen(true)}
-      >
-        + إنشاء بلاغ جديد
-      </Button>
-
       {createModalOpen ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setCreateModalOpen(false)}>
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl"
+            style={{ colorScheme: "light" }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">إنشاء بلاغ جديد</h3>
               <button
@@ -959,7 +961,11 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
       {detailModalOpen ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setDetailModalOpen(false)}>
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl"
+            style={{ colorScheme: "light" }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">تفاصيل البلاغ</h3>
               <button
@@ -1006,17 +1012,18 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                     <div><span className="font-semibold">التصنيف:</span> {normalizeCategoryName(selectedTicket.ticket_categories)}</div>
                     <div><span className="font-semibold">المنطقة:</span> {selectedTicket.zone_id ? zoneMap.get(selectedTicket.zone_id)?.name ?? "-" : "-"}</div>
                     <div><span className="font-semibold">مقدم البلاغ:</span> {selectedTicket.reporter_name || "-"}</div>
-                    <div><span className="font-semibold">الموقع:</span> {selectedTicket.location || "-"}</div>
-                    <div><span className="font-semibold">GPS:</span> {selectedTicket.latitude && selectedTicket.longitude ? `${selectedTicket.latitude}, ${selectedTicket.longitude}` : "غير متاح"}</div>
+                    <div dir="ltr" className="text-right">
+                      <span className="font-semibold" dir="rtl">
+                        رقم تليفون مقدم البلاغ:
+                      </span>{" "}
+                      {selectedTicket.reporter_phone || "—"}
+                    </div>
+                    <div><span className="font-semibold">موقع البلاغ:</span> {selectedTicket.title || "-"}</div>
                   </div>
                   <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <div>
                       <p className="mb-1 font-semibold">الوصف</p>
                       <p className="rounded-md bg-white p-3">{selectedTicket.description || "-"}</p>
-                    </div>
-                    <div>
-                      <p className="mb-1 font-semibold">ملاحظات شاخص الفنية</p>
-                      <p className="rounded-md bg-white p-3">{selectedTicket.shaqes_notes || "لا توجد ملاحظات"}</p>
                     </div>
                   </div>
                 </div>
@@ -1078,7 +1085,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                 ) : null}
 
                 <div>
-                  <p className="mb-2 font-semibold">الصور المرفقة</p>
+                  <p className="mb-2 font-semibold">المرفقات (صور وفيديو)</p>
                   {detailAttachments.length === 0 ? (
                     <p className="text-slate-500">لا توجد مرفقات.</p>
                   ) : (
@@ -1086,7 +1093,11 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                       {detailAttachments.map((att) => (
                         <div key={att.id} className="space-y-1">
                           <a href={att.file_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-slate-200">
-                            <img src={att.file_url} alt={att.file_name ?? "ticket attachment"} className="h-36 w-full object-cover" />
+                            {att.file_type === "video" || /\.(mp4|webm|mov|ogg)(\?|$)/i.test(att.file_url) ? (
+                              <video src={att.file_url} className="h-36 w-full object-cover" controls muted playsInline />
+                            ) : (
+                              <img src={att.file_url} alt={att.file_name ?? "ticket attachment"} className="h-36 w-full object-cover" />
+                            )}
                           </a>
                           <p className="text-center text-xs text-slate-600">
                             الرتبة {att.sort_order + 1} — {att.file_name ?? "—"}

@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ensureGpsPermission } from "@/lib/gps-permission";
+import { TicketMediaDropzone } from "@/components/ticket-media-dropzone";
+import type { TicketStatus } from "@/lib/ticket-status";
 
 type ZoneRow = {
   id: string;
@@ -19,13 +20,15 @@ type CategoryRow = {
   name: string;
 };
 
+const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
+
 type TicketCreateFormProps = {
   role: string;
   onCreated: () => Promise<void> | void;
   onCancel: () => void;
 };
 
-export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateFormProps) {
+export function TicketCreateForm({ role: _role, onCreated, onCancel }: TicketCreateFormProps) {
   const [zones, setZones] = useState<ZoneRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,22 +38,10 @@ export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateForm
   const [description, setDescription] = useState("");
   const [externalTicketNumber, setExternalTicketNumber] = useState("");
   const [reporterNameInput, setReporterNameInput] = useState("");
+  const [reporterPhone, setReporterPhone] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [zoneId, setZoneId] = useState("");
-  const [gpsEnabled, setGpsEnabled] = useState(false);
-  const [locationText, setLocationText] = useState("");
-  const [latitude, setLatitude] = useState<number | null>(null);
-  const [longitude, setLongitude] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
-  const [showShaqes, setShowShaqes] = useState(false);
-  const [shaqesNotes, setShaqesNotes] = useState("");
-
-  const canRouteTicket = role !== "reporter";
-  const zoneNameMap = useMemo(() => {
-    const map = new Map<string, string>();
-    zones.forEach((zone) => map.set(zone.id, zone.name));
-    return map;
-  }, [zones]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -68,33 +59,39 @@ export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateForm
     void loadData();
   }, []);
 
-  const captureGps = async () => {
-    const permission = await ensureGpsPermission();
-    if (permission === "unsupported") {
-      toast.error("المتصفح لا يدعم تحديد الموقع.");
+  const uploadOne = async (file: File, ticketId: string, userId: string, sortOrder: number) => {
+    const isVideo = file.type.startsWith("video/");
+    if (isVideo && file.size > MAX_VIDEO_BYTES) {
+      toast.error(`الفيديو كبير جداً: ${file.name}`);
       return;
     }
-    if (permission === "insecure") {
-      toast.error("ميزة GPS تعمل فقط عبر HTTPS في بيئة الإنتاج.");
+    let uploadBody: Blob = file;
+    let baseName = file.name;
+    if (!isVideo) {
+      uploadBody = await imageCompression(file, {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1600,
+        useWebWorker: true,
+        initialQuality: 0.8,
+      });
+      baseName = (uploadBody as File).name || file.name;
+    }
+    const ext = baseName.split(".").pop() ?? (isVideo ? "mp4" : "jpg");
+    const filePath = `${ticketId}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error: uploadError } = await supabase.storage.from("tickets").upload(filePath, uploadBody, { upsert: false });
+    if (uploadError) {
+      toast.error(`فشل رفع مرفق: ${file.name}`);
       return;
     }
-    if (permission === "denied") {
-      toast.error("تم رفض صلاحية الموقع. فعّلها من إعدادات المتصفح.");
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = Number(position.coords.latitude.toFixed(6));
-        const lng = Number(position.coords.longitude.toFixed(6));
-        setLatitude(lat);
-        setLongitude(lng);
-        setLocationText(`GPS: ${lat}, ${lng}`);
-      },
-      () => {
-        toast.error("تعذر الحصول على الموقع الجغرافي.");
-      },
-      { enableHighAccuracy: true, timeout: 8000 },
-    );
+    const { data: publicData } = supabase.storage.from("tickets").getPublicUrl(filePath);
+    await supabase.from("ticket_attachments").insert({
+      ticket_id: ticketId,
+      uploaded_by: userId,
+      file_url: publicData.publicUrl,
+      file_type: isVideo ? "video" : "image",
+      file_name: file.name,
+      sort_order: sortOrder,
+    });
   };
 
   const createTicket = async () => {
@@ -111,21 +108,22 @@ export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateForm
     }
 
     setCreating(true);
-    const locationValue = locationText.trim() || zoneNameMap.get(zoneId) || "بدون تحديد";
+    const locationValue = title.trim();
     const insertPayload = {
       title: title.trim(),
       description: description.trim(),
       external_ticket_number: externalTicketNumber.trim(),
       reporter_name: reporterNameInput.trim(),
+      reporter_phone: reporterPhone.trim() || null,
       category_id: Number(categoryId),
       zone_id: zoneId,
       location: locationValue,
-      gps_enabled: gpsEnabled,
-      latitude: gpsEnabled ? latitude : null,
-      longitude: gpsEnabled ? longitude : null,
+      gps_enabled: false,
+      latitude: null as number | null,
+      longitude: null as number | null,
       created_by: user.id,
-      shaqes_notes: showShaqes && canRouteTicket ? shaqesNotes.trim() || null : null,
-      status: "new" as const,
+      shaqes_notes: null as string | null,
+      status: "not_received" as TicketStatus,
     };
 
     const { data: ticketData, error: ticketError } = await supabase
@@ -143,30 +141,7 @@ export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateForm
     if (attachments.length > 0) {
       let sortOrder = 0;
       for (const file of attachments) {
-        const compressedImage = await imageCompression(file, {
-          maxSizeMB: 1,
-          maxWidthOrHeight: 1600,
-          useWebWorker: true,
-          initialQuality: 0.8,
-        });
-        const ext = compressedImage.name.split(".").pop() ?? "jpg";
-        const filePath = `${ticketData.id}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-        const { error: uploadError } = await supabase.storage
-          .from("tickets")
-          .upload(filePath, compressedImage, { upsert: false });
-        if (uploadError) {
-          toast.error(`فشل رفع مرفق: ${file.name}`);
-          continue;
-        }
-        const { data: publicData } = supabase.storage.from("tickets").getPublicUrl(filePath);
-        await supabase.from("ticket_attachments").insert({
-          ticket_id: ticketData.id,
-          uploaded_by: user.id,
-          file_url: publicData.publicUrl,
-          file_type: "image",
-          file_name: file.name,
-          sort_order: sortOrder,
-        });
+        await uploadOne(file, ticketData.id, user.id, sortOrder);
         sortOrder += 1;
       }
     }
@@ -178,35 +153,53 @@ export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateForm
   };
 
   if (loading) {
-    return <p className="text-sm text-slate-500">جاري تحميل نموذج البلاغ...</p>;
+    return (
+      <div className="text-slate-800" style={{ colorScheme: "light" }}>
+        <p className="text-sm text-slate-600">جاري تحميل نموذج البلاغ...</p>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-4" dir="rtl" lang="ar">
+    <div className="space-y-4 bg-white text-slate-900" dir="rtl" lang="ar" style={{ colorScheme: "light" }}>
       <div className="grid gap-3 md:grid-cols-2">
         <div>
-          <p className="mb-1 text-xs text-slate-500">رقم البلاغ</p>
+          <p className="mb-1 text-xs text-slate-600">رقم البلاغ</p>
           <Input
             value={externalTicketNumber}
             onChange={(e) => setExternalTicketNumber(e.target.value)}
             placeholder="اكتب رقم البلاغ القادم من النظام الخارجي"
+            className="border-slate-200 bg-white text-slate-900"
           />
         </div>
         <div>
-          <p className="mb-1 text-xs text-slate-500">مقدم البلاغ</p>
+          <p className="mb-1 text-xs text-slate-600">مقدم البلاغ</p>
           <Input
             value={reporterNameInput}
             onChange={(e) => setReporterNameInput(e.target.value)}
             placeholder="اكتب اسم مقدم البلاغ من الموقع الخارجي"
+            className="border-slate-200 bg-white text-slate-900"
           />
         </div>
       </div>
 
+      <div>
+        <p className="mb-1 text-xs text-slate-600">رقم تليفون مقدم البلاغ</p>
+        <Input
+          value={reporterPhone}
+          onChange={(e) => setReporterPhone(e.target.value)}
+          placeholder="مثال: 05xxxxxxxx"
+          className="border-slate-200 bg-white text-slate-900"
+          type="tel"
+          dir="ltr"
+        />
+      </div>
+
       <div className="grid gap-3 md:grid-cols-2">
         <div>
-          <p className="mb-1 text-xs text-slate-500">تصنيف البلاغ</p>
+          <p className="mb-1 text-xs text-slate-600">تصنيف البلاغ</p>
           <select
-            className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+            className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900"
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
           >
@@ -219,9 +212,9 @@ export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateForm
           </select>
         </div>
         <div>
-          <p className="mb-1 text-xs text-slate-500">المنطقة</p>
+          <p className="mb-1 text-xs text-slate-600">المنطقة</p>
           <select
-            className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+            className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900"
             value={zoneId}
             onChange={(e) => setZoneId(e.target.value)}
           >
@@ -236,76 +229,32 @@ export function TicketCreateForm({ role, onCreated, onCancel }: TicketCreateForm
       </div>
 
       <div>
-        <p className="mb-1 text-xs text-slate-500">عنوان البلاغ</p>
-        <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: عطل في لوحة الكهرباء" />
-      </div>
-
-      <div>
-        <p className="mb-1 text-xs text-slate-500">تفاصيل البلاغ</p>
-        <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="اكتب تفاصيل البلاغ..." />
-      </div>
-
-      <div>
-        <p className="mb-1 text-xs text-slate-500">المرفقات (صور)</p>
-        <input
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={(e) => setAttachments(Array.from(e.target.files ?? []))}
-          className="block w-full text-xs"
+        <p className="mb-1 text-xs text-slate-600">موقع البلاغ</p>
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="صف موقع البلاغ بدقة (مثال: عند مدخل المبنى أ)"
+          className="border-slate-200 bg-white text-slate-900"
         />
-        {attachments.length > 0 ? (
-          <ul className="mt-2 space-y-1 text-xs text-slate-600">
-            {attachments.map((file, index) => (
-              <li key={`${file.name}-${index}`}>
-                الرتبة {index + 1} — {file.name} (ضغط حتى 1MB قبل الرفع إلى باكت tickets)
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-
-      <div className="rounded-lg border border-slate-200 p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-sm font-medium">الموقع الجغرافي (GPS)</p>
-          <button
-            type="button"
-            className={`rounded-md px-3 py-1 text-xs ${gpsEnabled ? "bg-emerald-600 text-white" : "border border-slate-300 bg-white text-slate-700"}`}
-            onClick={() => setGpsEnabled((prev) => !prev)}
-          >
-            {gpsEnabled ? "مفعّل" : "معطّل"}
-          </button>
-        </div>
-        {gpsEnabled ? (
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" onClick={() => void captureGps()}>سحب الموقع الحالي</Button>
-            <Input value={locationText} onChange={(e) => setLocationText(e.target.value)} placeholder="سيظهر الموقع هنا" />
-          </div>
-        ) : (
-          <Input value={locationText} onChange={(e) => setLocationText(e.target.value)} placeholder="اكتب وصف المكان (اختياري)" />
-        )}
       </div>
 
       <div>
-        <Button type="button" variant="outline" onClick={() => setShowShaqes((prev) => !prev)} disabled={!canRouteTicket}>
-          شاخص
-        </Button>
+        <p className="mb-1 text-xs text-slate-600">تفاصيل البلاغ</p>
+        <Textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="اكتب تفاصيل البلاغ..."
+          className="border-slate-200 bg-white text-slate-900"
+        />
       </div>
 
-      {showShaqes && canRouteTicket ? (
-        <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3">
-          <p className="mb-2 text-sm font-semibold text-indigo-900">شاخص - أرقام وملاحظات فنية</p>
-          <Textarea
-            value={shaqesNotes}
-            onChange={(e) => setShaqesNotes(e.target.value)}
-            placeholder="اكتب أرقام المرجع والملاحظات الفنية الخاصة بالتوجيه..."
-          />
-        </div>
-      ) : null}
+      <TicketMediaDropzone files={attachments} onFilesChange={setAttachments} disabled={creating} />
 
-      <div className="flex items-center justify-end gap-2">
-        <Button variant="outline" onClick={onCancel} disabled={creating}>إلغاء</Button>
-        <Button onClick={() => void createTicket()} disabled={creating}>
+      <div className="flex items-center justify-end gap-2 pt-2">
+        <Button variant="outline" onClick={onCancel} disabled={creating} className="border-slate-300 bg-white text-slate-800">
+          إلغاء
+        </Button>
+        <Button onClick={() => void createTicket()} disabled={creating} className="bg-slate-900 text-white hover:bg-slate-800">
           {creating ? "جاري الإنشاء..." : "حفظ البلاغ"}
         </Button>
       </div>

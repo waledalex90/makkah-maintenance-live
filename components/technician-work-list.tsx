@@ -6,8 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
 import { playWorkNotificationSound } from "@/lib/work-notification";
 import { TicketDetailDrawer, type TicketDetailRow } from "@/components/ticket-detail-drawer";
-
-type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
+import { type TicketStatus, statusLabelAr } from "@/lib/ticket-status";
 
 type ZoneJoin = { name: string } | { name: string }[] | null;
 
@@ -15,6 +14,7 @@ type TechnicianTicket = {
   id: string;
   ticket_number: number | null;
   external_ticket_number: string | null;
+  title?: string | null;
   location: string;
   description: string;
   status: TicketStatus;
@@ -47,14 +47,6 @@ function normalizeZoneName(zones: ZoneJoin | undefined): string {
   if (!zones) return "-";
   if (Array.isArray(zones)) return zones[0]?.name ?? "-";
   return zones.name ?? "-";
-}
-
-function statusLabel(status: TicketStatus): string {
-  if (status === "new") return "جديد";
-  if (status === "assigned") return "مُسند";
-  if (status === "on_the_way") return "في الطريق";
-  if (status === "arrived") return "تم الوصول";
-  return "تم الإصلاح";
 }
 
 function formatOpenedAt(iso: string): string {
@@ -131,7 +123,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
     const { data, error } = await supabase
       .from("tickets")
       .select(
-        "id, ticket_number, external_ticket_number, title, location, description, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, category_id, category, ticket_categories(name), zones(name), created_at",
+        "id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, location, description, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, category_id, category, ticket_categories(name), zones(name), created_at",
       )
       .eq("id", ticketId)
       .single();
@@ -373,9 +365,9 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                         التصنيف: {categoryDisplay} — المنطقة: {zoneDisplay}
                       </p>
                       <p className="text-xs text-slate-600">
-                        الحالة: {statusLabel(ticket.status)} — تاريخ الفتح: {formatOpenedAt(ticket.created_at)}
+                        الحالة: {statusLabelAr(ticket.status)} — تاريخ الفتح: {formatOpenedAt(ticket.created_at)}
                       </p>
-                      <p className="mt-1 text-slate-700">{ticket.location}</p>
+                      <p className="mt-1 text-slate-700">{ticket.title ?? ticket.location}</p>
                     </button>
                     {role === "technician" && tab === "area" && !ticket.assigned_technician_id ? (
                       <button
@@ -389,13 +381,13 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                     {role === "technician" &&
                     tab === "mine" &&
                     ticket.assigned_technician_id === myUserId &&
-                    ticket.status === "assigned" ? (
+                    ticket.status === "received" ? (
                       <button
                         type="button"
-                        className="mt-2 min-h-11 rounded-md bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-700"
+                        className="mt-2 min-h-11 rounded-md bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-amber-400"
                         onClick={() => void acceptTicket(ticket.id)}
                       >
-                        قبول المهمة
+                        تأكيد التنفيذ الميداني
                       </button>
                     ) : null}
                   </div>

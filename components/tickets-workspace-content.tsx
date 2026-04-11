@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -9,15 +9,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ensureGpsPermission } from "@/lib/gps-permission";
-
-type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
+import { TicketMediaDropzone } from "@/components/ticket-media-dropzone";
+import { type TicketStatus, statusBadgeVariant, statusLabelAr } from "@/lib/ticket-status";
 
 type TicketRow = {
   id: string;
   ticket_number: number | null;
   external_ticket_number: string | null;
   reporter_name: string | null;
+  reporter_phone?: string | null;
   title: string | null;
   location: string;
   description: string;
@@ -45,20 +45,7 @@ type TicketsWorkspaceContentProps = {
   role: string;
 };
 
-function statusBadgeVariant(status: TicketStatus): "red" | "yellow" | "green" | "muted" {
-  if (status === "new") return "red";
-  if (status === "on_the_way") return "yellow";
-  if (status === "fixed") return "green";
-  return "muted";
-}
-
-function statusLabel(status: TicketStatus): string {
-  if (status === "new") return "جديد";
-  if (status === "assigned") return "مُسند";
-  if (status === "on_the_way") return "في الطريق";
-  if (status === "arrived") return "تم الوصول";
-  return "مغلق";
-}
+const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
 
 export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) {
   const [myUserId, setMyUserId] = useState<string | null>(null);
@@ -69,28 +56,15 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
   const [creating, setCreating] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
-  const [showShaqes, setShowShaqes] = useState(false);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [externalTicketNumber, setExternalTicketNumber] = useState("");
   const [reporterNameInput, setReporterNameInput] = useState("");
+  const [reporterPhone, setReporterPhone] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [zoneId, setZoneId] = useState("");
-  const [gpsEnabled, setGpsEnabled] = useState(false);
-  const [locationText, setLocationText] = useState("");
-  const [latitude, setLatitude] = useState<number | null>(null);
-  const [longitude, setLongitude] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
-  const [shaqesNotes, setShaqesNotes] = useState("");
-
-  const zoneNameMap = useMemo(() => {
-    const map = new Map<string, string>();
-    zones.forEach((zone) => map.set(zone.id, zone.name));
-    return map;
-  }, [zones]);
-
-  const canRouteTicket = role !== "reporter";
 
   const loadData = async () => {
     setLoading(true);
@@ -105,7 +79,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
       supabase
         .from("tickets")
         .select(
-          "id, ticket_number, external_ticket_number, reporter_name, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at",
+          "id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at",
         )
         .order("created_at", { ascending: false })
         .limit(100),
@@ -122,53 +96,53 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
   };
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadData();
   }, []);
-
-  const captureGps = async () => {
-    const permission = await ensureGpsPermission();
-    if (permission === "unsupported") {
-      toast.error("المتصفح لا يدعم تحديد الموقع.");
-      return;
-    }
-    if (permission === "insecure") {
-      toast.error("ميزة GPS تعمل فقط عبر HTTPS في بيئة الإنتاج.");
-      return;
-    }
-    if (permission === "denied") {
-      toast.error("تم رفض صلاحية الموقع. فعّلها من إعدادات المتصفح.");
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = Number(position.coords.latitude.toFixed(6));
-        const lng = Number(position.coords.longitude.toFixed(6));
-        setLatitude(lat);
-        setLongitude(lng);
-        setLocationText(`GPS: ${lat}, ${lng}`);
-      },
-      () => {
-        toast.error("تعذر الحصول على الموقع الجغرافي.");
-      },
-      { enableHighAccuracy: true, timeout: 8000 },
-    );
-  };
 
   const resetForm = () => {
     setTitle("");
     setDescription("");
     setExternalTicketNumber("");
     setReporterNameInput("");
+    setReporterPhone("");
     setCategoryId("");
     setZoneId("");
-    setGpsEnabled(false);
-    setLocationText("");
-    setLatitude(null);
-    setLongitude(null);
     setAttachments([]);
-    setShaqesNotes("");
-    setShowShaqes(false);
+  };
+
+  const uploadOne = async (file: File, ticketId: string, userId: string, sortOrder: number) => {
+    const isVideo = file.type.startsWith("video/");
+    if (isVideo && file.size > MAX_VIDEO_BYTES) {
+      toast.error(`الفيديو كبير جداً: ${file.name}`);
+      return;
+    }
+    let uploadBody: Blob = file;
+    let baseName = file.name;
+    if (!isVideo) {
+      uploadBody = await imageCompression(file, {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1600,
+        useWebWorker: true,
+        initialQuality: 0.8,
+      });
+      baseName = (uploadBody as File).name || file.name;
+    }
+    const ext = baseName.split(".").pop() ?? (isVideo ? "mp4" : "jpg");
+    const filePath = `${ticketId}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error: uploadError } = await supabase.storage.from("tickets").upload(filePath, uploadBody, { upsert: false });
+    if (uploadError) {
+      toast.error(`فشل رفع مرفق: ${file.name}`);
+      return;
+    }
+    const { data: publicData } = supabase.storage.from("tickets").getPublicUrl(filePath);
+    await supabase.from("ticket_attachments").insert({
+      ticket_id: ticketId,
+      uploaded_by: userId,
+      file_url: publicData.publicUrl,
+      file_type: isVideo ? "video" : "image",
+      file_name: file.name,
+      sort_order: sortOrder,
+    });
   };
 
   const createTicket = async () => {
@@ -182,22 +156,23 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     }
 
     setCreating(true);
-    const locationValue = locationText.trim() || zoneNameMap.get(zoneId) || "بدون تحديد";
+    const locationValue = title.trim();
 
     const insertPayload = {
       title: title.trim(),
       description: description.trim(),
       external_ticket_number: externalTicketNumber.trim(),
       reporter_name: reporterNameInput.trim(),
+      reporter_phone: reporterPhone.trim() || null,
       category_id: Number(categoryId),
       zone_id: zoneId,
       location: locationValue,
-      gps_enabled: gpsEnabled,
-      latitude: gpsEnabled ? latitude : null,
-      longitude: gpsEnabled ? longitude : null,
+      gps_enabled: false,
+      latitude: null as number | null,
+      longitude: null as number | null,
       created_by: myUserId,
-      shaqes_notes: showShaqes ? shaqesNotes.trim() || null : null,
-      status: "new" as const,
+      shaqes_notes: null as string | null,
+      status: "not_received" as TicketStatus,
     };
 
     const { data: ticketData, error: ticketError } = await supabase
@@ -215,30 +190,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     if (attachments.length > 0) {
       let sortOrder = 0;
       for (const file of attachments) {
-        const compressedImage = await imageCompression(file, {
-          maxSizeMB: 1,
-          maxWidthOrHeight: 1600,
-          useWebWorker: true,
-          initialQuality: 0.8,
-        });
-        const ext = compressedImage.name.split(".").pop() ?? "jpg";
-        const filePath = `${ticketData.id}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-        const { error: uploadError } = await supabase.storage
-          .from("tickets")
-          .upload(filePath, compressedImage, { upsert: false });
-        if (uploadError) {
-          toast.error(`فشل رفع مرفق: ${file.name}`);
-          continue;
-        }
-        const { data: publicData } = supabase.storage.from("tickets").getPublicUrl(filePath);
-        await supabase.from("ticket_attachments").insert({
-          ticket_id: ticketData.id,
-          uploaded_by: myUserId,
-          file_url: publicData.publicUrl,
-          file_type: "image",
-          file_name: file.name,
-          sort_order: sortOrder,
-        });
+        await uploadOne(file, ticketData.id, myUserId, sortOrder);
         sortOrder += 1;
       }
     }
@@ -250,7 +202,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
   };
 
   const closeTicketAsReporter = async (ticketId: string) => {
-    const { error } = await supabase.from("tickets").update({ status: "fixed" }).eq("id", ticketId);
+    const { error } = await supabase.from("tickets").update({ status: "finished" }).eq("id", ticketId);
     if (error) {
       toast.error(error.message);
       return;
@@ -260,32 +212,61 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
   };
 
   return (
-    <div className="space-y-6" dir="rtl" lang="ar">
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h1 className="text-xl font-semibold">إنشاء بلاغ جديد</h1>
-        <p className="mt-1 text-sm text-slate-500">نموذج بلاغ احترافي مع التوجيه والمتابعة.</p>
+    <div className="min-h-screen bg-white text-slate-900" dir="rtl" lang="ar" style={{ colorScheme: "light" }}>
+      <header className="mb-6 flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">إنشاء بلاغ جديد</h1>
+          <p className="mt-1 text-sm text-slate-600">نموذج بلاغ مع التوجيه والمتابعة — وضع عرض فاتح للوضوح.</p>
+        </div>
+        <Button
+          type="button"
+          className="h-11 min-w-[160px] shrink-0 bg-slate-900 text-base text-white hover:bg-slate-800"
+          onClick={() => void createTicket()}
+          disabled={creating}
+        >
+          {creating ? "جاري الإنشاء..." : "إرسال البلاغ"}
+        </Button>
+      </header>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mt-0 grid gap-3 md:grid-cols-2">
           <div>
-            <p className="mb-1 text-xs text-slate-500">رقم البلاغ</p>
+            <p className="mb-1 text-xs text-slate-600">رقم البلاغ</p>
             <Input
               value={externalTicketNumber}
               onChange={(e) => setExternalTicketNumber(e.target.value)}
               placeholder="اكتب رقم البلاغ القادم من النظام الخارجي"
+              className="border-slate-200 bg-white"
             />
           </div>
           <div>
-            <p className="mb-1 text-xs text-slate-500">مقدم البلاغ</p>
+            <p className="mb-1 text-xs text-slate-600">مقدم البلاغ</p>
             <Input
               value={reporterNameInput}
               onChange={(e) => setReporterNameInput(e.target.value)}
               placeholder="اكتب اسم مقدم البلاغ من الموقع الخارجي"
+              className="border-slate-200 bg-white"
             />
           </div>
+        </div>
+
+        <div className="mt-3">
+          <p className="mb-1 text-xs text-slate-600">رقم تليفون مقدم البلاغ</p>
+          <Input
+            value={reporterPhone}
+            onChange={(e) => setReporterPhone(e.target.value)}
+            placeholder="مثال: 05xxxxxxxx"
+            className="border-slate-200 bg-white"
+            type="tel"
+            dir="ltr"
+          />
+        </div>
+
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
           <div>
-            <p className="mb-1 text-xs text-slate-500">تصنيف البلاغ</p>
+            <p className="mb-1 text-xs text-slate-600">تصنيف البلاغ</p>
             <select
-              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900"
               value={categoryId}
               onChange={(e) => setCategoryId(e.target.value)}
             >
@@ -298,9 +279,9 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
             </select>
           </div>
           <div>
-            <p className="mb-1 text-xs text-slate-500">المنطقة</p>
+            <p className="mb-1 text-xs text-slate-600">المنطقة</p>
             <select
-              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900"
               value={zoneId}
               onChange={(e) => setZoneId(e.target.value)}
             >
@@ -316,97 +297,40 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
 
         <div className="mt-3 space-y-3">
           <div>
-            <p className="mb-1 text-xs text-slate-500">عنوان البلاغ</p>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: عطل في لوحة الكهرباء" />
-          </div>
-          <div>
-            <p className="mb-1 text-xs text-slate-500">تفاصيل البلاغ</p>
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="اكتب تفاصيل البلاغ..." />
-          </div>
-          <div>
-            <p className="mb-1 text-xs text-slate-500">المرفقات (صور)</p>
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={(e) => setAttachments(Array.from(e.target.files ?? []))}
-              className="block w-full text-xs"
+            <p className="mb-1 text-xs text-slate-600">موقع البلاغ</p>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="صف موقع البلاغ بدقة"
+              className="border-slate-200 bg-white"
             />
-            {attachments.length > 0 ? (
-              <ul className="mt-2 space-y-1 text-xs text-slate-600">
-                {attachments.map((file, index) => (
-                  <li key={`${file.name}-${index}`}>
-                    الرتبة {index + 1} — {file.name} (ضغط حتى 1MB قبل الرفع)
-                  </li>
-                ))}
-              </ul>
-            ) : null}
           </div>
-
-          <div className="rounded-lg border border-slate-200 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-sm font-medium">الموقع الجغرافي (GPS)</p>
-              <button
-                type="button"
-                className={`rounded-md px-3 py-1 text-xs ${gpsEnabled ? "bg-emerald-600 text-white" : "border border-slate-300 bg-white text-slate-700"}`}
-                onClick={() => setGpsEnabled((prev) => !prev)}
-              >
-                {gpsEnabled ? "مفعّل" : "معطّل"}
-              </button>
-            </div>
-            {gpsEnabled ? (
-              <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" onClick={() => void captureGps()}>سحب الموقع الحالي</Button>
-                <Input value={locationText} onChange={(e) => setLocationText(e.target.value)} placeholder="سيظهر الموقع هنا" />
-              </div>
-            ) : (
-              <Input value={locationText} onChange={(e) => setLocationText(e.target.value)} placeholder="اكتب وصف المكان (اختياري)" />
-            )}
-          </div>
-
           <div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowShaqes((prev) => !prev)}
-              disabled={!canRouteTicket}
-            >
-              شاخص
-            </Button>
-            {!canRouteTicket ? <p className="mt-1 text-xs text-slate-500">مدخل البيانات لا يملك صلاحية التوجيه.</p> : null}
+            <p className="mb-1 text-xs text-slate-600">تفاصيل البلاغ</p>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="اكتب تفاصيل البلاغ..."
+              className="border-slate-200 bg-white"
+            />
           </div>
 
-          {showShaqes && canRouteTicket ? (
-            <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3">
-              <p className="mb-2 text-sm font-semibold text-indigo-900">شاخص - أرقام وملاحظات فنية</p>
-              <Textarea
-                value={shaqesNotes}
-                onChange={(e) => setShaqesNotes(e.target.value)}
-                placeholder="اكتب أرقام المرجع والملاحظات الفنية الخاصة بالتوجيه..."
-              />
-            </div>
-          ) : null}
-        </div>
-
-        <div className="mt-4">
-          <Button onClick={() => void createTicket()} disabled={creating}>
-            {creating ? "جاري الإنشاء..." : "إرسال البلاغ"}
-          </Button>
+          <TicketMediaDropzone files={attachments} onFilesChange={setAttachments} disabled={creating} />
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="mb-3 text-lg font-semibold">البلاغات</h2>
+      <section className="mt-8 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="mb-3 text-lg font-semibold text-slate-900">البلاغات</h2>
         {loading ? (
-          <p className="text-sm text-slate-500">جاري تحميل البيانات...</p>
+          <p className="text-sm text-slate-600">جاري تحميل البيانات...</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-right text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-slate-700">
+              <thead className="border-b border-slate-200 bg-slate-50 text-slate-800">
                 <tr>
                   <th className="px-3 py-2">رقم البلاغ</th>
-                  <th className="px-3 py-2">العنوان</th>
-                  <th className="px-3 py-2">الموقع</th>
+                  <th className="px-3 py-2">موقع البلاغ</th>
+                  <th className="px-3 py-2">هاتف المبلّغ</th>
                   <th className="px-3 py-2">الحالة</th>
                   {role === "reporter" ? <th className="px-3 py-2">إجراء</th> : null}
                 </tr>
@@ -423,13 +347,15 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
                   >
                     <td className="px-3 py-2">{ticket.external_ticket_number ?? `#${ticket.ticket_number ?? "-"}`}</td>
                     <td className="px-3 py-2">{ticket.title ?? "-"}</td>
-                    <td className="px-3 py-2">{ticket.location}</td>
+                    <td className="px-3 py-2" dir="ltr">
+                      {ticket.reporter_phone || "—"}
+                    </td>
                     <td className="px-3 py-2">
-                      <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabel(ticket.status)}</Badge>
+                      <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabelAr(ticket.status)}</Badge>
                     </td>
                     {role === "reporter" ? (
                       <td className="px-3 py-2">
-                        {ticket.status !== "fixed" ? (
+                        {ticket.status !== "finished" ? (
                           <Button
                             variant="outline"
                             onClick={(e) => {
@@ -463,7 +389,9 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
         ticket={selectedTicket}
-        zoneName={selectedTicket?.zone_id ? zoneNameMap.get(selectedTicket.zone_id) ?? "-" : "-"}
+        zoneName={
+          selectedTicket?.zone_id ? zones.find((z) => z.id === selectedTicket.zone_id)?.name ?? "-" : "-"
+        }
         onTicketUpdated={loadData}
         onMarkTicketRead={() => {}}
       />

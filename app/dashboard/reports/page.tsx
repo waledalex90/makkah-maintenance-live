@@ -32,12 +32,12 @@ export default async function ReportsPage() {
   const { count: totalDone } = await supabase
     .from("tickets")
     .select("id", { count: "exact", head: true })
-    .eq("status", "fixed");
+    .eq("status", "finished");
 
   const { data: solvedRows } = await supabase
     .from("tickets")
     .select("created_at, closed_at")
-    .eq("status", "fixed")
+    .eq("status", "finished")
     .not("closed_at", "is", null);
 
   const avgHours =
@@ -52,7 +52,7 @@ export default async function ReportsPage() {
   const { data: topRows } = await supabase
     .from("tickets")
     .select("assigned_to")
-    .eq("status", "fixed")
+    .eq("status", "finished")
     .not("assigned_to", "is", null);
 
   const counts: Record<string, number> = {};

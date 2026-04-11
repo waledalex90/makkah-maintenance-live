@@ -15,13 +15,21 @@ import {
 } from "@/components/ui/sheet";
 import { TicketChatPanel } from "@/components/ticket-chat-panel";
 import { ensureGpsPermission } from "@/lib/gps-permission";
+import {
+  TICKET_STATUS_VALUES,
+  type TicketStatus,
+  statusBadgeVariant,
+  statusLabelAr,
+} from "@/lib/ticket-status";
 
-export type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
+export type { TicketStatus } from "@/lib/ticket-status";
 
 export type TicketDetailRow = {
   id: string;
   ticket_number?: number | null;
   external_ticket_number?: string | null;
+  reporter_name?: string | null;
+  reporter_phone?: string | null;
   title?: string | null;
   location: string;
   description: string;
@@ -53,23 +61,6 @@ type TicketDetailDrawerProps = {
   onMarkTicketRead: (ticketId: string, readAt: string) => void;
 };
 
-function statusBadgeVariant(status: TicketStatus): "red" | "yellow" | "green" | "muted" {
-  if (status === "new") return "red";
-  if (status === "on_the_way") return "yellow";
-  if (status === "fixed") return "green";
-  return "muted";
-}
-
-const STATUS_OPTIONS: TicketStatus[] = ["new", "assigned", "on_the_way", "arrived", "fixed"];
-
-function statusLabel(status: TicketStatus): string {
-  if (status === "new") return "جديد";
-  if (status === "assigned") return "مُسند";
-  if (status === "on_the_way") return "في الطريق";
-  if (status === "arrived") return "تم الوصول";
-  return "تم الإصلاح";
-}
-
 function categoryLabel(cat: TicketDetailRow["ticket_categories"]): string {
   if (!cat) return "-";
   if (Array.isArray(cat)) return cat[0]?.name ?? "-";
@@ -86,6 +77,7 @@ type TicketAttachmentListRow = {
   id: number;
   file_url: string;
   file_name: string | null;
+  file_type?: string | null;
   sort_order: number;
 };
 
@@ -137,7 +129,7 @@ export function TicketDetailDrawer({
     const loadAtt = async () => {
       const { data, error } = await supabase
         .from("ticket_attachments")
-        .select("id, file_url, file_name, sort_order")
+        .select("id, file_url, file_name, file_type, sort_order")
         .eq("ticket_id", ticketId)
         .order("sort_order", { ascending: true })
         .order("id", { ascending: true });
@@ -298,7 +290,7 @@ export function TicketDetailDrawer({
       setStatusUpdating(false);
       return;
     }
-    const nextStatus: TicketStatus = ticket.status === "new" ? "assigned" : ticket.status;
+    const nextStatus: TicketStatus = ticket.status === "not_received" ? "received" : ticket.status;
     const { error } = await supabase
       .from("tickets")
       .update({ assigned_engineer_id: myUserId, status: nextStatus })
@@ -336,7 +328,7 @@ export function TicketDetailDrawer({
     if (!ticketId || !ticket) return;
     setDispatching(true);
     const supId = supervisorPick || null;
-    const nextStatus: TicketStatus = ticket.status === "new" && supId ? "assigned" : ticket.status;
+    const nextStatus: TicketStatus = ticket.status === "not_received" && supId ? "received" : ticket.status;
     const { error } = await supabase
       .from("tickets")
       .update({ assigned_supervisor_id: supId, status: nextStatus })
@@ -364,7 +356,7 @@ export function TicketDetailDrawer({
     if (!ticketId || !ticket) return;
     setDispatching(true);
     const techId = technicianPick || null;
-    const nextStatus: TicketStatus = techId && ticket.status === "new" ? "assigned" : ticket.status;
+    const nextStatus: TicketStatus = techId && ticket.status === "not_received" ? "received" : ticket.status;
     const { error } = await supabase
       .from("tickets")
       .update({ assigned_technician_id: techId, status: nextStatus })
@@ -446,7 +438,7 @@ export function TicketDetailDrawer({
 
   const onStartDriving = async () => {
     await pushCurrentGps();
-    await fieldUpdateStatus("on_the_way");
+    await fieldUpdateStatus("received");
   };
 
   const onFixedPickPhoto = () => fixedUploadInputRef.current?.click();
@@ -487,7 +479,7 @@ export function TicketDetailDrawer({
       file_name: compressedImage.name,
       sort_order: nextOrder,
     });
-    const { error } = await supabase.from("tickets").update({ status: "fixed" }).eq("id", ticketId);
+    const { error } = await supabase.from("tickets").update({ status: "finished" }).eq("id", ticketId);
     setActingField(false);
     if (error) {
       toast.error(error.message);
@@ -496,7 +488,7 @@ export function TicketDetailDrawer({
     toast.success("تم إغلاق البلاغ مع صورة بعد الإصلاح.");
     const { data: refreshed } = await supabase
       .from("ticket_attachments")
-      .select("id, file_url, file_name, sort_order")
+      .select("id, file_url, file_name, file_type, sort_order")
       .eq("ticket_id", ticketId)
       .order("sort_order", { ascending: true })
       .order("id", { ascending: true });
@@ -518,7 +510,7 @@ export function TicketDetailDrawer({
     myRole === "supervisor" ||
     myRole === "technician" ||
     myRole === "reporter";
-  const allowedStatusOptions = myRole === "reporter" ? (["fixed"] as TicketStatus[]) : STATUS_OPTIONS;
+  const allowedStatusOptions = myRole === "reporter" ? (["finished"] as TicketStatus[]) : TICKET_STATUS_VALUES;
 
   const canUseChat =
     myRole === "technician" ||
@@ -538,11 +530,15 @@ export function TicketDetailDrawer({
     (myRole === "supervisor" && ticket?.assigned_supervisor_id === myUserId);
 
   const showTechnicianQuickActions =
-    myRole === "technician" && ticket?.assigned_technician_id === myUserId && ticket.status !== "fixed";
+    myRole === "technician" && ticket?.assigned_technician_id === myUserId && ticket.status !== "finished";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent dir="rtl" className="flex w-full flex-col overflow-hidden sm:max-w-lg">
+      <SheetContent
+        dir="rtl"
+        className="flex w-full flex-col overflow-hidden border-slate-200 bg-white text-slate-900 sm:max-w-lg"
+        style={{ colorScheme: "light" }}
+      >
         {ticket ? (
           <div className="flex h-full min-h-0 flex-col gap-4">
             <SheetHeader className="shrink-0 space-y-1 text-right">
@@ -553,7 +549,7 @@ export function TicketDetailDrawer({
             </SheetHeader>
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
-              <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <section className="rounded-xl border border-slate-200 bg-white p-4">
                 <h3 className="mb-3 text-sm font-semibold text-slate-900">إدارة التوجيه والبيانات</h3>
                 <div className="space-y-2 text-sm">
                   <p>
@@ -567,10 +563,16 @@ export function TicketDetailDrawer({
                     {ticket.external_ticket_number || ticket.ticket_number || ticket.id.slice(0, 8)}
                   </p>
                   <p>
-                    <span className="font-medium">العنوان:</span> {ticket.title ?? "-"}
+                    <span className="font-medium">اسم مقدم البلاغ:</span> {ticket.reporter_name ?? "—"}
+                  </p>
+                  <p dir="ltr" className="text-right">
+                    <span className="font-medium" dir="rtl">
+                      رقم تليفون مقدم البلاغ:
+                    </span>{" "}
+                    {ticket.reporter_phone ?? "—"}
                   </p>
                   <p>
-                    <span className="font-medium">الموقع:</span> {ticket.location}
+                    <span className="font-medium">موقع البلاغ:</span> {ticket.title ?? "-"}
                   </p>
                   <p>
                     <span className="font-medium">الوصف:</span> {ticket.description}
@@ -595,7 +597,7 @@ export function TicketDetailDrawer({
                   </p>
                   <div className="flex items-center gap-2 pt-1">
                     <span className="font-medium">الحالة:</span>
-                    <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabel(ticket.status)}</Badge>
+                    <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabelAr(ticket.status)}</Badge>
                   </div>
                 </div>
 
@@ -661,7 +663,7 @@ export function TicketDetailDrawer({
                     >
                       {allowedStatusOptions.map((status) => (
                         <option key={status} value={status}>
-                          {statusLabel(status)}
+                          {statusLabelAr(status)}
                         </option>
                       ))}
                     </select>
@@ -682,25 +684,16 @@ export function TicketDetailDrawer({
                     />
                     <p className="text-xs font-medium text-slate-600">تنفيذ سريع (ميداني)</p>
                     <div className="grid grid-cols-1 gap-2">
-                      {ticket.status === "new" || ticket.status === "assigned" ? (
+                      {ticket.status === "not_received" ? (
                         <Button
-                          className="h-12 bg-amber-600 text-base hover:bg-amber-700"
+                          className="h-12 bg-amber-500 text-base text-slate-900 hover:bg-amber-400"
                           disabled={actingField}
                           onClick={() => void onStartDriving()}
                         >
-                          في الطريق 🚗
+                          تم الاستلام — في الطريق
                         </Button>
                       ) : null}
-                      {ticket.status === "assigned" || ticket.status === "on_the_way" ? (
-                        <Button
-                          className="h-12 bg-sky-600 text-base hover:bg-sky-700"
-                          disabled={actingField}
-                          onClick={() => void fieldUpdateStatus("arrived")}
-                        >
-                          وصلت الموقع 📍
-                        </Button>
-                      ) : null}
-                      {ticket.status !== "fixed" ? (
+                      {ticket.status !== "finished" ? (
                         <Button
                           className="h-12 bg-emerald-600 text-base hover:bg-emerald-700"
                           disabled={actingField}
@@ -715,7 +708,7 @@ export function TicketDetailDrawer({
               </section>
 
               <section className="rounded-xl border border-slate-200 bg-white p-4">
-                <h3 className="mb-2 text-sm font-semibold text-slate-900">المرفقات (باكت tickets)</h3>
+                <h3 className="mb-2 text-sm font-semibold text-slate-900">المرفقات</h3>
                 {ticketAttachments.length === 0 ? (
                   <p className="text-xs text-slate-500">لا توجد مرفقات مسجلة لهذا البلاغ.</p>
                 ) : (
@@ -723,7 +716,11 @@ export function TicketDetailDrawer({
                     {ticketAttachments.map((att) => (
                       <li key={att.id} className="text-xs text-slate-700">
                         <a href={att.file_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-slate-200">
-                          <img src={att.file_url} alt={att.file_name ?? "مرفق"} className="h-32 w-full object-cover" />
+                          {att.file_type === "video" || /\.(mp4|webm|mov|ogg)(\?|$)/i.test(att.file_url) ? (
+                            <video src={att.file_url} className="h-32 w-full object-cover" controls muted playsInline />
+                          ) : (
+                            <img src={att.file_url} alt={att.file_name ?? "مرفق"} className="h-32 w-full object-cover" />
+                          )}
                         </a>
                         <p className="mt-1 text-right">
                           الرتبة {att.sort_order + 1} — {att.file_name ?? "بدون اسم"}

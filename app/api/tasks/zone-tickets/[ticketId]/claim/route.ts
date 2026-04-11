@@ -79,7 +79,7 @@ export async function PATCH(_request: Request, context: { params: Promise<{ tick
       }
     }
 
-    const nextStatus = ticket.status === "new" ? "assigned" : ticket.status;
+    const nextStatus = ticket.status === "not_received" ? "received" : ticket.status;
     const { error: updateError } = await supabase
       .from("tickets")
       .update({ assigned_technician_id: user.id, status: nextStatus })

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-const OPEN_STATUSES = ["new", "assigned", "on_the_way", "arrived"] as const;
+const OPEN_STATUSES = ["not_received", "received"] as const;
 
 const TICKET_SELECT =
   "id, ticket_number, external_ticket_number, location, description, status, created_at, assigned_technician_id, assigned_supervisor_id, assigned_engineer_id, zone_id, category_id, category, ticket_categories(name), zones(name)";

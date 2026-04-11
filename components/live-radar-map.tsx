@@ -8,6 +8,7 @@ import { isFleetMapRole } from "@/lib/fleet-map-roles";
 import { fleetPinDotOnly } from "@/lib/map-fleet-marker";
 import { getLeafletTileProps } from "@/lib/maptiler";
 import { supabase } from "@/lib/supabase";
+import type { TicketStatus } from "@/lib/ticket-status";
 
 type ZoneRow = {
   id: string;
@@ -21,7 +22,7 @@ type ZoneRow = {
 type TicketRow = {
   id: string;
   zone_id: string | null;
-  status: "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
+  status: TicketStatus;
 };
 
 type ProfileJoin = {
@@ -113,7 +114,7 @@ export function LiveRadarMap({ zoneFilter }: LiveRadarMapProps) {
   const busyUserIds = useMemo(() => {
     const ids = new Set<string>();
     tickets.forEach((ticket) => {
-      if (ticket.status !== "fixed") {
+      if (ticket.status !== "finished") {
         // Busy state is inferred by any active ticket in selected zone scope.
         // User-level assignment is shown in details table.
       }

@@ -35,7 +35,7 @@ export async function PATCH(_request: Request, context: { params: Promise<{ tick
       return NextResponse.json({ error: "Ticket is not assigned to you." }, { status: 403 });
     }
 
-    const { error: updateError } = await supabase.from("tickets").update({ status: "on_the_way" }).eq("id", ticketId);
+    const { error: updateError } = await supabase.from("tickets").update({ status: "received" }).eq("id", ticketId);
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 400 });
     }

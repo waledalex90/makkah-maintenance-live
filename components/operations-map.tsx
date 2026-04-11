@@ -16,8 +16,7 @@ import {
   MAPTILER_ATTRIBUTION,
 } from "@/lib/maptiler";
 import { supabase } from "@/lib/supabase";
-
-type TicketStatus = "new" | "assigned" | "on_the_way" | "arrived" | "fixed";
+import { type TicketStatus, statusBadgeVariant, statusLabelAr } from "@/lib/ticket-status";
 
 type Zone = {
   id: string;
@@ -69,21 +68,6 @@ type LiveLocationRow = {
 const MAKKAH_CENTER: [number, number] = [21.4225, 39.8262];
 const DEFAULT_ZOOM = 11;
 
-function getStatusBadgeVariant(status: TicketStatus): "red" | "yellow" | "green" | "muted" {
-  if (status === "new") return "red";
-  if (status === "on_the_way") return "yellow";
-  if (status === "fixed") return "green";
-  return "yellow";
-}
-
-function statusLabel(status: TicketStatus): string {
-  if (status === "new") return "جديد";
-  if (status === "assigned") return "تم التكليف";
-  if (status === "on_the_way") return "في الطريق";
-  if (status === "arrived") return "وصل";
-  return "تم الإنجاز";
-}
-
 function roleColor(role: string): string {
   if (role === "technician") return "#2563eb";
   if (role === "supervisor") return "#7c3aed";
@@ -105,7 +89,8 @@ function roleLabelAr(role: string): string {
 }
 
 function ticketColor(status: TicketStatus): string {
-  if (status === "new") return "#dc2626";
+  if (status === "not_received") return "#dc2626";
+  if (status === "finished") return "#16a34a";
   return "#ca8a04";
 }
 
@@ -208,7 +193,7 @@ export function OperationsMap() {
       .select(
         "id, ticket_number, external_ticket_number, title, location, description, status, zone_id, category_id, ticket_categories(name), assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, created_at",
       )
-      .neq("status", "fixed")
+      .neq("status", "finished")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -309,7 +294,7 @@ export function OperationsMap() {
         { event: "UPDATE", schema: "public", table: "tickets" },
         async (payload) => {
           const updated = payload.new as TicketRow;
-          if (updated.status === "fixed") {
+          if (updated.status === "finished") {
             setActiveTickets((prev) => prev.filter((ticket) => ticket.id !== updated.id));
           } else {
             setActiveTickets((prev) => {
@@ -442,7 +427,7 @@ export function OperationsMap() {
                           const current = activeTickets.find(
                             (t) => t.assigned_technician_id === loc.user_id || t.assigned_supervisor_id === loc.user_id,
                           );
-                          return current ? statusLabel(current.status) : "لا يوجد بلاغ نشط";
+                          return current ? statusLabelAr(current.status) : "لا يوجد بلاغ نشط";
                         })()}
                       </p>
                       <p>آخر تحديث: {new Date(loc.last_updated).toLocaleTimeString("ar-SA")}</p>
@@ -471,10 +456,10 @@ export function OperationsMap() {
                 >
                   <Popup>
                     <div className="space-y-1 text-sm">
-                      <p className="font-semibold">{ticket.location}</p>
+                      <p className="font-semibold">{ticket.title ?? ticket.location}</p>
                       <p>المنطقة: {zone.name}</p>
                       <div className="pt-1">
-                        <Badge variant={getStatusBadgeVariant(ticket.status)}>{statusLabel(ticket.status)}</Badge>
+                        <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabelAr(ticket.status)}</Badge>
                       </div>
                     </div>
                   </Popup>
@@ -506,10 +491,13 @@ export function OperationsMap() {
               <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-orange-600" /> مدخل بيانات
             </div>
             <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-600" /> بلاغ جديد
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-600" /> لم يستلم
             </div>
             <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-yellow-500" /> بلاغ قيد التنفيذ
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-amber-400" /> تم الاستلام
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-600" /> تم الانتهاء
             </div>
           </div>
         </div>

@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireManageUsers } from "@/lib/auth-guards";
+import { mergeInvitePermissions } from "@/lib/dashboard-user-permissions";
+import { upsertProfileAndZones } from "@/lib/server/provision-dashboard-user";
+import { parseUsernameOrEmailLocalPart, toAuthEmail, displayLoginIdentifier } from "@/lib/username-auth";
+import type { AppPermissionKey } from "@/lib/permissions";
 
 type ProfileRow = {
   id: string;
@@ -10,6 +14,7 @@ type ProfileRow = {
   job_title?: string | null;
   specialty?: string | null;
   region?: string | null;
+  username?: string | null;
   permissions?: Record<string, unknown> | null;
   role:
     | "admin"
@@ -32,7 +37,7 @@ export async function GET() {
     const adminSupabase = createSupabaseAdminClient();
 
     const [{ data: profiles, error: profilesError }, usersResult] = await Promise.all([
-      adminSupabase.from("profiles").select("id, full_name, mobile, role, job_title, specialty, region, permissions"),
+      adminSupabase.from("profiles").select("id, full_name, mobile, role, job_title, specialty, region, permissions, username"),
       adminSupabase.auth.admin.listUsers(),
     ]);
 
@@ -41,10 +46,9 @@ export async function GET() {
     }
 
     if (usersResult.error) {
-      // Fallback: if admin key is invalid/missing, still return profiles so management table is usable.
       const { data: fallbackProfiles, error: fallbackProfilesError } = await supabase
         .from("profiles")
-        .select("id, full_name, mobile, role, job_title, specialty, region, permissions");
+        .select("id, full_name, mobile, role, job_title, specialty, region, permissions, username");
 
       const profileIds = ((fallbackProfiles as ProfileRow[]) ?? []).map((p) => p.id);
       const { data: zoneLinks } = profileIds.length
@@ -74,6 +78,7 @@ export async function GET() {
         job_title: profile.job_title ?? "",
         specialty: profile.specialty ?? "",
         region: profile.region ?? "",
+        username: profile.username ?? "",
         permissions: profile.permissions ?? {},
         role: profile.role,
         email: "غير متوفر",
@@ -107,6 +112,7 @@ export async function GET() {
       const authUser = userMap.get(profile.id);
       const email = authUser?.email ?? "غير متوفر";
       const status = authUser?.email_confirmed_at ? "نشط" : "بانتظار التفعيل";
+      const displayUser = profile.username?.trim() || displayLoginIdentifier(authUser?.email ?? null);
 
       return {
         id: profile.id,
@@ -115,6 +121,7 @@ export async function GET() {
         job_title: profile.job_title ?? "",
         specialty: profile.specialty ?? "",
         region: profile.region ?? "",
+        username: displayUser,
         permissions: profile.permissions ?? {},
         role: profile.role,
         email,
@@ -134,6 +141,9 @@ export async function GET() {
 
 type InvitePayload = {
   mode?: "invite" | "direct_password";
+  /** اسم الدخول الظاهر — يُخزَّن كـ username@… داخلياً */
+  username?: string;
+  /** قديم: يُفسَّر كجزء محلي فقط */
   email?: string;
   password?: string;
   full_name?: string;
@@ -149,56 +159,8 @@ type InvitePayload = {
     | "supervisor"
     | "technician"
     | "reporter";
+  permissions?: Partial<Record<AppPermissionKey, boolean>>;
 };
-
-async function upsertProfileAndZones(
-  adminSupabase: ReturnType<typeof createSupabaseAdminClient>,
-  userId: string,
-  params: {
-    fullName: string;
-    mobile: string;
-    jobTitle: string;
-    specialty: string;
-    role: InvitePayload["role"];
-    zoneIds: string[];
-  },
-) {
-  const { fullName, mobile, jobTitle, specialty, role, zoneIds } = params;
-  const { error: upsertError } = await adminSupabase.from("profiles").upsert(
-    {
-      id: userId,
-      full_name: fullName,
-      mobile,
-      job_title: jobTitle,
-      specialty: specialty,
-      role: role ?? "technician",
-    },
-    { onConflict: "id" },
-  );
-
-  if (upsertError) {
-    return upsertError;
-  }
-
-  const { error: deleteZonesError } = await adminSupabase.from("zone_profiles").delete().eq("profile_id", userId);
-  if (deleteZonesError) {
-    return deleteZonesError;
-  }
-
-  if (zoneIds.length > 0) {
-    const { error: insertZonesError } = await adminSupabase.from("zone_profiles").insert(
-      zoneIds.map((zoneId) => ({
-        zone_id: zoneId,
-        profile_id: userId,
-      })),
-    );
-    if (insertZonesError) {
-      return insertZonesError;
-    }
-  }
-
-  return null;
-}
 
 export async function POST(request: Request) {
   const access = await requireManageUsers();
@@ -207,90 +169,72 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as InvitePayload;
-  const email = body.email?.trim().toLowerCase() ?? "";
   const fullName = body.full_name?.trim() ?? "";
   const mobile = body.mobile?.trim() ?? "";
   const jobTitle = body.job_title?.trim() ?? "";
   const specialty = body.specialty ?? "civil";
   const zoneIds = Array.isArray(body.zone_ids) ? body.zone_ids.filter((value) => typeof value === "string") : [];
   const role = body.role ?? "technician";
-  const mode = body.mode ?? "invite";
+  const mode = body.mode ?? "direct_password";
 
-  if (!email || !fullName || !mobile || !jobTitle || zoneIds.length === 0) {
-    return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
+  if (mode === "invite") {
+    return NextResponse.json(
+      { error: "تم إيقاف إرسال الدعوة بالبريد. استخدم إنشاء فوري باسم المستخدم وكلمة المرور." },
+      { status: 400 },
+    );
   }
 
-  if (mode === "direct_password") {
-    const password = body.password?.trim() ?? "";
-    if (password.length < 8) {
-      return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
-    }
+  const rawIdentifier = (body.username ?? body.email ?? "").trim();
+  const usernameNormalized = parseUsernameOrEmailLocalPart(rawIdentifier);
+
+  if (!usernameNormalized || !fullName || !mobile || !jobTitle || zoneIds.length === 0) {
+    return NextResponse.json({ error: "بيانات ناقصة: اسم المستخدم، الاسم، الجوال، المهنة، والمناطق مطلوبة." }, { status: 400 });
   }
+
+  const password = body.password?.trim() ?? "";
+  if (password.length < 8) {
+    return NextResponse.json({ error: "كلمة المرور يجب أن تكون 8 أحرف على الأقل." }, { status: 400 });
+  }
+
+  let authEmail: string;
+  try {
+    authEmail = toAuthEmail(usernameNormalized);
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "اسم المستخدم غير صالح." }, { status: 400 });
+  }
+
+  const permissions = mergeInvitePermissions(role, body.permissions);
 
   try {
     const adminSupabase = createSupabaseAdminClient();
 
-    if (mode === "direct_password") {
-      const password = body.password?.trim() ?? "";
-      const { data: created, error: createError } = await adminSupabase.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-      });
-
-      if (createError) {
-        return NextResponse.json({ error: createError.message }, { status: 400 });
-      }
-
-      const newUserId = created.user?.id;
-      if (!newUserId) {
-        return NextResponse.json({ error: "Failed to resolve new user id." }, { status: 400 });
-      }
-
-      const zoneErr = await upsertProfileAndZones(adminSupabase, newUserId, {
-        fullName,
-        mobile,
-        jobTitle,
-        specialty,
-        role,
-        zoneIds,
-      });
-      if (zoneErr) {
-        await adminSupabase.auth.admin.deleteUser(newUserId);
-        return NextResponse.json({ error: zoneErr.message }, { status: 400 });
-      }
-
-      return NextResponse.json({ ok: true });
-    }
-
-    const appBaseUrl =
-      process.env.NEXT_PUBLIC_APP_URL ??
-      process.env.NEXT_PUBLIC_SITE_URL ??
-      process.env.SITE_URL ??
-      "";
-    const redirectTo = appBaseUrl ? `${appBaseUrl.replace(/\/+$/, "")}/login` : undefined;
-    const { data: invitedData, error: inviteError } = await adminSupabase.auth.admin.inviteUserByEmail(email, {
-      redirectTo,
+    const { data: created, error: createError } = await adminSupabase.auth.admin.createUser({
+      email: authEmail,
+      password,
+      email_confirm: true,
     });
 
-    if (inviteError) {
-      return NextResponse.json({ error: inviteError.message }, { status: 400 });
+    if (createError) {
+      return NextResponse.json({ error: createError.message }, { status: 400 });
     }
 
-    const invitedUserId = invitedData.user?.id;
-    if (!invitedUserId) {
-      return NextResponse.json({ error: "Failed to resolve invited user id." }, { status: 400 });
+    const newUserId = created.user?.id;
+    if (!newUserId) {
+      return NextResponse.json({ error: "تعذر إنشاء المعرّف." }, { status: 400 });
     }
 
-    const zoneErr = await upsertProfileAndZones(adminSupabase, invitedUserId, {
+    const zoneErr = await upsertProfileAndZones(adminSupabase, newUserId, {
       fullName,
       mobile,
       jobTitle,
       specialty,
       role,
       zoneIds,
+      permissions,
+      username: usernameNormalized,
     });
     if (zoneErr) {
+      await adminSupabase.auth.admin.deleteUser(newUserId);
       return NextResponse.json({ error: zoneErr.message }, { status: 400 });
     }
 
@@ -301,4 +245,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status });
   }
 }
-

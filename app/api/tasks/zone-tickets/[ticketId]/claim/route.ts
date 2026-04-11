@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatSaudiTime } from "@/lib/saudi-time";
+import { ticketCategoryNameMatchesSpecialty } from "@/lib/specialty-category-match";
 
 export async function PATCH(_request: Request, context: { params: Promise<{ ticketId: string }> }) {
   const supabase = await createSupabaseServerClient();
@@ -50,10 +51,6 @@ export async function PATCH(_request: Request, context: { params: Promise<{ tick
       return NextResponse.json({ error: "Ticket region does not match your profile region." }, { status: 403 });
     }
 
-    if (ticket.assigned_technician_id && ticket.assigned_technician_id !== user.id) {
-      return NextResponse.json({ error: "Ticket already assigned to another technician." }, { status: 409 });
-    }
-
     const spec = me.specialty as string | null;
     if (spec) {
       if (!ticket.category_id) {
@@ -65,17 +62,11 @@ export async function PATCH(_request: Request, context: { params: Promise<{ tick
         .eq("id", ticket.category_id)
         .maybeSingle();
 
-      const categoryName = categoryRow?.name?.toLowerCase() ?? "";
-      if (!categoryName) {
+      const categoryName = categoryRow?.name ?? "";
+      if (!categoryName.trim()) {
         return NextResponse.json({ error: "Ticket category could not be resolved." }, { status: 400 });
       }
-      const matches =
-        (spec === "fire" && (categoryName.includes("حريق") || categoryName.includes("fire"))) ||
-        (spec === "electricity" && (categoryName.includes("كهرباء") || categoryName.includes("electric"))) ||
-        (spec === "ac" && (categoryName.includes("تكييف") || categoryName.includes("ac"))) ||
-        (spec === "civil" && (categoryName.includes("مدني") || categoryName.includes("مدنى") || categoryName.includes("civil"))) ||
-        (spec === "kitchens" && (categoryName.includes("مطابخ") || categoryName.includes("kitchen")));
-      if (!matches) {
+      if (!ticketCategoryNameMatchesSpecialty(categoryName, spec)) {
         return NextResponse.json({ error: "Ticket category does not match your specialty." }, { status: 403 });
       }
     }

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { APP_PERMISSION_KEYS, effectivePermissions, type AppPermissionKey } from "@/lib/permissions";
+import { displayLoginIdentifier, parseUsernameOrEmailLocalPart } from "@/lib/username-auth";
 
 const PERM_LABELS_AR: Record<AppPermissionKey, string> = {
   view_dashboard: "لوحة التحكم",
@@ -114,7 +115,10 @@ type UserRole =
 type UserRow = {
   id: string;
   full_name: string;
+  /** بريد Supabase الداخلي */
   email: string;
+  /** اسم الدخول الظاهر */
+  username: string;
   role: UserRole;
   mobile: string;
   job_title?: string;
@@ -160,7 +164,7 @@ export function UsersManagementContent() {
   const [zones, setZones] = useState<ZoneOption[]>([]);
   const [zonesLoading, setZonesLoading] = useState(false);
   const [inviteName, setInviteName] = useState("");
-  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteUsername, setInviteUsername] = useState("");
   const [inviteMobile, setInviteMobile] = useState("");
   const [inviteJobTitle, setInviteJobTitle] = useState("");
   const [inviteSpecialty, setInviteSpecialty] = useState<Specialty>("civil");
@@ -173,15 +177,18 @@ export function UsersManagementContent() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [inviteErrors, setInviteErrors] = useState<{
     full_name?: string;
-    email?: string;
+    username?: string;
     mobile?: string;
     job_title?: string;
     zone_ids?: string;
     password?: string;
   }>({});
 
-  const [inviteMode, setInviteMode] = useState<"invite" | "direct_password">("invite");
   const [invitePassword, setInvitePassword] = useState("");
+  const [invitePermToggles, setInvitePermToggles] = useState<Record<AppPermissionKey, boolean>>(() =>
+    effectivePermissions("technician", undefined),
+  );
+  const [bulkUploading, setBulkUploading] = useState(false);
 
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
   const [editName, setEditName] = useState("");
@@ -189,6 +196,7 @@ export function UsersManagementContent() {
   const [editRegion, setEditRegion] = useState("");
   const [editSpecialty, setEditSpecialty] = useState<Specialty>("civil");
   const [editZoneIds, setEditZoneIds] = useState<string[]>([]);
+  const [editUsername, setEditUsername] = useState("");
   const [permToggles, setPermToggles] = useState<Record<AppPermissionKey, boolean> | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editZoneDropdownOpen, setEditZoneDropdownOpen] = useState(false);
@@ -309,7 +317,7 @@ export function UsersManagementContent() {
   const closeInviteModal = () => {
     setIsInviteModalOpen(false);
     setInviteName("");
-    setInviteEmail("");
+    setInviteUsername("");
     setInviteMobile("");
     setInviteJobTitle("");
     setInviteSpecialty("civil");
@@ -317,14 +325,14 @@ export function UsersManagementContent() {
     setZoneDropdownOpen(false);
     setInviteRole("technician");
     setInviteErrors({});
-    setInviteMode("invite");
     setInvitePassword("");
+    setInvitePermToggles(effectivePermissions("technician", undefined));
   };
 
   const validateInvite = () => {
     const nextErrors: {
       full_name?: string;
-      email?: string;
+      username?: string;
       mobile?: string;
       job_title?: string;
       zone_ids?: string;
@@ -334,10 +342,8 @@ export function UsersManagementContent() {
     if (!inviteName.trim()) {
       nextErrors.full_name = "هذا الحقل مطلوب";
     }
-    if (!inviteEmail.trim()) {
-      nextErrors.email = "هذا الحقل مطلوب";
-    } else if (!/\S+@\S+\.\S+/.test(inviteEmail.trim())) {
-      nextErrors.email = "يرجى إدخال بريد إلكتروني صحيح";
+    if (!inviteUsername.trim()) {
+      nextErrors.username = "اسم المستخدم مطلوب (حروف إنجليزية وأرقام)";
     }
     if (!inviteMobile.trim()) {
       nextErrors.mobile = "هذا الحقل مطلوب";
@@ -348,10 +354,8 @@ export function UsersManagementContent() {
     if (inviteZoneIds.length === 0) {
       nextErrors.zone_ids = "يرجى اختيار منطقة واحدة على الأقل";
     }
-    if (inviteMode === "direct_password") {
-      if (!invitePassword.trim() || invitePassword.trim().length < 8) {
-        nextErrors.password = "كلمة المرور مطلوبة (8 أحرف على الأقل)";
-      }
+    if (!invitePassword.trim() || invitePassword.trim().length < 8) {
+      nextErrors.password = "كلمة المرور مطلوبة (8 أحرف على الأقل)";
     }
 
     setInviteErrors(nextErrors);
@@ -363,18 +367,23 @@ export function UsersManagementContent() {
 
     setInviting(true);
     const payload: Record<string, unknown> = {
-      mode: inviteMode,
+      mode: "direct_password",
+      username: inviteUsername.trim(),
+      password: invitePassword.trim(),
       full_name: inviteName.trim(),
-      email: inviteEmail.trim(),
       mobile: inviteMobile.trim(),
       job_title: inviteJobTitle.trim(),
       specialty: inviteSpecialty,
       zone_ids: inviteZoneIds,
       role: inviteRole,
+      permissions:
+        inviteRole === "admin"
+          ? undefined
+          : {
+              ...invitePermToggles,
+              view_admin_reports: invitePermToggles.view_reports,
+            },
     };
-    if (inviteMode === "direct_password") {
-      payload.password = invitePassword.trim();
-    }
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -388,10 +397,46 @@ export function UsersManagementContent() {
       return;
     }
 
-    toast.success(inviteMode === "direct_password" ? "تم إنشاء الحساب وتفعيله بنجاح." : "تم إرسال دعوة المستخدم بنجاح.");
+    toast.success("تم إنشاء الحساب وتفعيله بنجاح.");
     closeInviteModal();
     await loadUsers();
   };
+
+  const onBulkUsersFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBulkUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/admin/users/bulk", { method: "POST", body: fd });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        created_count?: number;
+        errors?: Array<{ row: number; message: string }>;
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(data.error ?? "فشل الرفع.");
+        return;
+      }
+      toast.success(`تم إنشاء ${data.created_count ?? 0} مستخدم.`);
+      if (data.errors && data.errors.length > 0) {
+        toast.error(
+          `توجد ملاحظات على ${data.errors.length} صف (مثال: صف ${data.errors[0]?.row} — ${data.errors[0]?.message}).`,
+        );
+      }
+      await loadUsers();
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isInviteModalOpen) return;
+    setInvitePermToggles(effectivePermissions(inviteRole, undefined));
+  }, [inviteRole, isInviteModalOpen]);
 
   const selectedZones = zones.filter((zone) => inviteZoneIds.includes(zone.id));
   const selectedEditZones = zones.filter((zone) => editZoneIds.includes(zone.id));
@@ -406,6 +451,7 @@ export function UsersManagementContent() {
 
   const openInviteModal = async () => {
     setIsInviteModalOpen(true);
+    setInvitePermToggles(effectivePermissions("technician", undefined));
     if (zones.length > 0) return;
     setZonesLoading(true);
     await loadUsers();
@@ -420,6 +466,9 @@ export function UsersManagementContent() {
 
   const openEditUser = (user: UserRow) => {
     setEditingUser(user);
+    setEditUsername(
+      displayLoginIdentifier(user.email && user.email !== "غير متوفر" ? user.email : null, user.username),
+    );
     setEditName(user.full_name);
     setEditRole(user.role);
     setEditRegion(user.region ?? "");
@@ -441,8 +490,14 @@ export function UsersManagementContent() {
       toast.error("الاسم مطلوب.");
       return;
     }
+    const normalizedUsername = parseUsernameOrEmailLocalPart(editUsername);
+    if (!normalizedUsername) {
+      toast.error("اسم المستخدم مطلوب (حروف إنجليزية وأرقام).");
+      return;
+    }
     setEditSaving(true);
     const patchBody: Record<string, unknown> = {
+      username: normalizedUsername,
       full_name: editName.trim(),
       role: editRole,
       region: editRegion.trim() || null,
@@ -517,14 +572,26 @@ export function UsersManagementContent() {
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" dir="rtl" lang="ar">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold">إدارة المستخدمين</h1>
-        <button
-          className="rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
-          onClick={() => void openInviteModal()}
-        >
-          إضافة مستخدم جديد
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <label className="cursor-pointer rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50">
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              disabled={bulkUploading}
+              onChange={(e) => void onBulkUsersFile(e)}
+            />
+            {bulkUploading ? "جاري الرفع..." : "رفع مستخدمين من Excel"}
+          </label>
+          <button
+            className="rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
+            onClick={() => void openInviteModal()}
+          >
+            إضافة مستخدم جديد
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -537,7 +604,7 @@ export function UsersManagementContent() {
                 <th className="sticky right-0 z-10 min-w-[8rem] bg-slate-100 px-3 py-3 font-semibold shadow-[4px_0_8px_-4px_rgba(0,0,0,0.08)] dark:bg-slate-900/80">
                   الاسم
                 </th>
-                <th className="px-3 py-3 font-semibold">الإيميل</th>
+                <th className="px-3 py-3 font-semibold">اسم المستخدم</th>
                 <th className="px-3 py-3 font-semibold">الجوال</th>
                 <th className="px-3 py-3 font-semibold">المهنة</th>
                 <th className="px-3 py-3 font-semibold">التصنيف</th>
@@ -574,8 +641,8 @@ export function UsersManagementContent() {
                     >
                       {user.full_name}
                     </td>
-                    <td className="max-w-[10rem] truncate px-3 py-2.5 text-slate-700 dark:text-slate-300" title={user.email}>
-                      {user.email}
+                    <td className="max-w-[10rem] truncate px-3 py-2.5 text-slate-700 dark:text-slate-300" title={user.username || user.email}>
+                      {user.username || user.email}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-slate-700 dark:text-slate-300">{user.mobile}</td>
                     <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">{user.job_title || "—"}</td>
@@ -691,39 +758,6 @@ export function UsersManagementContent() {
               </button>
             </div>
 
-            <div className="mb-4 flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-900/50">
-              <button
-                type="button"
-                className={cn(
-                  "flex-1 rounded-md px-3 py-2 text-sm font-medium transition",
-                  inviteMode === "invite"
-                    ? "bg-white text-slate-900 shadow dark:bg-slate-800 dark:text-slate-50"
-                    : "text-slate-600 hover:text-slate-900 dark:text-slate-400",
-                )}
-                onClick={() => {
-                  setInviteMode("invite");
-                  setInviteErrors((e) => ({ ...e, password: undefined }));
-                }}
-              >
-                دعوة بالبريد
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "flex-1 rounded-md px-3 py-2 text-sm font-medium transition",
-                  inviteMode === "direct_password"
-                    ? "bg-white text-slate-900 shadow dark:bg-slate-800 dark:text-slate-50"
-                    : "text-slate-600 hover:text-slate-900 dark:text-slate-400",
-                )}
-                onClick={() => {
-                  setInviteMode("direct_password");
-                  setInviteErrors((e) => ({ ...e, password: undefined }));
-                }}
-              >
-                إنشاء فوري (بريد + كلمة مرور)
-              </button>
-            </div>
-
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <p className="mb-2 text-sm font-medium">الاسم الكامل</p>
@@ -739,35 +773,36 @@ export function UsersManagementContent() {
               </div>
 
               <div>
-                <p className="mb-2 text-sm font-medium">البريد الإلكتروني (اسم الدخول)</p>
+                <p className="mb-2 text-sm font-medium">اسم المستخدم (بالإنجليزية)</p>
                 <Input
-                  type="email"
-                  value={inviteEmail}
+                  dir="ltr"
+                  className="text-left"
+                  value={inviteUsername}
                   onChange={(e) => {
-                    setInviteEmail(e.target.value);
-                    setInviteErrors((prev) => ({ ...prev, email: undefined }));
+                    setInviteUsername(e.target.value);
+                    setInviteErrors((prev) => ({ ...prev, username: undefined }));
                   }}
-                  placeholder="name@company.com"
+                  placeholder="مثال: ahmed.khalid"
+                  autoComplete="username"
                 />
-                {inviteErrors.email ? <p className="mt-1 text-xs text-red-600">{inviteErrors.email}</p> : null}
+                <p className="mt-1 text-[11px] text-slate-500">يُخزَّن داخلياً كنطاق نظامي — لا حاجة لإدخال بريد.</p>
+                {inviteErrors.username ? <p className="mt-1 text-xs text-red-600">{inviteErrors.username}</p> : null}
               </div>
 
-              {inviteMode === "direct_password" ? (
-                <div>
-                  <p className="mb-2 text-sm font-medium">كلمة المرور</p>
-                  <Input
-                    type="password"
-                    autoComplete="new-password"
-                    value={invitePassword}
-                    onChange={(e) => {
-                      setInvitePassword(e.target.value);
-                      setInviteErrors((prev) => ({ ...prev, password: undefined }));
-                    }}
-                    placeholder="8 أحرف على الأقل"
-                  />
-                  {inviteErrors.password ? <p className="mt-1 text-xs text-red-600">{inviteErrors.password}</p> : null}
-                </div>
-              ) : null}
+              <div>
+                <p className="mb-2 text-sm font-medium">كلمة المرور</p>
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  value={invitePassword}
+                  onChange={(e) => {
+                    setInvitePassword(e.target.value);
+                    setInviteErrors((prev) => ({ ...prev, password: undefined }));
+                  }}
+                  placeholder="8 أحرف على الأقل"
+                />
+                {inviteErrors.password ? <p className="mt-1 text-xs text-red-600">{inviteErrors.password}</p> : null}
+              </div>
 
               <div>
                 <p className="mb-2 text-sm font-medium">رقم الجوال</p>
@@ -864,6 +899,27 @@ export function UsersManagementContent() {
                 ) : null}
                 {inviteErrors.zone_ids ? <p className="mt-1 text-xs text-red-600">{inviteErrors.zone_ids}</p> : null}
               </div>
+
+              <div className="md:col-span-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                <p className="text-sm font-semibold text-slate-900">صلاحيات الواجهة عند الإنشاء</p>
+                {inviteRole === "admin" ? (
+                  <p className="text-xs text-slate-600">مدير النظام يملك جميع الصلاحيات تلقائياً.</p>
+                ) : (
+                  APP_PERMISSION_KEYS.map((key) => (
+                    <PermToggle
+                      key={key}
+                      label={PERM_LABELS_AR[key]}
+                      checked={Boolean(invitePermToggles[key])}
+                      onChange={(v) =>
+                        setInvitePermToggles((prev) => ({
+                          ...prev,
+                          [key]: v,
+                        }))
+                      }
+                    />
+                  ))
+                )}
+              </div>
             </div>
 
             <div className="mt-6 flex items-center justify-end gap-2">
@@ -879,7 +935,7 @@ export function UsersManagementContent() {
                 onClick={() => void inviteUser()}
                 disabled={inviting}
               >
-                {inviting ? "جاري المعالجة..." : inviteMode === "direct_password" ? "إنشاء الحساب وتفعيله" : "إرسال الدعوة"}
+                {inviting ? "جاري المعالجة..." : "إنشاء الحساب وتفعيله"}
               </button>
             </div>
           </div>
@@ -895,9 +951,18 @@ export function UsersManagementContent() {
                 X
               </button>
             </div>
-            <p className="mb-3 text-xs text-slate-500">{editingUser.email}</p>
-
             <div className="grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <p className="mb-1 text-sm font-medium">اسم المستخدم (بالإنجليزية)</p>
+                <Input
+                  dir="ltr"
+                  className="text-left"
+                  value={editUsername}
+                  onChange={(e) => setEditUsername(e.target.value)}
+                  autoComplete="username"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">يُخزَّن داخلياً كنطاق نظامي؛ لا حاجة لإدخال بريد.</p>
+              </div>
               <div className="md:col-span-2">
                 <p className="mb-1 text-sm font-medium">الاسم الكامل</p>
                 <Input value={editName} onChange={(e) => setEditName(e.target.value)} />

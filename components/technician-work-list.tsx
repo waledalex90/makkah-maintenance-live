@@ -360,7 +360,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                       </p>
                       <p className="mt-1 text-slate-700">{ticket.title ?? ticket.location}</p>
                     </button>
-                    {role === "technician" && tab === "area" && !ticket.assigned_technician_id ? (
+                    {role === "technician" && tab === "area" && ticket.status !== "finished" ? (
                       <button
                         type="button"
                         className="mt-2 min-h-11 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"

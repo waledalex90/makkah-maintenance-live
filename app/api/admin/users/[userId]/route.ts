@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireManageUsers } from "@/lib/auth-guards";
+import { parseUsernameOrEmailLocalPart, toAuthEmail } from "@/lib/username-auth";
 
 type PatchBody = {
+  /** تعديل اسم الدخول الظاهر — يُحدَّث البريد الاصطناعي في Auth عند الحاجة */
+  username?: string;
   full_name?: string;
   role?:
     | "admin"
@@ -30,6 +33,30 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
   const admin = createSupabaseAdminClient();
 
   const updates: Record<string, unknown> = {};
+  if (typeof body.username === "string") {
+    const next = parseUsernameOrEmailLocalPart(body.username);
+    if (!next) {
+      return NextResponse.json({ error: "اسم المستخدم غير صالح." }, { status: 400 });
+    }
+    let newEmail: string;
+    try {
+      newEmail = toAuthEmail(next);
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "اسم المستخدم غير صالح." }, { status: 400 });
+    }
+    const { data: authData, error: getUserErr } = await admin.auth.admin.getUserById(userId);
+    if (getUserErr || !authData?.user?.email) {
+      return NextResponse.json({ error: getUserErr?.message ?? "تعذر قراءة حساب المستخدم." }, { status: 400 });
+    }
+    const currentEmail = authData.user.email.toLowerCase();
+    if (newEmail.toLowerCase() !== currentEmail) {
+      const { error: authUpErr } = await admin.auth.admin.updateUserById(userId, { email: newEmail });
+      if (authUpErr) {
+        return NextResponse.json({ error: authUpErr.message }, { status: 400 });
+      }
+    }
+    updates.username = next;
+  }
   if (typeof body.full_name === "string") updates.full_name = body.full_name.trim();
   if (body.role !== undefined) updates.role = body.role;
   if (body.region !== undefined) updates.region = body.region === null || body.region === "" ? null : String(body.region).trim();

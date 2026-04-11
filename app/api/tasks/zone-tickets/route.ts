@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ticketCategoryNameMatchesSpecialty } from "@/lib/specialty-category-match";
 
 const OPEN_STATUSES = ["not_received", "received"] as const;
 
@@ -21,6 +22,42 @@ function isAssignedToUser(
   );
 }
 
+type TicketRow = {
+  zone_id: string | null;
+  category_id: number | null;
+  assigned_technician_id: string | null;
+  assigned_supervisor_id: string | null;
+  assigned_engineer_id: string | null;
+  zones?: { name?: string } | { name?: string }[] | null;
+  ticket_categories?: { name: string } | { name: string }[] | null;
+};
+
+function zoneNameFromTicket(row: TicketRow): string | null {
+  const z = row.zones;
+  if (!z) return null;
+  const o = Array.isArray(z) ? z[0] : z;
+  return o?.name ?? null;
+}
+
+function categoryNameFromTicket(row: TicketRow): string | null {
+  const c = row.ticket_categories;
+  if (!c) return null;
+  const o = Array.isArray(c) ? c[0] : c;
+  return o?.name ?? null;
+}
+
+function rowMatchesPoolFilters(
+  row: TicketRow,
+  specialty: string | null,
+  region: string | null,
+): boolean {
+  const zname = zoneNameFromTicket(row);
+  if (region && zname && region !== zname) {
+    return false;
+  }
+  return ticketCategoryNameMatchesSpecialty(categoryNameFromTicket(row), specialty);
+}
+
 export async function GET() {
   const supabase = await createSupabaseServerClient();
   const {
@@ -34,7 +71,7 @@ export async function GET() {
 
   const { data: me, error: meError } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, specialty, region")
     .eq("id", user.id)
     .single();
 
@@ -46,6 +83,9 @@ export async function GET() {
   if (!["technician", "supervisor"].includes(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const specialty = (me.specialty as string | null) ?? null;
+  const region = (me.region as string | null)?.trim() || null;
 
   try {
     const { data: myTickets, error: myErr } = await supabase
@@ -86,7 +126,10 @@ export async function GET() {
       return NextResponse.json({ error: poolErr.message }, { status: 400 });
     }
 
-    const areaTickets = (zonePool ?? []).filter((row) => !isAssignedToUser(row, user.id));
+    const poolRows = (zonePool ?? []) as TicketRow[];
+    const filteredPool = poolRows.filter((row) => rowMatchesPoolFilters(row, specialty, region));
+
+    const areaTickets = filteredPool.filter((row) => !isAssignedToUser(row, user.id));
 
     return NextResponse.json({
       areaTickets,

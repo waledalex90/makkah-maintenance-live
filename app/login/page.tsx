@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { parseUsernameOrEmailLocalPart, toAuthEmail } from "@/lib/username-auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,7 +12,7 @@ import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [resetSending, setResetSending] = useState(false);
@@ -50,8 +51,18 @@ export default function LoginPage() {
     setError(null);
 
     try {
+      const normalized = parseUsernameOrEmailLocalPart(username);
+      let authEmail: string;
+      try {
+        authEmail = toAuthEmail(normalized);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "اسم المستخدم غير صالح.");
+        setLoading(false);
+        return;
+      }
+
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
+        email: authEmail,
         password,
       });
 
@@ -64,13 +75,13 @@ export default function LoginPage() {
 
       if (!data?.user) {
         await logAuthError("Login failed (no user returned)", data);
-        setError("Login failed. Please try again.");
+        setError("فشل تسجيل الدخول. حاول مرة أخرى.");
         setLoading(false);
         return;
       }
 
       const userId = data.user.id;
-      const fallbackName = data.user.email ?? email;
+      const fallbackName = data.user.email ?? authEmail;
 
       const { data: profileRow, error: profileReadError } = await supabase
         .from("profiles")
@@ -80,7 +91,7 @@ export default function LoginPage() {
 
       if (profileReadError) {
         await logAuthError("Profile check failed after login", profileReadError);
-        setError("Logged in, but failed to verify profile. Check logs.");
+        setError("تم الدخول لكن تعذر التحقق من الملف الشخصي. راجع السجلات.");
         setLoading(false);
         return;
       }
@@ -95,7 +106,7 @@ export default function LoginPage() {
 
         if (createProfileError) {
           await logAuthError("Profile creation failed after login", createProfileError);
-          setError("Login succeeded but profile creation failed. Check logs.");
+          setError("تم الدخول لكن فشل إنشاء الملف الشخصي. راجع السجلات.");
           setLoading(false);
           return;
         }
@@ -109,27 +120,34 @@ export default function LoginPage() {
       router.refresh();
     } catch (unexpectedError) {
       await logAuthError("Login unexpected error", unexpectedError);
-      setError("Unexpected login error. Check console for details.");
+      setError("حدث خطأ غير متوقع أثناء تسجيل الدخول.");
       setLoading(false);
     }
   };
 
   const onForgotPassword = async () => {
-    if (!email.trim()) {
-      setError("أدخل البريد الإلكتروني أولاً لإرسال رابط إعادة التعيين.");
+    if (!username.trim()) {
+      setError("أدخل اسم المستخدم أولاً لإرسال رابط إعادة تعيين كلمة المرور.");
+      return;
+    }
+    let authEmail: string;
+    try {
+      authEmail = toAuthEmail(parseUsernameOrEmailLocalPart(username));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "اسم المستخدم غير صالح.");
       return;
     }
     setResetSending(true);
     setError(null);
     setResetMessage(null);
     const redirectTo = `${window.location.origin}/update-password`;
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(authEmail, { redirectTo });
     setResetSending(false);
     if (resetError) {
       setError(resetError.message);
       return;
     }
-    setResetMessage("تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.");
+    setResetMessage("إن وُجد الحساب، سيصلك بريد لإعادة تعيين كلمة المرور (تحقق من صندوق الوارد أو الرسائل غير المرغوبة).");
   };
 
   return (
@@ -147,26 +165,31 @@ export default function LoginPage() {
             />
           </div>
           <CardTitle>بوابة عمليات عزام الشريف</CardTitle>
-          <CardDescription>Sign in with your work account.</CardDescription>
+          <CardDescription>سجّل الدخول باسم المستخدم وكلمة المرور المعتمدة لدى الإدارة.</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="username">اسم المستخدم</Label>
               <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="username"
+                dir="ltr"
+                className="text-left"
+                type="text"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="بالإنجليزية، مثال: ahmed.khalid"
                 required
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">كلمة المرور</Label>
               <Input
                 id="password"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -186,7 +209,7 @@ export default function LoginPage() {
             </button>
 
             <Button type="submit" className="w-full bg-green-700 text-white hover:bg-green-800 dark:bg-green-600 dark:hover:bg-green-500" disabled={loading}>
-              {loading ? "Signing in..." : "Sign in"}
+              {loading ? "جاري تسجيل الدخول..." : "دخول"}
             </Button>
           </form>
         </CardContent>

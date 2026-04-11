@@ -531,8 +531,7 @@ export function TicketDetailDrawer({
     myRole === "projects_director" ||
     (myRole === "supervisor" && ticket?.assigned_supervisor_id === myUserId);
 
-  const showTechnicianQuickActions =
-    myRole === "technician" && ticket?.assigned_technician_id === myUserId && ticket.status !== "finished";
+  const showTechnicianQuickActions = myRole === "technician" && ticket?.status !== "finished";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

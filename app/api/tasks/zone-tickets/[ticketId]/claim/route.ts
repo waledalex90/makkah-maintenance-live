@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatSaudiTime } from "@/lib/saudi-time";
 import { ticketCategoryNameMatchesSpecialty } from "@/lib/specialty-category-match";
+import { taskDocMessagePrefixClaimTicket } from "@/lib/ticket-task-doc-message";
 
 export async function PATCH(_request: Request, context: { params: Promise<{ ticketId: string }> }) {
   const supabase = await createSupabaseServerClient();
@@ -80,12 +81,24 @@ export async function PATCH(_request: Request, context: { params: Promise<{ tick
       return NextResponse.json({ error: updateError.message }, { status: 400 });
     }
 
-    const nowLabel = formatSaudiTime(Date.now());
-    await supabase.from("ticket_messages").insert({
-      ticket_id: ticketId,
-      sender_id: user.id,
-      content: `تكليفات: ${me.full_name} قبل البلاغ وبدأ التنفيذ - الساعة ${nowLabel}.`,
-    });
+    const stablePrefix = taskDocMessagePrefixClaimTicket(me.full_name ?? "");
+    const { data: existingDoc } = await supabase
+      .from("ticket_messages")
+      .select("id")
+      .eq("ticket_id", ticketId)
+      .eq("sender_id", user.id)
+      .like("content", `${stablePrefix}%`)
+      .limit(1)
+      .maybeSingle();
+
+    if (!existingDoc) {
+      const nowLabel = formatSaudiTime(Date.now());
+      await supabase.from("ticket_messages").insert({
+        ticket_id: ticketId,
+        sender_id: user.id,
+        content: `${stablePrefix} - الساعة ${nowLabel}.`,
+      });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -258,32 +258,47 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
     seenTicketIdsRef.current = ids;
   }, [combinedTickets, loading]);
 
+  const [pendingClaimId, setPendingClaimId] = useState<string | null>(null);
+  const [pendingAcceptId, setPendingAcceptId] = useState<string | null>(null);
+
   const claimTicket = async (ticketId: string) => {
-    const res = await fetch(`/api/tasks/zone-tickets/${ticketId}/claim`, {
-      method: "PATCH",
-    });
-    const payload = (await res.json()) as { ok?: boolean; error?: string };
-    if (!res.ok || !payload.ok) {
-      toast.error(payload.error ?? "تعذر قبول البلاغ.");
-      return;
+    if (pendingClaimId || pendingAcceptId) return;
+    setPendingClaimId(ticketId);
+    try {
+      const res = await fetch(`/api/tasks/zone-tickets/${ticketId}/claim`, {
+        method: "PATCH",
+      });
+      const payload = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !payload.ok) {
+        toast.error(payload.error ?? "تعذر قبول البلاغ.");
+        return;
+      }
+      void pushLiveLocationOnce();
+      toast.success("تم قبول البلاغ وتحويله لك.");
+      await loadTickets();
+    } finally {
+      setPendingClaimId(null);
     }
-    void pushLiveLocationOnce();
-    toast.success("تم قبول البلاغ وتحويله لك.");
-    await loadTickets();
   };
 
   const acceptTicket = async (ticketId: string) => {
-    const res = await fetch(`/api/tasks/zone-tickets/${ticketId}/accept`, {
-      method: "PATCH",
-    });
-    const payload = (await res.json()) as { ok?: boolean; error?: string };
-    if (!res.ok || !payload.ok) {
-      toast.error(payload.error ?? "تعذر قبول المهمة.");
-      return;
+    if (pendingAcceptId || pendingClaimId) return;
+    setPendingAcceptId(ticketId);
+    try {
+      const res = await fetch(`/api/tasks/zone-tickets/${ticketId}/accept`, {
+        method: "PATCH",
+      });
+      const payload = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !payload.ok) {
+        toast.error(payload.error ?? "تعذر قبول المهمة.");
+        return;
+      }
+      void pushLiveLocationOnce();
+      toast.success("تم قبول المهمة وبدء التنفيذ.");
+      await loadTickets();
+    } finally {
+      setPendingAcceptId(null);
     }
-    void pushLiveLocationOnce();
-    toast.success("تم قبول المهمة وبدء التنفيذ.");
-    await loadTickets();
   };
 
   const refreshByPull = async () => {
@@ -391,10 +406,11 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                       !ticket.assigned_technician_id ? (
                         <button
                           type="button"
-                          className="mt-2 min-h-11 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                          disabled={pendingClaimId === ticket.id || Boolean(pendingAcceptId)}
+                          className="mt-2 min-h-11 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                           onClick={() => void claimTicket(ticket.id)}
                         >
-                          قبول البلاغ
+                          {pendingClaimId === ticket.id ? "جاري التأكيد..." : "قبول البلاغ"}
                         </button>
                       ) : ticket.assigned_technician_id === myUserId ? (
                         <button
@@ -420,10 +436,11 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                     ticket.status === "received" ? (
                       <button
                         type="button"
-                        className="mt-2 min-h-11 rounded-md bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-amber-400"
+                        disabled={pendingAcceptId === ticket.id || Boolean(pendingClaimId)}
+                        className="mt-2 min-h-11 rounded-md bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
                         onClick={() => void acceptTicket(ticket.id)}
                       >
-                        تأكيد التنفيذ الميداني
+                        {pendingAcceptId === ticket.id ? "جاري التأكيد..." : "تأكيد التنفيذ الميداني"}
                       </button>
                     ) : null}
                   </div>

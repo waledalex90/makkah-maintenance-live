@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { formatSaudiTime } from "@/lib/saudi-time";
+import { isTicketSystemDocChatMessage } from "@/lib/ticket-task-doc-message";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,11 +38,6 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
   const [senderRoleMap, setSenderRoleMap] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [uploadingAudio, setUploadingAudio] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [attachmentImageFile, setAttachmentImageFile] = useState<File | null>(null);
-  const [attachmentAudioFile, setAttachmentAudioFile] = useState<File | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -54,15 +49,6 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
     };
     void loadMe();
   }, []);
-
-  const compressImage = async (file: File) => {
-    return imageCompression(file, {
-      maxSizeMB: 1,
-      maxWidthOrHeight: 1600,
-      useWebWorker: true,
-      initialQuality: 0.8,
-    });
-  };
 
   const roleLabel = (role: string | null | undefined) => {
     if (!role) return "غير محدد";
@@ -114,7 +100,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
 
   useEffect(() => {
     void loadMessages();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticketId]);
 
   useEffect(() => {
@@ -137,11 +123,10 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resubscribe on ticketId only; loadMessages closes over ticketId
   }, [ticketId, onTicketUpdated]);
 
-  const sendMessage = async (imageFileOverride?: File | null) => {
+  const sendMessage = async () => {
     if (!canPost) return;
     const content = draft.trim();
-    const chosenImageFile = imageFileOverride ?? attachmentImageFile;
-    if (!content && !chosenImageFile && !attachmentAudioFile) return;
+    if (!content) return;
 
     const {
       data: { user },
@@ -153,62 +138,12 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
     }
 
     setSending(true);
-    let imageUrl: string | null = null;
-    let audioUrl: string | null = null;
-
-    if (chosenImageFile) {
-      setUploadingImage(true);
-      setUploadProgress(8);
-      const compressedImage = await compressImage(chosenImageFile);
-      setUploadProgress(20);
-      const progressTicker = window.setInterval(() => {
-        setUploadProgress((prev) => (prev >= 90 ? 90 : prev + 8));
-      }, 220);
-      const ext = compressedImage.name.split(".").pop() ?? "jpg";
-      const filePath = `${ticketId}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error: uploadError } = await supabase.storage
-        .from("tickets")
-        .upload(filePath, compressedImage, { upsert: false });
-      window.clearInterval(progressTicker);
-      setUploadingImage(false);
-      if (uploadError) {
-        setUploadProgress(0);
-        toast.error("فشل رفع الصورة.");
-        setSending(false);
-        return;
-      }
-      const { data: publicData } = supabase.storage.from("tickets").getPublicUrl(filePath);
-      imageUrl = publicData.publicUrl;
-      setUploadProgress(100);
-    }
-
-    if (attachmentAudioFile) {
-      setUploadingAudio(true);
-      const ext = attachmentAudioFile.name.split(".").pop() ?? "webm";
-      const filePath = `${ticketId}-voice-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error: uploadAudioError } = await supabase.storage
-        .from("tickets")
-        .upload(filePath, attachmentAudioFile, { upsert: false });
-      setUploadingAudio(false);
-      if (uploadAudioError) {
-        toast.error("فشل رفع الصوت.");
-        setSending(false);
-        return;
-      }
-      const { data: publicAudioData } = supabase.storage.from("tickets").getPublicUrl(filePath);
-      audioUrl = publicAudioData.publicUrl;
-    }
-
-    const { data: myProfile } = await supabase.from("profiles").select("full_name, role").eq("id", user.id).single();
-    const senderLabel = (myProfile as { full_name?: string; role?: string | null } | null)?.full_name ?? "المستخدم";
-    const senderRole = roleLabel((myProfile as { role?: string | null } | null)?.role);
-
     const { error } = await supabase.from("ticket_messages").insert({
       ticket_id: ticketId,
       sender_id: user.id,
-      content: content || (audioUrl ? "رسالة صوتية" : "مرفق صورة"),
-      image_url: imageUrl,
-      audio_url: audioUrl,
+      content,
+      image_url: null,
+      audio_url: null,
     });
 
     if (error) {
@@ -218,20 +153,8 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
     }
 
     setDraft("");
-    setAttachmentImageFile(null);
-    setAttachmentAudioFile(null);
-    setUploadProgress(0);
     setSending(false);
     void loadMessages();
-    if (imageUrl) {
-      toast.success(`تم رفع الصورة بواسطة: ${senderLabel} - ${senderRole}`);
-    }
-  };
-
-  const onImageSelected = (file: File | null) => {
-    if (!file) return;
-    setAttachmentImageFile(file);
-    void sendMessage(file);
   };
 
   return (
@@ -241,6 +164,16 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
       </h3>
       <div className="max-h-80 space-y-3 overflow-y-auto bg-gradient-to-b from-slate-100/90 to-slate-50 p-3 dark:from-slate-900 dark:to-slate-950">
         {messages.map((msg) => {
+          const systemDoc = isTicketSystemDocChatMessage(msg.content);
+          if (systemDoc) {
+            return (
+              <div key={msg.id} className="px-2 py-1 text-center">
+                <p className="text-xs italic leading-relaxed text-slate-500 dark:text-slate-400">{msg.content}</p>
+                <p className="mt-1 text-[10px] tabular-nums text-slate-400">{formatSaudiTime(msg.created_at)}</p>
+              </div>
+            );
+          }
+
           const mine = msg.sender_id === myUserId;
           return (
             <div key={msg.id} className={cn("flex w-full", mine ? "justify-end" : "justify-start")}>
@@ -290,35 +223,10 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="رسالة ميدانية / توثيق إجراء / ملاحظة إدارة المشروع..."
+            placeholder="رسالة ميدانية / توثيق إجراء / ملاحظة إدارة المشروع… (المرفقات من صندوق المرفقات أعلاه)"
             className="min-h-[72px] rounded-xl border-2 border-slate-200 bg-white shadow-sm transition focus-visible:border-emerald-500 focus-visible:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
           />
-          <div className="mt-2 space-y-1">
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => onImageSelected(e.target.files?.[0] ?? null)}
-              className="block w-full text-xs"
-            />
-            <input
-              type="file"
-              accept="audio/*"
-              onChange={(e) => setAttachmentAudioFile(e.target.files?.[0] ?? null)}
-              className="block w-full text-xs"
-            />
-          </div>
-          {uploadingImage ? (
-            <div className="mt-2">
-              <div className="mb-1 text-xs text-slate-500">جاري رفع الصورة... {uploadProgress}%</div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                <div
-                  className="h-full rounded-full bg-emerald-500 transition-all duration-200"
-                  style={{ width: `${Math.max(6, uploadProgress)}%` }}
-                />
-              </div>
-            </div>
-          ) : null}
-          <Button className="mt-2 w-full" onClick={() => void sendMessage()} disabled={sending || uploadingImage || uploadingAudio}>
+          <Button className="mt-2 w-full" onClick={() => void sendMessage()} disabled={sending}>
             {sending ? "جاري الإرسال..." : "إرسال"}
           </Button>
         </div>

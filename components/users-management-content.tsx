@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
 import { APP_PERMISSION_KEYS, effectivePermissions, type AppPermissionKey } from "@/lib/permissions";
 
 const PERM_LABELS_AR: Record<AppPermissionKey, string> = {
@@ -15,6 +17,52 @@ const PERM_LABELS_AR: Record<AppPermissionKey, string> = {
   manage_users: "إدارة المستخدمين",
   view_settings: "الإعدادات",
 };
+
+/** تبديل مضغوط لصفوف الجدول — أخضر عند التفعيل، رمادي عند الإيقاف */
+function TablePermSwitch({
+  checked,
+  disabled,
+  saving,
+  ariaLabel,
+  onToggle,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  saving?: boolean;
+  ariaLabel: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled || saving}
+      onClick={onToggle}
+      className={cn(
+        "relative mx-auto block h-7 w-[2.75rem] shrink-0 rounded-full transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1",
+        checked
+          ? "bg-emerald-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]"
+          : "bg-slate-300 dark:bg-slate-600",
+        (disabled || saving) && "cursor-not-allowed opacity-60",
+      )}
+    >
+      <span
+        className={cn(
+          "absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all",
+          checked ? "start-5" : "start-0.5",
+        )}
+      />
+    </button>
+  );
+}
+
+const TABLE_QUICK_PERMS: { key: AppPermissionKey; header: string }[] = [
+  { key: "view_map", header: "الخريطة" },
+  { key: "view_reports", header: "التقارير" },
+  { key: "manage_zones", header: "إدارة المناطق" },
+];
 
 function PermToggle({
   label,
@@ -145,6 +193,15 @@ export function UsersManagementContent() {
   const [editSaving, setEditSaving] = useState(false);
   const [editZoneDropdownOpen, setEditZoneDropdownOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [permRowSaving, setPermRowSaving] = useState<string | null>(null);
+  const [quickDeleteId, setQuickDeleteId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    void supabase.auth.getSession().then(({ data }) => {
+      setCurrentUserId(data.session?.user.id ?? null);
+    });
+  }, []);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -194,6 +251,59 @@ export function UsersManagementContent() {
 
     toast.success("تم تعديل الصلاحيات بنجاح.");
     await loadUsers();
+  };
+
+  const saveTablePermission = async (user: UserRow, key: AppPermissionKey, newValue: boolean) => {
+    if (user.role === "admin") {
+      toast.info("مدير النظام يملك جميع الصلاحيات دائماً — لا يُعدّل من الجدول.");
+      return;
+    }
+    const token = `${user.id}-${key}`;
+    setPermRowSaving(token);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          permissions: {
+            [key]: newValue,
+            ...(key === "view_reports" ? { view_admin_reports: newValue } : {}),
+          },
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        toast.error(data.error ?? "فشل تحديث الصلاحية.");
+        return;
+      }
+      toast.success(`${newValue ? "تم التفعيل" : "تم الإيقاف"}: ${PERM_LABELS_AR[key]}`);
+      await loadUsers();
+    } finally {
+      setPermRowSaving(null);
+    }
+  };
+
+  const quickDeleteUser = async (user: UserRow) => {
+    if (user.id === currentUserId) {
+      toast.error("لا يمكنك حذف حسابك أثناء الجلسة الحالية.");
+      return;
+    }
+    if (!window.confirm(`حذف المستخدم «${user.full_name}» نهائياً من النظام؟`)) {
+      return;
+    }
+    setQuickDeleteId(user.id);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}`, { method: "DELETE" });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        toast.error(data.error ?? "تعذر حذف المستخدم.");
+        return;
+      }
+      toast.success("تم حذف المستخدم.");
+      await loadUsers();
+    } finally {
+      setQuickDeleteId(null);
+    }
   };
 
   const closeInviteModal = () => {
@@ -420,86 +530,145 @@ export function UsersManagementContent() {
       {loading ? (
         <p className="text-sm text-slate-500">جاري تحميل المستخدمين...</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-right text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-slate-700">
-              <tr>
-                <th className="px-3 py-2">الاسم</th>
-                <th className="px-3 py-2">الإيميل</th>
-                <th className="px-3 py-2">رقم الجوال</th>
-                <th className="px-3 py-2">المهنة</th>
-                <th className="px-3 py-2">التصنيف</th>
-                <th className="px-3 py-2">المناطق</th>
-                <th className="px-3 py-2">الدور</th>
-                <th className="px-3 py-2">حالة الحساب</th>
-                <th className="px-3 py-2">الصلاحيات السريعة</th>
-                <th className="px-3 py-2">البيانات</th>
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800">
+          <table className="min-w-[1100px] w-full border-collapse text-right text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-100">
+                <th className="sticky right-0 z-10 min-w-[8rem] bg-slate-100 px-3 py-3 font-semibold shadow-[4px_0_8px_-4px_rgba(0,0,0,0.08)] dark:bg-slate-900/80">
+                  الاسم
+                </th>
+                <th className="px-3 py-3 font-semibold">الإيميل</th>
+                <th className="px-3 py-3 font-semibold">الجوال</th>
+                <th className="px-3 py-3 font-semibold">المهنة</th>
+                <th className="px-3 py-3 font-semibold">التصنيف</th>
+                <th className="min-w-[7rem] px-3 py-3 font-semibold">المناطق</th>
+                <th className="px-3 py-3 font-semibold">الدور</th>
+                <th className="px-3 py-3 font-semibold">الحالة</th>
+                {TABLE_QUICK_PERMS.map((col) => (
+                  <th key={col.key} className="w-[5.5rem] min-w-[5.5rem] px-2 py-3 text-center text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    {col.header}
+                  </th>
+                ))}
+                <th className="min-w-[12rem] px-3 py-3 font-semibold">تعيين الدور</th>
+                <th className="px-3 py-3 font-semibold">البيانات</th>
+                <th className="w-24 px-3 py-3 text-center font-semibold">إجراءات</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((user) => (
-                <tr key={user.id} className="border-b border-slate-100">
-                  <td className="px-3 py-2">{user.full_name}</td>
-                  <td className="px-3 py-2">{user.email}</td>
-                  <td className="px-3 py-2">{user.mobile}</td>
-                  <td className="px-3 py-2">{user.job_title || "-"}</td>
-                  <td className="px-3 py-2">
-                    {SPECIALTY_OPTIONS.find((option) => option.value === user.specialty)?.label ?? "-"}
-                  </td>
-                  <td className="px-3 py-2">
-                    {(user.zones ?? []).length > 0 ? (user.zones ?? []).map((zone) => zone.name).join("، ") : "-"}
-                  </td>
-                  <td className="px-3 py-2">
-                    {ROLE_OPTIONS.find((option) => option.value === user.role)?.label ?? user.role}
-                  </td>
-                  <td className="px-3 py-2">{user.account_status}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center justify-end gap-2">
-                      <select
-                        className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs"
-                        value={draftRoleMap[user.id] ?? user.role}
-                        onChange={(e) =>
-                          setDraftRoleMap((prev) => ({
-                            ...prev,
-                            [user.id]: e.target.value as UserRole,
-                          }))
-                        }
-                      >
-                        {ROLE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        className="rounded-md border border-slate-200 px-3 py-1.5 text-xs hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        onClick={() => void saveRole(user)}
-                        disabled={savingUserId === user.id || (draftRoleMap[user.id] ?? user.role) === user.role}
-                      >
-                        {savingUserId === user.id ? "جاري الحفظ..." : "حفظ"}
-                      </button>
-                      <button
-                        className="rounded-md border border-emerald-200 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50"
-                        onClick={() => openPasswordModal(user)}
-                      >
-                        تغيير الباسورد
-                      </button>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <button
-                      type="button"
-                      className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
-                      onClick={() => openEditUser(user)}
+              {users.map((user, rowIdx) => {
+                const eff = effectivePermissions(user.role, user.permissions ?? undefined);
+                const isAdminRow = user.role === "admin";
+                return (
+                  <tr
+                    key={user.id}
+                    className={cn(
+                      "border-b border-slate-100 transition-colors dark:border-slate-800",
+                      rowIdx % 2 === 0 ? "bg-white dark:bg-slate-950" : "bg-slate-50/80 dark:bg-slate-900/40",
+                    )}
+                  >
+                    <td
+                      className={cn(
+                        "sticky right-0 z-[1] px-3 py-2.5 font-medium text-slate-900 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.06)] dark:text-slate-50",
+                        rowIdx % 2 === 0 ? "bg-white dark:bg-slate-950" : "bg-slate-50/80 dark:bg-slate-900/40",
+                      )}
                     >
-                      تعديل البيانات
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      {user.full_name}
+                    </td>
+                    <td className="max-w-[10rem] truncate px-3 py-2.5 text-slate-700 dark:text-slate-300" title={user.email}>
+                      {user.email}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-slate-700 dark:text-slate-300">{user.mobile}</td>
+                    <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">{user.job_title || "—"}</td>
+                    <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">
+                      {SPECIALTY_OPTIONS.find((option) => option.value === user.specialty)?.label ?? "—"}
+                    </td>
+                    <td className="max-w-[9rem] px-3 py-2.5 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+                      {(user.zones ?? []).length > 0 ? (user.zones ?? []).map((zone) => zone.name).join("، ") : "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-slate-800 dark:text-slate-200">
+                      {ROLE_OPTIONS.find((option) => option.value === user.role)?.label ?? user.role}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-slate-700 dark:text-slate-300">{user.account_status}</td>
+                    {TABLE_QUICK_PERMS.map((col) => {
+                      const on = eff[col.key];
+                      const saving = permRowSaving === `${user.id}-${col.key}`;
+                      return (
+                        <td key={col.key} className="px-1 py-2 text-center align-middle">
+                          <TablePermSwitch
+                            checked={on}
+                            disabled={isAdminRow}
+                            saving={saving}
+                            ariaLabel={`${col.header} — ${user.full_name}`}
+                            onToggle={() => void saveTablePermission(user, col.key, !on)}
+                          />
+                        </td>
+                      );
+                    })}
+                    <td className="px-3 py-2">
+                      <div className="flex flex-col items-stretch gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+                        <select
+                          className="h-9 min-w-[7.5rem] rounded-md border border-slate-200 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-900"
+                          value={draftRoleMap[user.id] ?? user.role}
+                          onChange={(e) =>
+                            setDraftRoleMap((prev) => ({
+                              ...prev,
+                              [user.id]: e.target.value as UserRole,
+                            }))
+                          }
+                        >
+                          {ROLE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+                          onClick={() => void saveRole(user)}
+                          disabled={savingUserId === user.id || (draftRoleMap[user.id] ?? user.role) === user.role}
+                        >
+                          {savingUserId === user.id ? "…" : "حفظ"}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md border border-emerald-200 bg-emerald-50/80 px-2 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
+                          onClick={() => openPasswordModal(user)}
+                        >
+                          كلمة المرور
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
+                        onClick={() => openEditUser(user)}
+                      >
+                        تعديل
+                      </button>
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <button
+                        type="button"
+                        title="حذف المستخدم"
+                        disabled={user.id === currentUserId || quickDeleteId === user.id}
+                        onClick={() => void quickDeleteUser(user)}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/70"
+                      >
+                        {quickDeleteId === user.id ? (
+                          <span className="text-xs">…</span>
+                        ) : (
+                          <Trash2 className="h-4 w-4" strokeWidth={2.25} />
+                        )}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center text-slate-500">
+                  <td colSpan={14} className="px-3 py-10 text-center text-slate-500">
                     لا يوجد مستخدمون حالياً.
                   </td>
                 </tr>

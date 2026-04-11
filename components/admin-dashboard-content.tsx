@@ -357,7 +357,9 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         `ticket_number.cast.text.ilike.%${q}%`,
       ];
       if (matchedZoneIds.length > 0) {
-        orParts.push(`zone_id.in.(${matchedZoneIds.join(",")})`);
+        /** PostgREST: قيم uuid تحتوي على شرطات يجب أن تُقتبس وإلا يُفسَّر الشرط كعامل طرح */
+        const quoted = matchedZoneIds.map((id) => `"${id}"`).join(",");
+        orParts.push(`zone_id.in.(${quoted})`);
       }
       if (matchedCategoryIds.length > 0) {
         orParts.push(`category_id.in.(${Array.from(new Set(matchedCategoryIds)).join(",")})`);

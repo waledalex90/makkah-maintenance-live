@@ -15,7 +15,8 @@ export const MAPTILER_ATTRIBUTION =
   '&copy; <a href="https://www.maptiler.com/copyright/" target="_blank" rel="noreferrer">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors';
 
 export function getMapTilerApiKey(): string {
-  return typeof process !== "undefined" ? process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? "" : "";
+  const raw = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? "" : "";
+  return raw.trim();
 }
 
 /** Streets v2 (default operational basemap) */

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AdminDashboardContent } from "@/components/admin-dashboard-content";
@@ -26,5 +27,9 @@ export default async function DashboardHomePage() {
     redirect("/dashboard/tickets");
   }
 
-  return <AdminDashboardContent role={profile?.role ?? "engineer"} />;
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">جاري تحميل لوحة التحكم…</div>}>
+      <AdminDashboardContent role={profile?.role ?? "engineer"} />
+    </Suspense>
+  );
 }

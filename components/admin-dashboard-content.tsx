@@ -2,8 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEventHandler } from "react";
 import dynamic from "next/dynamic";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import {
+  applyTicketDashboardFilters,
+  mergeDashboardSearchParams,
+  parseDashboardFiltersFromSearchParams,
+  type DashboardBaseFilters,
+} from "@/lib/admin-dashboard-filters";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -171,29 +179,69 @@ function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number):
 }
 
 export function AdminDashboardContent({ role = "admin", tableOnly = false }: AdminDashboardContentProps) {
-  const [zones, setZones] = useState<Zone[]>([]);
-  const [pageTickets, setPageTickets] = useState<TicketRow[]>([]);
-  const [zoneFilter, setZoneFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [statFilter, setStatFilter] = useState<StatFilter>("all");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   /** يُعرض على واجهة مسؤول البلاغات (صفحة البلاغات) */
   const isReporterDesk = tableOnly;
-  const [searchTerm, setSearchTerm] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [ticketStats, setTicketStats] = useState({
-    total: 0,
-    latePickup: 0,
-    inProgress: 0,
-    completed: 0,
-  });
+
+  const urlFilters = useMemo(() => parseDashboardFiltersFromSearchParams(searchParams), [searchParams]);
+  const baseFilters: DashboardBaseFilters = useMemo(
+    () => ({
+      zoneId: urlFilters.zoneId,
+      categoryId: urlFilters.categoryId,
+      dateFrom: urlFilters.dateFrom,
+      dateTo: urlFilters.dateTo,
+    }),
+    [urlFilters.zoneId, urlFilters.categoryId, urlFilters.dateFrom, urlFilters.dateTo],
+  );
+
+  const zoneFilter = urlFilters.zoneId;
+  const statusFilter = urlFilters.statusTable;
+  const statFilter = urlFilters.statCard as StatFilter;
+  const searchTerm = urlFilters.search;
+  const currentPage = urlFilters.page;
+
+  const [searchDraft, setSearchDraft] = useState(urlFilters.search);
+  useEffect(() => {
+    setSearchDraft(urlFilters.search);
+  }, [urlFilters.search]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const trimmed = searchDraft.trim();
+      if (trimmed === searchTerm) return;
+      const next = mergeDashboardSearchParams(searchParams, { q: trimmed || undefined }, true);
+      router.replace(`${pathname}?${next}`, { scroll: false });
+    }, 320);
+    return () => window.clearTimeout(t);
+  }, [searchDraft, searchTerm, pathname, router, searchParams]);
+
+  const patchDashboard = useCallback(
+    (patch: Partial<Record<string, string | undefined>>, resetPage = true) => {
+      const next = mergeDashboardSearchParams(searchParams, patch, resetPage);
+      router.replace(`${pathname}?${next}`, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const goDashboardPage = useCallback(
+    (p: number) => {
+      const next = new URLSearchParams(searchParams.toString());
+      if (p <= 1) next.delete("p");
+      else next.set("p", String(p));
+      router.replace(`${pathname}?${next}`, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailAttachments, setDetailAttachments] = useState<TicketAttachmentRow[]>([]);
   const [detailNearbyStaff, setDetailNearbyStaff] = useState<DetailStaffRow[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
   const [latestChatMap, setLatestChatMap] = useState<Record<string, string>>({});
   const [lastReadMap, setLastReadMap] = useState<Record<string, string>>({});
   const [nowTs, setNowTs] = useState(() => Date.now());
@@ -201,6 +249,205 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [pullDistance, setPullDistance] = useState(0);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const openedTicketQueryRef = useRef<string | null>(null);
+
+  const zonesQuery = useQuery({
+    queryKey: ["dashboard-zones"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("zones")
+        .select("id, name, center_latitude, center_longitude, latitude, longitude")
+        .order("name");
+      if (error) throw new Error(arabicErrorMessage(error.message));
+      return (data ?? []) as Zone[];
+    },
+    staleTime: 5 * 60_000,
+  });
+  const zones = zonesQuery.data ?? [];
+
+  const categoriesQuery = useQuery({
+    queryKey: ["ticket-categories-list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("ticket_categories").select("id, name").order("name");
+      if (error) throw new Error(arabicErrorMessage(error.message));
+      return (data ?? []) as Array<{ id: number; name: string }>;
+    },
+    staleTime: 5 * 60_000,
+  });
+  const ticketCategories = categoriesQuery.data ?? [];
+
+  const statsQuery = useQuery({
+    queryKey: ["admin-dashboard-stats", baseFilters, nowTs],
+    queryFn: async () => {
+      const thresholdIso = new Date(nowTs - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString();
+      const bf = baseFilters;
+      const totalQ = applyTicketDashboardFilters(supabase.from("tickets").select("*", { count: "exact", head: true }), bf);
+      const receivedQ = applyTicketDashboardFilters(
+        supabase.from("tickets").select("*", { count: "exact", head: true }).eq("status", "received"),
+        bf,
+      );
+      const finishedQ = applyTicketDashboardFilters(
+        supabase.from("tickets").select("*", { count: "exact", head: true }).eq("status", "finished"),
+        bf,
+      );
+      const lateQ = applyTicketDashboardFilters(
+        supabase
+          .from("tickets")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "not_received")
+          .lte("created_at", thresholdIso),
+        bf,
+      );
+      const notReceivedQ = applyTicketDashboardFilters(
+        supabase.from("tickets").select("*", { count: "exact", head: true }).eq("status", "not_received"),
+        bf,
+      );
+
+      const [totalRes, receivedRes, finishedRes, lateRes, notReceivedRes] = await Promise.all([
+        totalQ,
+        receivedQ,
+        finishedQ,
+        lateQ,
+        notReceivedQ,
+      ]);
+      const err =
+        totalRes.error || receivedRes.error || finishedRes.error || lateRes.error || notReceivedRes.error;
+      if (err) throw new Error(arabicErrorMessage(err.message));
+      return {
+        total: totalRes.count ?? 0,
+        inProgress: receivedRes.count ?? 0,
+        completed: finishedRes.count ?? 0,
+        latePickup: lateRes.count ?? 0,
+        notReceived: notReceivedRes.count ?? 0,
+      };
+    },
+    staleTime: 15_000,
+    placeholderData: (prev) => prev,
+  });
+
+  const ticketStats = statsQuery.data ?? {
+    total: 0,
+    latePickup: 0,
+    inProgress: 0,
+    completed: 0,
+    notReceived: 0,
+  };
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTs(Date.now()), 10_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const ticketsQuery = useQuery({
+    queryKey: [
+      "admin-dashboard-tickets",
+      baseFilters,
+      statusFilter,
+      statFilter,
+      searchTerm,
+      currentPage,
+      nowTs,
+      isReporterDesk,
+    ],
+    queryFn: async () => {
+      const from = (currentPage - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      let query = applyTicketDashboardFilters(
+        supabase
+          .from("tickets")
+          .select(TICKET_ROW_WITH_HANDLER_PROFILES, { count: "exact" })
+          .order("created_at", { ascending: false })
+          .range(from, to),
+        baseFilters,
+      );
+
+      if (statFilter === "late_pickup") {
+        query = query
+          .eq("status", "not_received")
+          .lte("created_at", new Date(nowTs - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString());
+      } else if (statFilter === "received") {
+        query = query.eq("status", "received");
+      } else if (statFilter === "finished") {
+        query = query.eq("status", "finished");
+      } else if (statusFilter !== "all") {
+        query = query.eq("status", statusFilter);
+      }
+
+      const q = searchTerm.trim();
+      if (q) {
+        const matchedZoneIds = zones
+          .filter((zone) => zone.name.toLowerCase().includes(q.toLowerCase()))
+          .map((zone) => zone.id);
+        const { data: catRows } = await supabase.from("ticket_categories").select("id").ilike("name", `%${q}%`);
+        const matchedCategoryIds = (catRows ?? []).map((r) => r.id as number);
+
+        const orParts = [`external_ticket_number.ilike.%${q}%`, `ticket_number_text.ilike.%${q}%`];
+        if (matchedZoneIds.length > 0) {
+          const quoted = matchedZoneIds.map((id) => `"${id}"`).join(",");
+          orParts.push(`zone_id.in.(${quoted})`);
+        }
+        if (matchedCategoryIds.length > 0) {
+          orParts.push(`category_id.in.(${Array.from(new Set(matchedCategoryIds)).join(",")})`);
+        }
+        query = query.or(orParts.join(","));
+      }
+
+      const { data, error, count } = await query;
+
+      if (error) {
+        throw new Error(arabicErrorMessage(error.message));
+      }
+
+      const rowsRaw = (data as unknown as TicketRow[]) ?? [];
+      const rows = isReporterDesk ? sortReporterTickets(rowsRaw, nowTs) : rowsRaw;
+      return { rows, count: count ?? 0 };
+    },
+    placeholderData: (prev) => prev,
+    staleTime: 20_000,
+  });
+
+  useEffect(() => {
+    if (!ticketsQuery.isError || !ticketsQuery.error) return;
+    toast.error((ticketsQuery.error as Error).message);
+  }, [ticketsQuery.isError, ticketsQuery.error]);
+
+  useEffect(() => {
+    if (!statsQuery.isError || !statsQuery.error) return;
+    toast.error((statsQuery.error as Error).message);
+  }, [statsQuery.isError, statsQuery.error]);
+
+  const pageTickets = ticketsQuery.data?.rows ?? [];
+  const totalCount = ticketsQuery.data?.count ?? 0;
+  const loading = ticketsQuery.isPending && ticketsQuery.data === undefined;
+
+  useEffect(() => {
+    const ticketIds = pageTickets.map((t) => t.id);
+    if (ticketIds.length === 0) {
+      setLatestChatMap({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("ticket_chats")
+        .select("ticket_id, sent_at")
+        .in("ticket_id", ticketIds)
+        .order("sent_at", { ascending: false });
+
+      if (error || cancelled) return;
+
+      const map: Record<string, string> = {};
+      ((data as TicketChatRow[]) ?? []).forEach((row) => {
+        if (!map[row.ticket_id]) {
+          map[row.ticket_id] = row.sent_at;
+        }
+      });
+      setLatestChatMap(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pageTickets]);
 
   const zoneNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -223,157 +470,11 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     window.localStorage.setItem(LAST_READ_STORAGE_KEY, JSON.stringify(lastReadMap));
   }, [lastReadMap]);
 
-  const loadZones = async () => {
-    const { data, error } = await supabase
-      .from("zones")
-      .select("id, name, center_latitude, center_longitude, latitude, longitude")
-      .order("name");
-    if (error) {
-      toast.error(arabicErrorMessage(error.message));
-      return;
-    }
-    setZones(data ?? []);
-  };
-
-  const loadTicketStats = useCallback(async (clock?: number) => {
-    const t = clock ?? nowTs;
-    const thresholdIso = new Date(t - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString();
-    const [totalRes, receivedRes, finishedRes, lateRes] = await Promise.all([
-      supabase.from("tickets").select("*", { count: "exact", head: true }),
-      supabase.from("tickets").select("*", { count: "exact", head: true }).eq("status", "received"),
-      supabase.from("tickets").select("*", { count: "exact", head: true }).eq("status", "finished"),
-      supabase
-        .from("tickets")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "not_received")
-        .lte("created_at", thresholdIso),
-    ]);
-
-    const err = totalRes.error || receivedRes.error || finishedRes.error || lateRes.error;
-    if (err) {
-      toast.error(arabicErrorMessage(err.message));
-      return;
-    }
-    setTicketStats({
-      total: totalRes.count ?? 0,
-      inProgress: receivedRes.count ?? 0,
-      completed: finishedRes.count ?? 0,
-      latePickup: lateRes.count ?? 0,
-    });
-  }, [nowTs]);
-
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      const next = Date.now();
-      setNowTs(next);
-      void loadTicketStats(next);
-    }, 10_000);
-    return () => window.clearInterval(timer);
-  }, [loadTicketStats]);
-
-  const loadLatestChatsForTickets = async (ticketIds: string[]) => {
-    if (ticketIds.length === 0) {
-      setLatestChatMap({});
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("ticket_chats")
-      .select("ticket_id, sent_at")
-      .in("ticket_id", ticketIds)
-      .order("sent_at", { ascending: false });
-
-    if (error) {
-      return;
-    }
-
-    const map: Record<string, string> = {};
-    ((data as TicketChatRow[]) ?? []).forEach((row) => {
-      if (!map[row.ticket_id]) {
-        map[row.ticket_id] = row.sent_at;
-      }
-    });
-    setLatestChatMap(map);
-  };
-
-  const loadPage = async () => {
-    const from = (currentPage - 1) * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-
-    let query = supabase
-      .from("tickets")
-      .select(TICKET_ROW_WITH_HANDLER_PROFILES, { count: "exact" })
-      .order("created_at", { ascending: false })
-      .range(from, to);
-
-    if (zoneFilter !== "all") {
-      query = query.eq("zone_id", zoneFilter);
-    }
-
-    if (statusFilter !== "all") {
-      query = query.eq("status", statusFilter);
-    }
-    if (statFilter === "late_pickup") {
-      query = query
-        .eq("status", "not_received")
-        .lte("created_at", new Date(nowTs - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString());
-    } else if (statFilter === "received") {
-      query = query.eq("status", "received");
-    } else if (statFilter === "finished") {
-      query = query.eq("status", "finished");
-    }
-
-    const q = searchTerm.trim();
-    if (q) {
-      const matchedZoneIds = zones.filter((zone) => zone.name.toLowerCase().includes(q.toLowerCase())).map((zone) => zone.id);
-      const { data: catRows } = await supabase.from("ticket_categories").select("id").ilike("name", `%${q}%`);
-      const matchedCategoryIds = (catRows ?? []).map((r) => r.id as number);
-
-      /** بحث نصي على الرقم الداخلي عبر عمود مولَّد ticket_number_text (لا cast داخل .or()) */
-      const orParts = [`external_ticket_number.ilike.%${q}%`, `ticket_number_text.ilike.%${q}%`];
-      if (matchedZoneIds.length > 0) {
-        /** PostgREST: قيم uuid تحتوي على شرطات يجب أن تُقتبس وإلا يُفسَّر الشرط كعامل طرح */
-        const quoted = matchedZoneIds.map((id) => `"${id}"`).join(",");
-        orParts.push(`zone_id.in.(${quoted})`);
-      }
-      if (matchedCategoryIds.length > 0) {
-        orParts.push(`category_id.in.(${Array.from(new Set(matchedCategoryIds)).join(",")})`);
-      }
-      query = query.or(orParts.join(","));
-    }
-
-    const { data, error, count } = await query;
-
-    if (error) {
-      toast.error(arabicErrorMessage(error.message));
-      return;
-    }
-
-    const rowsRaw = (data as unknown as TicketRow[]) ?? [];
-    const rows = isReporterDesk ? sortReporterTickets(rowsRaw, nowTs) : rowsRaw;
-    setPageTickets(rows);
-    setTotalCount(count ?? 0);
-    await loadLatestChatsForTickets(rows.map((ticket) => ticket.id));
-  };
-
-  useEffect(() => {
-    const init = async () => {
-      setLoading(true);
-      await Promise.all([loadZones(), loadTicketStats()]);
-      await loadPage();
-      setLoading(false);
-    };
-
-    void init();
-  }, []);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [zoneFilter, statusFilter, statFilter, searchTerm]);
-
-  useEffect(() => {
-    void loadPage();
-  }, [zoneFilter, statusFilter, statFilter, searchTerm, currentPage, nowTs]);
+    if (currentPage <= totalPages || totalPages < 1) return;
+    goDashboardPage(totalPages);
+  }, [currentPage, totalPages, goDashboardPage]);
 
   const openTicketModal = async (ticket: TicketRow) => {
     setSelectedTicket(ticket);
@@ -454,7 +555,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   }, [tableOnly]);
 
   const refreshAfterDetailAction = async () => {
-    await Promise.all([loadTicketStats(), loadPage()]);
+    await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
+    await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
     if (selectedTicket) {
       const { data } = await supabase
         .from("tickets")
@@ -485,8 +587,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
               },
             },
           });
-          void loadTicketStats();
-          void loadPage();
+          void queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
+          void queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
         },
       )
       .on(
@@ -494,11 +596,11 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         { event: "UPDATE", schema: "public", table: "tickets" },
         async (payload) => {
           const updated = payload.new as TicketRow;
-          setPageTickets((prev) => prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)));
           if (selectedTicket?.id === updated.id) {
             setSelectedTicket((prev) => (prev ? { ...prev, ...updated } : prev));
           }
-          await Promise.all([loadTicketStats(), loadPage()]);
+          await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
+          await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
         },
       )
       .on(
@@ -514,9 +616,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [selectedTicket?.id]);
+  }, [selectedTicket?.id, queryClient]);
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const zoneMap = useMemo(() => {
     const map = new Map<string, Zone>();
     zones.forEach((zone) => map.set(zone.id, zone));
@@ -568,7 +669,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const refreshByPull = async () => {
     if (pullRefreshing) return;
     setPullRefreshing(true);
-    await Promise.all([loadTicketStats(), loadPage()]);
+    await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
+    await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
     setPullRefreshing(false);
     toast.success("تم تحديث البيانات.");
   };
@@ -633,57 +735,84 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </Button>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <button type="button" className="text-right" onClick={() => setStatFilter("all")}>
-          <Card className={statFilter === "all" ? "ring-2 ring-sky-500" : ""}>
-            <CardHeader>
-              <CardTitle className="text-base md:text-lg">إجمالي البلاغات</CardTitle>
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <button
+          type="button"
+          className="text-right"
+          onClick={() => patchDashboard({ sf: "all", tst: "all" })}
+        >
+          <Card
+            className={
+              statFilter === "all" && statusFilter === "all" ? "ring-2 ring-sky-500" : ""
+            }
+          >
+            <CardHeader className="p-3 pb-1">
+              <CardTitle className="text-sm md:text-base">إجمالي البلاغات</CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-semibold text-sky-700 md:text-3xl">{ticketStats.total}</p>
+            <CardContent className="p-3 pt-0">
+              <p className="text-xl font-semibold text-sky-700 md:text-2xl">{ticketStats.total}</p>
             </CardContent>
           </Card>
         </button>
         <button
           type="button"
           className="text-right"
-          onClick={() => setStatFilter((prev) => (prev === "late_pickup" ? "all" : "late_pickup"))}
+          onClick={() => patchDashboard({ sf: "all", tst: "not_received" })}
+        >
+          <Card
+            className={
+              statFilter === "all" && statusFilter === "not_received" ? "ring-2 ring-sky-400" : ""
+            }
+          >
+            <CardHeader className="p-3 pb-1">
+              <CardTitle className="text-sm md:text-base">بلاغات جديدة</CardTitle>
+              <p className="text-[10px] font-normal text-slate-500">لم يُستلم بعد</p>
+            </CardHeader>
+            <CardContent className="p-3 pt-0">
+              <p className="text-xl font-semibold text-sky-800 md:text-2xl">{ticketStats.notReceived}</p>
+            </CardContent>
+          </Card>
+        </button>
+        <button
+          type="button"
+          className="text-right"
+          onClick={() => patchDashboard({ sf: "late_pickup", tst: "all" })}
         >
           <Card className={statFilter === "late_pickup" ? "ring-2 ring-amber-400" : ""}>
-            <CardHeader>
-              <CardTitle className="text-base md:text-lg">بلاغات متأخرة الاستلام</CardTitle>
-              <p className="text-xs font-normal text-slate-500">أكثر من دقيقتين ولم يُستلم بعد</p>
+            <CardHeader className="p-3 pb-1">
+              <CardTitle className="text-sm md:text-base">متأخرة الاستلام</CardTitle>
+              <p className="text-[10px] font-normal text-slate-500">&gt; دقيقتين</p>
             </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-semibold text-amber-700 md:text-3xl">{ticketStats.latePickup}</p>
+            <CardContent className="p-3 pt-0">
+              <p className="text-xl font-semibold text-amber-700 md:text-2xl">{ticketStats.latePickup}</p>
             </CardContent>
           </Card>
         </button>
         <button
           type="button"
           className="text-right"
-          onClick={() => setStatFilter((prev) => (prev === "received" ? "all" : "received"))}
+          onClick={() => patchDashboard({ sf: "received", tst: "received" })}
         >
           <Card className={statFilter === "received" ? "ring-2 ring-amber-400" : ""}>
-            <CardHeader>
-              <CardTitle className="text-base md:text-lg">بلاغات قيد التنفيذ</CardTitle>
+            <CardHeader className="p-3 pb-1">
+              <CardTitle className="text-sm md:text-base">قيد التنفيذ</CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-semibold text-amber-600 md:text-3xl">{ticketStats.inProgress}</p>
+            <CardContent className="p-3 pt-0">
+              <p className="text-xl font-semibold text-amber-600 md:text-2xl">{ticketStats.inProgress}</p>
             </CardContent>
           </Card>
         </button>
         <button
           type="button"
           className="text-right"
-          onClick={() => setStatFilter((prev) => (prev === "finished" ? "all" : "finished"))}
+          onClick={() => patchDashboard({ sf: "finished", tst: "finished" })}
         >
           <Card className={statFilter === "finished" ? "ring-2 ring-emerald-500" : ""}>
-            <CardHeader>
-              <CardTitle className="text-base md:text-lg">بلاغات مكتملة</CardTitle>
+            <CardHeader className="p-3 pb-1">
+              <CardTitle className="text-sm md:text-base">مكتملة</CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-semibold text-emerald-600 md:text-3xl">{ticketStats.completed}</p>
+            <CardContent className="p-3 pt-0">
+              <p className="text-xl font-semibold text-emerald-600 md:text-2xl">{ticketStats.completed}</p>
             </CardContent>
           </Card>
         </button>
@@ -695,47 +824,101 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           <p className="text-xs text-slate-500">يعرض أحدث البلاغات مع فلاتر مباشرة</p>
         </div>
 
-        <div className="mb-4 grid gap-3 sm:grid-cols-4">
+        <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           <div>
-            <p className="mb-2 text-sm font-medium">المنطقة</p>
+            <p className="mb-1 text-xs font-medium text-slate-600">المنطقة</p>
             <select
-              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs md:text-sm"
               value={zoneFilter}
-              onChange={(e) => setZoneFilter(e.target.value)}
+              onChange={(e) => patchDashboard({ zf: e.target.value })}
             >
               <option value="all">كل المناطق</option>
               {zones.map((zone) => (
-                <option key={zone.id} value={zone.id}>{zone.name}</option>
+                <option key={zone.id} value={zone.id}>
+                  {zone.name}
+                </option>
               ))}
             </select>
           </div>
 
           <div>
-            <p className="mb-2 text-sm font-medium">الحالة</p>
+            <p className="mb-1 text-xs font-medium text-slate-600">التصنيف</p>
             <select
-              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs md:text-sm"
+              value={urlFilters.categoryId}
+              onChange={(e) => patchDashboard({ cat: e.target.value })}
+            >
+              <option value="all">كل التصنيفات</option>
+              {ticketCategories.map((c) => (
+                <option key={c.id} value={String(c.id)}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-medium text-slate-600">من تاريخ</p>
+            <Input
+              className="h-9 text-xs md:text-sm"
+              type="date"
+              value={urlFilters.dateFrom}
+              onChange={(e) => patchDashboard({ df: e.target.value || undefined })}
+            />
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-medium text-slate-600">إلى تاريخ</p>
+            <Input
+              className="h-9 text-xs md:text-sm"
+              type="date"
+              value={urlFilters.dateTo}
+              onChange={(e) => patchDashboard({ dt: e.target.value || undefined })}
+            />
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-medium text-slate-600">الحالة</p>
+            <select
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs md:text-sm"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => patchDashboard({ tst: e.target.value, sf: "all" })}
             >
               <option value="all">كل الحالات</option>
-              <option value="not_received">لم يستلم</option>
+              <option value="not_received">لم يستلم (جديد)</option>
               <option value="received">تم الاستلام</option>
               <option value="finished">تم الانتهاء</option>
             </select>
           </div>
 
-          <div>
-            <p className="mb-2 text-sm font-medium">بحث سريع</p>
+          <div className="min-w-0 sm:col-span-2 lg:col-span-1 xl:col-span-1">
+            <p className="mb-1 text-xs font-medium text-slate-600">بحث سريع</p>
             <Input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="ابحث برقم البلاغ أو المنطقة أو التصنيف"
+              className="h-9 text-xs md:text-sm"
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              placeholder="رقم، منطقة، تصنيف…"
             />
           </div>
-          <div className="flex items-end">
-            <Button variant="outline" className="w-full" onClick={exportCurrentView}>
-              تصدير جدول بيانات
-            </Button>
+
+          <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-1 xl:col-span-1">
+            <p className="mb-1 text-xs font-medium text-slate-600 opacity-0">—</p>
+            <div className="flex gap-2">
+              <Button variant="outline" className="h-9 flex-1 text-xs" type="button" onClick={exportCurrentView}>
+                تصدير
+              </Button>
+              <Button
+                variant="outline"
+                className="h-9 flex-1 border-dashed text-xs text-slate-600"
+                type="button"
+                onClick={() => {
+                  setSearchDraft("");
+                  router.replace(pathname, { scroll: false });
+                }}
+              >
+                مسح
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -871,14 +1054,14 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           <div className="flex items-center gap-2">
             <button
               className="min-h-11 rounded-md border border-slate-200 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              onClick={() => goDashboardPage(currentPage - 1)}
               disabled={currentPage === 1}
             >
               السابق
             </button>
             <button
               className="min-h-11 rounded-md border border-slate-200 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              onClick={() => goDashboardPage(currentPage + 1)}
               disabled={currentPage === totalPages}
             >
               التالي
@@ -908,7 +1091,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
               role={role}
               onCancel={() => setCreateModalOpen(false)}
               onCreated={async () => {
-                await Promise.all([loadTicketStats(), loadPage()]);
+                await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
+                await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
                 toast.success("تم حفظ البلاغ وتحديث الجدول.");
               }}
             />

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -194,9 +195,25 @@ const SPECIALTY_OPTIONS: Array<{ value: Specialty; label: string }> = [
   { value: "kitchens", label: "مطابخ" },
 ];
 
+function mergeUserListSearchParams(
+  current: URLSearchParams,
+  patch: Record<string, string | undefined>,
+  resetPage: boolean,
+) {
+  const next = new URLSearchParams(current.toString());
+  Object.entries(patch).forEach(([k, v]) => {
+    if (v === undefined || v === "" || v === "all") next.delete(k);
+    else next.set(k, v);
+  });
+  if (resetPage) next.delete("up");
+  return next;
+}
+
 export function UsersManagementContent() {
   const queryClient = useQueryClient();
-  const [usersTablePage, setUsersTablePage] = useState(1);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [draftRoleMap, setDraftRoleMap] = useState<Record<string, UserRole>>({});
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -245,25 +262,61 @@ export function UsersManagementContent() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
-  const fetchAdminUsersPage = useCallback(async (page: number) => {
-    const res = await fetch(`/api/admin/users?page=${page}&limit=${USERS_TABLE_PAGE_SIZE}`, {
-      cache: "no-store",
-    });
-    const json = (await res.json()) as {
-      users?: UserRow[];
-      zones?: ZoneOption[];
-      total?: number;
-      error?: string;
-    };
-    if (!res.ok) {
-      throw new Error(json.error ?? "فشل تحميل المستخدمين.");
-    }
-    return {
-      users: json.users ?? [],
-      zones: json.zones ?? [],
-      total: json.total ?? 0,
-    };
-  }, []);
+  const filterQ = searchParams.get("uq")?.trim() ?? "";
+  const filterRole = searchParams.get("urole")?.trim() ?? "all";
+  const filterZone = searchParams.get("uzone")?.trim() ?? "all";
+  const filterStatus = searchParams.get("ustatus")?.trim() ?? "all";
+  const usersTablePage = Math.max(1, Number.parseInt(searchParams.get("up") || "1", 10) || 1);
+
+  const [searchInput, setSearchInput] = useState(filterQ);
+  useEffect(() => {
+    setSearchInput(filterQ);
+  }, [filterQ]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const trimmed = searchInput.trim();
+      if (trimmed === filterQ) return;
+      const next = mergeUserListSearchParams(searchParams, { uq: trimmed || undefined }, true);
+      router.replace(`${pathname}?${next}`, { scroll: false });
+    }, 320);
+    return () => window.clearTimeout(t);
+  }, [searchInput, filterQ, pathname, router, searchParams]);
+
+  const filtersKey = useMemo(
+    () => ({ q: filterQ, role: filterRole, zone: filterZone, status: filterStatus }),
+    [filterQ, filterRole, filterZone, filterStatus],
+  );
+
+  const fetchAdminUsersPage = useCallback(
+    async (page: number, f: typeof filtersKey) => {
+      const sp = new URLSearchParams();
+      sp.set("page", String(page));
+      sp.set("limit", String(USERS_TABLE_PAGE_SIZE));
+      if (f.q) sp.set("q", f.q);
+      if (f.role && f.role !== "all") sp.set("role", f.role);
+      if (f.zone && f.zone !== "all") sp.set("zoneId", f.zone);
+      if (f.status && f.status !== "all") sp.set("status", f.status);
+      const res = await fetch(`/api/admin/users?${sp.toString()}`, {
+        cache: "no-store",
+      });
+      const json = (await res.json()) as {
+        users?: UserRow[];
+        zones?: ZoneOption[];
+        total?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(json.error ?? "فشل تحميل المستخدمين.");
+      }
+      return {
+        users: json.users ?? [],
+        zones: json.zones ?? [],
+        total: json.total ?? 0,
+      };
+    },
+    [],
+  );
 
   const {
     data: usersQueryData,
@@ -272,8 +325,8 @@ export function UsersManagementContent() {
     error: usersQueryError,
     refetch,
   } = useQuery({
-    queryKey: ["admin-users", usersTablePage],
-    queryFn: () => fetchAdminUsersPage(usersTablePage),
+    queryKey: ["admin-users", filtersKey, usersTablePage],
+    queryFn: () => fetchAdminUsersPage(usersTablePage, filtersKey),
     placeholderData: (prev) => prev,
     staleTime: 60_000,
   });
@@ -290,10 +343,11 @@ export function UsersManagementContent() {
   }, [usersQueryError]);
 
   useEffect(() => {
-    if (usersTablePage > usersTotalPages) {
-      setUsersTablePage(usersTotalPages);
-    }
-  }, [usersTablePage, usersTotalPages]);
+    if (usersTablePage <= usersTotalPages || usersTotalPages < 1) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("up", String(usersTotalPages));
+    router.replace(`${pathname}?${next}`, { scroll: false });
+  }, [usersTablePage, usersTotalPages, pathname, router, searchParams]);
 
   useEffect(() => {
     void supabase.auth.getUser().then(({ data }) => {
@@ -319,11 +373,11 @@ export function UsersManagementContent() {
   useEffect(() => {
     if (usersTablePage >= usersTotalPages) return;
     void queryClient.prefetchQuery({
-      queryKey: ["admin-users", usersTablePage + 1],
-      queryFn: () => fetchAdminUsersPage(usersTablePage + 1),
+      queryKey: ["admin-users", filtersKey, usersTablePage + 1],
+      queryFn: () => fetchAdminUsersPage(usersTablePage + 1, filtersKey),
       staleTime: 60_000,
     });
-  }, [usersTablePage, usersTotalPages, queryClient, fetchAdminUsersPage]);
+  }, [usersTablePage, usersTotalPages, queryClient, fetchAdminUsersPage, filtersKey]);
 
   const saveRole = async (user: UserRow) => {
     if (shouldHideAdminActionsForProtectedRow(user.email, currentUserEmail)) {
@@ -708,6 +762,24 @@ export function UsersManagementContent() {
     closePasswordModal();
   };
 
+  const patchUserFilters = useCallback(
+    (patch: Record<string, string | undefined>) => {
+      const next = mergeUserListSearchParams(searchParams, patch, true);
+      router.replace(`${pathname}?${next}`, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const goUsersPage = useCallback(
+    (p: number) => {
+      const next = new URLSearchParams(searchParams.toString());
+      if (p <= 1) next.delete("up");
+      else next.set("up", String(p));
+      router.replace(`${pathname}?${next}`, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
   return (
     <section className="w-full min-w-0 max-w-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm" dir="rtl" lang="ar">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -745,6 +817,75 @@ export function UsersManagementContent() {
           >
             إضافة مستخدم جديد
           </button>
+        </div>
+      </div>
+
+      <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-900/30">
+        <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-400">تصفية سريعة</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 lg:items-end">
+          <div className="min-w-0 lg:col-span-2">
+            <label className="mb-1 block text-[11px] text-slate-500">بحث (الاسم أو الجوال)</label>
+            <Input
+              className="h-9 text-sm"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="ابدأ الكتابة…"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] text-slate-500">الدور</label>
+            <select
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-900"
+              value={filterRole}
+              onChange={(e) => patchUserFilters({ urole: e.target.value })}
+            >
+              <option value="all">الكل</option>
+              {ROLE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] text-slate-500">المنطقة</label>
+            <select
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-900"
+              value={filterZone}
+              onChange={(e) => patchUserFilters({ uzone: e.target.value })}
+            >
+              <option value="all">الكل</option>
+              {(zones ?? []).map((z) => (
+                <option key={z.id} value={z.id}>
+                  {z.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] text-slate-500">الحالة</label>
+            <select
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-900"
+              value={filterStatus}
+              onChange={(e) => patchUserFilters({ ustatus: e.target.value })}
+            >
+              <option value="all">الكل</option>
+              <option value="active">نشط</option>
+              <option value="inactive">بانتظار التفعيل</option>
+            </select>
+          </div>
+          <div className="flex items-end">
+            <button
+              type="button"
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+              onClick={() => {
+                setSearchInput("");
+                router.replace(pathname, { scroll: false });
+              }}
+            >
+              مسح الفلاتر
+            </button>
+          </div>
         </div>
       </div>
 
@@ -974,7 +1115,7 @@ export function UsersManagementContent() {
                 type="button"
                 className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900"
                 disabled={usersTablePage <= 1}
-                onClick={() => setUsersTablePage((p) => Math.max(1, p - 1))}
+                onClick={() => goUsersPage(usersTablePage - 1)}
               >
                 السابق
               </button>
@@ -985,7 +1126,7 @@ export function UsersManagementContent() {
                 type="button"
                 className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900"
                 disabled={usersTablePage >= usersTotalPages}
-                onClick={() => setUsersTablePage((p) => Math.min(usersTotalPages, p + 1))}
+                onClick={() => goUsersPage(usersTablePage + 1)}
               >
                 التالي
               </button>

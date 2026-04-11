@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { UsersManagementContent } from "@/components/users-management-content";
@@ -24,5 +25,9 @@ export default async function AdminUsersPage() {
     redirect("/dashboard");
   }
 
-  return <UsersManagementContent />;
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">جاري التحميل…</div>}>
+      <UsersManagementContent />
+    </Suspense>
+  );
 }

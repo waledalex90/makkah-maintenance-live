@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AdminDashboardContent } from "@/components/admin-dashboard-content";
@@ -22,5 +23,9 @@ export default async function DashboardTicketsPage() {
     redirect("/tasks/my-work");
   }
 
-  return <AdminDashboardContent role={profile?.role ?? "reporter"} tableOnly />;
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">جاري تحميل البلاغات…</div>}>
+      <AdminDashboardContent role={profile?.role ?? "reporter"} tableOnly />
+    </Suspense>
+  );
 }

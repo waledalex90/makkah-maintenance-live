@@ -1,10 +1,18 @@
 -- =========================================================
 -- حالات بلاغ ثلاثية + عمود رقم هاتف مقدم البلاغ
 -- not_received = لم يستلم، received = تم الاستلام، finished = تم الانتهاء
+--
+-- ملاحظة: يجب إسقاط السياسات/المشغّلات التي تعتمد على عمود status
+-- قبل ALTER COLUMN TYPE (خطأ Postgres: cannot alter type of a column used in a policy definition)
 -- =========================================================
 
 alter table public.tickets
   add column if not exists reporter_phone text;
+
+-- تعطيل الاعتماد على عمود status قبل تغيير النوع
+drop policy if exists "tickets_update_policy" on public.tickets;
+
+drop trigger if exists trg_tickets_set_closed_at on public.tickets;
 
 -- استبدال enum الحالات
 alter type public.ticket_status rename to ticket_status_legacy;
@@ -29,10 +37,28 @@ alter table public.tickets
 alter table public.tickets
   alter column status set default 'not_received'::public.ticket_status;
 
+-- تحديث دالة الإغلاق قبل إسقاط النوع القديم (إن وُجد اعتماد)
+create or replace function public.set_ticket_closed_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.status = 'finished'::public.ticket_status and old.status is distinct from 'finished'::public.ticket_status then
+    new.closed_at = coalesce(new.closed_at, now());
+  elsif old.status = 'finished'::public.ticket_status and new.status is distinct from 'finished'::public.ticket_status then
+    new.closed_at = null;
+  end if;
+  return new;
+end;
+$$;
+
 drop type public.ticket_status_legacy;
 
+create trigger trg_tickets_set_closed_at
+before update on public.tickets
+for each row execute function public.set_ticket_closed_at();
+
 -- سياسة التحديث: المراسل يغيّر فقط إلى finished
-drop policy if exists "tickets_update_policy" on public.tickets;
 create policy "tickets_update_policy"
 on public.tickets
 for update
@@ -49,21 +75,6 @@ with check (
     )
   )
 );
-
--- تفعيل closed_at عند الانتهاء
-create or replace function public.set_ticket_closed_at()
-returns trigger
-language plpgsql
-as $$
-begin
-  if new.status = 'finished'::public.ticket_status and old.status is distinct from 'finished'::public.ticket_status then
-    new.closed_at = coalesce(new.closed_at, now());
-  elsif old.status = 'finished'::public.ticket_status and new.status is distinct from 'finished'::public.ticket_status then
-    new.closed_at = null;
-  end if;
-  return new;
-end;
-$$;
 
 -- تحديث can_access_ticket: البلاغات المفتوحة بالحالات الجديدة
 create or replace function public.can_access_ticket(p_ticket_id uuid)

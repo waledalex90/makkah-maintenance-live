@@ -40,6 +40,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
   const [sending, setSending] = useState(false);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
+  const messagesContentRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const loadMe = async () => {
@@ -104,11 +105,25 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticketId]);
 
-  useLayoutEffect(() => {
+  const scrollToBottom = () => {
     const el = scrollAreaRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
+  };
+
+  useLayoutEffect(() => {
+    scrollToBottom();
   }, [messages, ticketId]);
+
+  useEffect(() => {
+    const el = messagesContentRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(() => scrollToBottom());
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ticketId]);
 
   useEffect(() => {
     const channel = supabase
@@ -171,8 +186,9 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
       </h3>
       <div
         ref={scrollAreaRef}
-        className="max-h-80 space-y-3 overflow-y-auto overflow-x-hidden bg-gradient-to-b from-slate-100/90 to-slate-50 p-3 dark:from-slate-900 dark:to-slate-950"
+        className="max-h-80 overflow-y-auto overflow-x-hidden bg-gradient-to-b from-slate-100/90 to-slate-50 p-3 dark:from-slate-900 dark:to-slate-950"
       >
+        <div ref={messagesContentRef} className="min-w-0 space-y-3">
         {messages.map((msg) => {
           const systemDoc = isTicketSystemDocChatMessage(msg.content);
           if (systemDoc) {
@@ -207,6 +223,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
                     <img
                       src={msg.image_url}
                       alt=""
+                      onLoad={() => requestAnimationFrame(() => scrollToBottom())}
                       className={cn("max-h-40 rounded-lg border object-cover", mine ? "border-emerald-500/50" : "border-slate-200")}
                     />
                   </a>
@@ -227,6 +244,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
           );
         })}
         {messages.length === 0 ? <p className="p-2 text-center text-sm text-slate-500">لا توجد رسائل بعد.</p> : null}
+        </div>
       </div>
       {canPost ? (
         <div className="border-t border-slate-200 bg-white p-3 shadow-[0_-4px_14px_rgba(15,23,42,0.06)] dark:border-slate-700 dark:bg-slate-900">

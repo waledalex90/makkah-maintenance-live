@@ -98,7 +98,7 @@ export function FieldStaffPermissionsOnboarding({ role }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/45 p-3 pb-8 sm:items-center sm:p-6"
+      className="fixed inset-0 z-[8200] flex items-end justify-center bg-black/45 p-3 pb-8 sm:items-center sm:p-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="field-perms-title"

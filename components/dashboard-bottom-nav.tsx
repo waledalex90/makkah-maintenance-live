@@ -46,7 +46,7 @@ export function DashboardBottomNav({ role, permissions }: DashboardBottomNavProp
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur md:hidden"
+      className="fixed inset-x-0 bottom-0 z-[8020] border-t border-slate-200 bg-white/95 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] backdrop-blur md:hidden"
       dir="rtl"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >

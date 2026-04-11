@@ -87,24 +87,26 @@ export function DashboardSidebar({ fullName, role, permissions }: DashboardSideb
 
   return (
     <>
-      <button
-        type="button"
-        aria-label="فتح القائمة"
-        className="fixed right-3 top-3 z-50 rounded-lg border border-slate-200 bg-white p-2.5 md:hidden dark:border-slate-800 dark:bg-slate-900"
-        onClick={() => setMobileOpen(true)}
-      >
-        <Menu className="h-5 w-5 text-slate-700 dark:text-slate-100" />
-      </button>
+      {!mobileOpen ? (
+        <button
+          type="button"
+          aria-label="فتح القائمة"
+          className="fixed right-3 top-3 z-[8030] rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm md:hidden dark:border-slate-800 dark:bg-slate-900"
+          onClick={() => setMobileOpen(true)}
+        >
+          <Menu className="h-5 w-5 text-slate-700 dark:text-slate-100" />
+        </button>
+      ) : null}
 
       {mobileOpen ? (
-        <div className="fixed inset-0 z-50 md:hidden" dir="rtl" lang="ar">
+        <div className="fixed inset-0 z-[8025] md:hidden" dir="rtl" lang="ar">
           <button
             type="button"
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 bg-black/55 backdrop-blur-[1px]"
             aria-label="إغلاق القائمة"
             onClick={() => setMobileOpen(false)}
           />
-          <aside className="absolute right-0 top-0 flex h-full w-72 max-w-[86vw] flex-col border-l border-slate-200 bg-slate-100 p-4 pb-32 dark:border-slate-800 dark:bg-slate-950">
+          <aside className="absolute right-0 top-0 z-[1] flex h-full w-72 max-w-[86vw] flex-col border-l border-slate-200 bg-slate-100 p-4 pb-32 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
             <div className="mb-2 flex items-center justify-between">
               <button
                 type="button"

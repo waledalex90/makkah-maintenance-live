@@ -359,7 +359,7 @@ export function OperationsMap() {
         </p>
       ) : null}
 
-      <div className="relative h-[72vh] overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
+      <div className="relative isolate z-0 h-[min(68dvh,calc(100dvh-11rem))] overflow-hidden rounded-lg border border-slate-200 md:h-[72vh] dark:border-slate-800">
         <Link
           href="/dashboard"
           className="absolute left-3 top-3 z-[600] flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-lg transition hover:bg-slate-50 md:hidden dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"

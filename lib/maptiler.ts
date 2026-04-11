@@ -1,6 +1,13 @@
 /**
  * MapTiler raster tiles (Leaflet: {z} {x} {y}).
- * Set NEXT_PUBLIC_MAPTILER_API_KEY in .env.local
+ * كل مكوّنات الخريطة تستخدم هذا الملف فقط — لا تكرار لروابط الـ tiles في المشروع.
+ *
+ * - الشوارع: `mapTilerStreetsTileUrl` / `getLeafletTileProps()` → `?key=…`
+ * - الأقمار (طبقة اختيارية): `mapTilerSatelliteTileUrl(key)` → `?key=…`
+ *
+ * المستهلكون: `operations-map`, `live-radar-map`, `ticket-detail-live-map`, `zones-management`.
+ * عيّن `NEXT_PUBLIC_MAPTILER_API_KEY` في `.env.local` حتى يُضمَّن المفتاح في الـ URL (وإلا يُستخدم OSM احتياطياً).
+ *
  * @see https://docs.maptiler.com/cloud/api/
  */
 

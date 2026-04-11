@@ -16,6 +16,14 @@ import {
   statusDotClass,
   statusLabelAr,
 } from "@/lib/ticket-status";
+import {
+  formatSaudiDateTime,
+  formatSaudiNow,
+  getAgeMinutes,
+  relativeAgeLabelSaudi,
+  remainingUntilOneHourDeadlineAr,
+  RIYADH_TZ_LABEL_AR,
+} from "@/lib/saudi-time";
 
 type Zone = {
   id: string;
@@ -26,7 +34,8 @@ type Zone = {
   longitude?: number | null;
 };
 
-type StatFilter = "all" | "active" | "pending" | "completed" | "overdue";
+/** فلتر بطاقات الإحصاء: إجمالي، متأخر الاستلام، قيد التنفيذ، مكتمل */
+type StatFilter = "all" | "late_pickup" | "received" | "finished";
 type CategoryJoin = { name: string } | { name: string }[] | null;
 
 type TicketRow = {
@@ -89,10 +98,10 @@ type AdminDashboardContentProps = {
   tableOnly?: boolean;
 };
 
-const IN_PROGRESS_STATUSES: TicketStatus[] = ["received"];
 const PAGE_SIZE = 10;
 const LAST_READ_STORAGE_KEY = "admin_ticket_last_read_map";
-const OVERDUE_HOURS = 4;
+const PICKUP_SLACK_MINUTES = 2;
+const PENALTY_WARNING_MINUTES = 40;
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
 const NEARBY_RADIUS_METERS = 3000;
 
@@ -101,7 +110,9 @@ const TicketDetailLiveMap = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="h-72 animate-pulse rounded-xl border border-slate-200 bg-slate-100" />
+      <div className="flex h-72 items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-sm text-slate-600">
+        جاري تحميل الخريطة…
+      </div>
     ),
   },
 );
@@ -114,17 +125,6 @@ function categoryBadgeColor(categoryName: string): string {
   if (lower.includes("مدني") || lower.includes("civil")) return "bg-stone-100 text-stone-700 border-stone-200";
   if (lower.includes("مطابخ") || lower.includes("kitchen")) return "bg-violet-100 text-violet-700 border-violet-200";
   return "bg-slate-100 text-slate-700 border-slate-200";
-}
-
-function relativeAgeLabel(createdAt: string, nowTs: number): string {
-  const deltaMs = Math.max(0, nowTs - new Date(createdAt).getTime());
-  const minutes = Math.floor(deltaMs / 60_000);
-  if (minutes < 1) return "الآن";
-  if (minutes < 60) return `منذ ${minutes} دقيقة`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `منذ ${hours} ساعة`;
-  const days = Math.floor(hours / 24);
-  return `منذ ${days} يوم`;
 }
 
 function normalizeCategoryName(category: CategoryJoin | undefined): string {
@@ -141,6 +141,34 @@ function mapCategoryToSpecialty(categoryName: string): string | null {
   if (lower.includes("مدني") || lower.includes("مدنى") || lower.includes("civil")) return "civil";
   if (lower.includes("مطابخ") || lower.includes("kitchen")) return "kitchens";
   return null;
+}
+
+function arabicErrorMessage(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("jwt") || m.includes("session")) return "انتهت الجلسة. يرجى تسجيل الدخول مجددًا.";
+  if (m.includes("permission") || m.includes("policy")) return "لا تملك صلاحية لتنفيذ هذا الإجراء.";
+  if (m.includes("network") || m.includes("fetch")) return "تعذر الاتصال بالخادم. تحقق من الشبكة.";
+  return message;
+}
+
+/** ترتيب مسؤول البلاغات: متأخر الاستلام أولاً، ثم قيد التنفيذ، ثم الباقي (الأحدث داخل كل مجموعة) */
+function sortReporterTickets(rows: TicketRow[], nowMs: number): TicketRow[] {
+  return [...rows].sort((a, b) => {
+    const ca = new Date(a.created_at).getTime();
+    const cb = new Date(b.created_at).getTime();
+    const ageA = (nowMs - ca) / 60_000;
+    const ageB = (nowMs - cb) / 60_000;
+    const tier = (t: TicketRow, ageMin: number) => {
+      if (t.status === "not_received" && ageMin > PICKUP_SLACK_MINUTES) return 0;
+      if (t.status === "received") return 1;
+      if (t.status === "not_received") return 2;
+      return 3;
+    };
+    const ta = tier(a, ageA);
+    const tb = tier(b, ageB);
+    if (ta !== tb) return ta - tb;
+    return cb - ca;
+  });
 }
 
 function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -162,6 +190,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [zoneFilter, setZoneFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [statFilter, setStatFilter] = useState<StatFilter>("all");
+  /** يُعرض على واجهة مسؤول البلاغات (صفحة البلاغات) */
+  const isReporterDesk = tableOnly;
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -217,7 +247,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNowTs(Date.now()), 60_000);
+    const timer = window.setInterval(() => setNowTs(Date.now()), 10_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -227,7 +257,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       .select("id, name, center_latitude, center_longitude, latitude, longitude")
       .order("name");
     if (error) {
-      toast.error(error.message);
+      toast.error(arabicErrorMessage(error.message));
       return;
     }
     setZones(data ?? []);
@@ -240,7 +270,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       .order("created_at", { ascending: false });
 
     if (error) {
-      toast.error(error.message);
+      toast.error(arabicErrorMessage(error.message));
       return;
     }
 
@@ -289,15 +319,14 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     if (statusFilter !== "all") {
       query = query.eq("status", statusFilter);
     }
-    if (statFilter === "active") {
-      query = query.in("status", IN_PROGRESS_STATUSES);
-    } else if (statFilter === "pending") {
-      query = query.eq("status", "not_received");
-    } else if (statFilter === "completed") {
+    if (statFilter === "late_pickup") {
+      query = query
+        .eq("status", "not_received")
+        .lte("created_at", new Date(nowTs - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString());
+    } else if (statFilter === "received") {
+      query = query.eq("status", "received");
+    } else if (statFilter === "finished") {
       query = query.eq("status", "finished");
-    } else if (statFilter === "overdue") {
-      const overdueCutoff = new Date(nowTs - OVERDUE_HOURS * 60 * 60 * 1000).toISOString();
-      query = query.neq("status", "finished").lt("created_at", overdueCutoff);
     }
 
     const q = searchTerm.trim();
@@ -324,11 +353,12 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     const { data, error, count } = await query;
 
     if (error) {
-      toast.error(error.message);
+      toast.error(arabicErrorMessage(error.message));
       return;
     }
 
-    const rows = (data as TicketRow[]) ?? [];
+    const rowsRaw = (data as TicketRow[]) ?? [];
+    const rows = isReporterDesk ? sortReporterTickets(rowsRaw, nowTs) : rowsRaw;
     setPageTickets(rows);
     setTotalCount(count ?? 0);
     await loadLatestChatsForTickets(rows.map((ticket) => ticket.id));
@@ -351,7 +381,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
   useEffect(() => {
     void loadPage();
-  }, [zoneFilter, statusFilter, statFilter, searchTerm, currentPage]);
+  }, [zoneFilter, statusFilter, statFilter, searchTerm, currentPage, nowTs]);
 
   const openTicketModal = async (ticket: TicketRow) => {
     setSelectedTicket(ticket);
@@ -479,13 +509,17 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       .eq("id", selectedTicket.id);
     setModalDispatching(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(arabicErrorMessage(error.message));
       return;
     }
     if (supId && myUserId) {
       const actor = modalSupervisorOptions.find((o) => o.staff_id === myUserId)?.full_name ?? "المهندس";
       const selectedName = modalSupervisorOptions.find((o) => o.staff_id === supId)?.full_name ?? "مراقب";
-      const nowLabel = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+      const nowLabel = new Date().toLocaleTimeString("ar-SA", {
+        timeZone: "Asia/Riyadh",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
       await supabase.from("ticket_messages").insert({
         ticket_id: selectedTicket.id,
         sender_id: myUserId,
@@ -507,13 +541,17 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       .eq("id", selectedTicket.id);
     setModalDispatching(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(arabicErrorMessage(error.message));
       return;
     }
     if (techId && myUserId) {
       const actor = modalSupervisorOptions.find((o) => o.staff_id === myUserId)?.full_name ?? "المشرف";
       const selectedName = modalTechnicianOptions.find((o) => o.staff_id === techId)?.full_name ?? "فني";
-      const nowLabel = new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
+      const nowLabel = new Date().toLocaleTimeString("ar-SA", {
+        timeZone: "Asia/Riyadh",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
       await supabase.from("ticket_messages").insert({
         ticket_id: selectedTicket.id,
         sender_id: myUserId,
@@ -556,6 +594,32 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     }
   };
 
+  const dashboardStats = useMemo(() => {
+    const total = allTickets.length;
+    const latePickup = allTickets.filter((t) => {
+      if (t.status !== "not_received") return false;
+      return getAgeMinutes(t.created_at, nowTs) > PICKUP_SLACK_MINUTES;
+    }).length;
+    const inProgress = allTickets.filter((t) => t.status === "received").length;
+    const completed = allTickets.filter((t) => t.status === "finished").length;
+    return { total, latePickup, inProgress, completed };
+  }, [allTickets, nowTs]);
+
+  const reporterTasks = useMemo(() => {
+    if (!isReporterDesk) {
+      return { followUp: [] as TicketRow[], externalClose: [] as TicketRow[], penalty: [] as TicketRow[] };
+    }
+    const followUp = allTickets.filter(
+      (t) => t.status === "not_received" && getAgeMinutes(t.created_at, nowTs) >= PICKUP_SLACK_MINUTES,
+    );
+    const externalClose = allTickets.filter((t) => t.status === "finished");
+    const penalty = allTickets.filter((t) => {
+      if (t.status === "finished") return false;
+      return getAgeMinutes(t.created_at, nowTs) >= PENALTY_WARNING_MINUTES;
+    });
+    return { followUp, externalClose, penalty };
+  }, [allTickets, nowTs, isReporterDesk]);
+
   useEffect(() => {
     const channel = supabase
       .channel("tickets-admin-advanced-realtime")
@@ -581,13 +645,13 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         { event: "UPDATE", schema: "public", table: "tickets" },
         async (payload) => {
           const updated = payload.new as TicketRow;
-          setPageTickets((prev) => prev.map((t) => (t.id === updated.id ? { ...t, status: updated.status } : t)));
+          setPageTickets((prev) => prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)));
           if (selectedTicket?.id === updated.id) {
             setSelectedTicket((prev) => (prev ? { ...prev, ...updated } : prev));
             setModalSupervisorPick(updated.assigned_supervisor_id ?? "");
             setModalTechnicianPick(updated.assigned_technician_id ?? "");
           }
-          await Promise.all([loadStats(), loadPage(), refreshAfterDetailAction()]);
+          await Promise.all([loadStats(), loadPage()]);
         },
       )
       .on(
@@ -604,24 +668,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       void supabase.removeChannel(channel);
     };
   }, [selectedTicket?.id]);
-
-  useEffect(() => {
-    if (statFilter !== "overdue") return;
-    void loadPage();
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: avoid loadPage identity churn
-  }, [nowTs, statFilter]);
-
-  const stats = useMemo(() => {
-    const active = allTickets.filter((t) => IN_PROGRESS_STATUSES.includes(t.status)).length;
-    const pending = allTickets.filter((t) => t.status === "not_received").length;
-    const completed = allTickets.filter((t) => t.status === "finished").length;
-    const overdue = allTickets.filter((t) => {
-      if (t.status === "finished") return false;
-      const createdMs = new Date(t.created_at).getTime();
-      return nowTs - createdMs > OVERDUE_HOURS * 60 * 60 * 1000;
-    }).length;
-    return { active, pending, completed, overdue };
-  }, [allTickets, nowTs]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const zoneMap = useMemo(() => {
@@ -650,7 +696,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       ticket.reporter_name || "-",
       (ticket.description || ticket.title || ticket.location || "-").replace(/\r?\n/g, " "),
       statusLabelAr(ticket.status),
-      relativeAgeLabel(ticket.created_at, nowTs),
+      relativeAgeLabelSaudi(ticket.created_at, nowTs),
     ]);
     const csv = [headers, ...rows]
       .map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
@@ -659,7 +705,13 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `tickets-${new Date().toISOString().slice(0, 10)}.csv`;
+    const fileDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Riyadh",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(nowTs));
+    a.download = `بلاغات-${fileDate}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -714,9 +766,14 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
       <header className="flex flex-col gap-3 border-b border-slate-200 bg-white pb-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">{tableOnly ? "البلاغات" : "لوحة التحكم"}</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{tableOnly ? "مركز البلاغات" : "لوحة التحكم"}</h1>
           <p className="mt-1 text-sm text-slate-600">
-            {tableOnly ? "عرض وإدارة البلاغات" : "مؤشرات البلاغات وإنشاء بلاغ جديد"}
+            {tableOnly
+              ? "متابعة البلاغات والمهام — التوقيت يُحسب بتوقيت مكة المكرمة"
+              : "مؤشرات البلاغات وإنشاء بلاغ جديد"}
+          </p>
+          <p className="mt-1 text-xs text-slate-500" suppressHydrationWarning>
+            التوقيت الحالي (مكة): {formatSaudiNow(nowTs)}
           </p>
         </div>
         <Button
@@ -728,20 +785,146 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </Button>
       </header>
 
-      {!tableOnly ? (
-        <section className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
-          <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "active" ? "all" : "active"))}>
-            <Card className={statFilter === "active" ? "ring-2 ring-amber-400" : ""}><CardHeader><CardTitle className="text-base md:text-lg">قيد المعالجة (تم الاستلام)</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-amber-600 md:text-3xl">{stats.active}</p></CardContent></Card>
-          </button>
-          <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "pending" ? "all" : "pending"))}>
-            <Card className={statFilter === "pending" ? "ring-2 ring-red-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">لم يستلم بعد</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-red-600 md:text-3xl">{stats.pending}</p></CardContent></Card>
-          </button>
-          <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "completed" ? "all" : "completed"))}>
-            <Card className={statFilter === "completed" ? "ring-2 ring-emerald-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">تم الانتهاء</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-emerald-600 md:text-3xl">{stats.completed}</p></CardContent></Card>
-          </button>
-          <button type="button" className="text-right" onClick={() => setStatFilter((prev) => (prev === "overdue" ? "all" : "overdue"))}>
-            <Card className={statFilter === "overdue" ? "ring-2 ring-orange-500" : ""}><CardHeader><CardTitle className="text-base md:text-lg">بلاغات متأخرة</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold text-orange-600 md:text-3xl">{stats.overdue}</p></CardContent></Card>
-          </button>
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <button type="button" className="text-right" onClick={() => setStatFilter("all")}>
+          <Card className={statFilter === "all" ? "ring-2 ring-sky-500" : ""}>
+            <CardHeader>
+              <CardTitle className="text-base md:text-lg">إجمالي البلاغات</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-semibold text-sky-700 md:text-3xl">{dashboardStats.total}</p>
+            </CardContent>
+          </Card>
+        </button>
+        <button
+          type="button"
+          className="text-right"
+          onClick={() => setStatFilter((prev) => (prev === "late_pickup" ? "all" : "late_pickup"))}
+        >
+          <Card className={statFilter === "late_pickup" ? "ring-2 ring-red-500" : ""}>
+            <CardHeader>
+              <CardTitle className="text-base md:text-lg">بلاغات متأخرة الاستلام</CardTitle>
+              <p className="text-xs font-normal text-slate-500">أكثر من دقيقتين ولم يُستلم بعد</p>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-semibold text-red-600 md:text-3xl">{dashboardStats.latePickup}</p>
+            </CardContent>
+          </Card>
+        </button>
+        <button
+          type="button"
+          className="text-right"
+          onClick={() => setStatFilter((prev) => (prev === "received" ? "all" : "received"))}
+        >
+          <Card className={statFilter === "received" ? "ring-2 ring-amber-400" : ""}>
+            <CardHeader>
+              <CardTitle className="text-base md:text-lg">بلاغات قيد التنفيذ</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-semibold text-amber-600 md:text-3xl">{dashboardStats.inProgress}</p>
+            </CardContent>
+          </Card>
+        </button>
+        <button
+          type="button"
+          className="text-right"
+          onClick={() => setStatFilter((prev) => (prev === "finished" ? "all" : "finished"))}
+        >
+          <Card className={statFilter === "finished" ? "ring-2 ring-emerald-500" : ""}>
+            <CardHeader>
+              <CardTitle className="text-base md:text-lg">بلاغات مكتملة</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-semibold text-emerald-600 md:text-3xl">{dashboardStats.completed}</p>
+            </CardContent>
+          </Card>
+        </button>
+      </section>
+
+      {isReporterDesk ? (
+        <section className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm">
+          <h2 className="mb-3 text-lg font-semibold text-slate-900">مهام المسؤول</h2>
+          <p className="mb-4 text-xs text-slate-600">
+            تحديث لحظي عبر الاشتراك في جدول البلاغات — التوقيت المرجعي: {RIYADH_TZ_LABEL_AR}.
+          </p>
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-lg border border-amber-200 bg-white p-3">
+              <p className="mb-2 text-sm font-semibold text-amber-900">تنبيه متابعة الاستلام</p>
+              <p className="mb-2 text-xs text-slate-600">
+                يظهر للبلاغات التي مضى على إنشائها دقيقتان أو أكثر وما زالت «لم يستلم».
+              </p>
+              <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
+                {reporterTasks.followUp.length === 0 ? (
+                  <li className="text-slate-500">لا توجد بلاغات تتطلب متابعة استلام الآن.</li>
+                ) : (
+                  reporterTasks.followUp.map((t) => {
+                    const mins = getAgeMinutes(t.created_at, nowTs);
+                    return (
+                      <li key={t.id} className="rounded border border-amber-100 bg-amber-50/50 p-2">
+                        <button
+                          type="button"
+                          className="w-full text-right font-medium text-slate-900"
+                          onClick={() => void openTicketById(t.id)}
+                        >
+                          {t.external_ticket_number || t.ticket_number || t.id.slice(0, 8)}
+                        </button>
+                        <p className="text-xs text-amber-800">
+                          مضى {mins} دقيقة على الإنشاء — مطلوب متابعة الاستلام فورًا
+                        </p>
+                      </li>
+                    );
+                  })
+                )}
+              </ul>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-3">
+              <p className="mb-2 text-sm font-semibold text-slate-900">تنبيه إغلاق خارجي</p>
+              <p className="mb-2 text-xs text-slate-600">بلاغات «تم الانتهاء» — أغلقها في النظام الخارجي إن لزم.</p>
+              <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
+                {reporterTasks.externalClose.length === 0 ? (
+                  <li className="text-slate-500">لا توجد بلاغات منتهية حاليًا.</li>
+                ) : (
+                  reporterTasks.externalClose.slice(0, 30).map((t) => (
+                    <li key={t.id} className="rounded border border-slate-100 p-2">
+                      <button
+                        type="button"
+                        className="w-full text-right font-medium text-slate-900"
+                        onClick={() => void openTicketById(t.id)}
+                      >
+                        {t.external_ticket_number || t.ticket_number || t.id.slice(0, 8)}
+                      </button>
+                      <p className="text-xs text-slate-500">{formatSaudiDateTime(t.created_at)}</p>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+            <div className="rounded-lg border border-red-300 bg-red-50/60 p-3">
+              <p className="mb-2 text-sm font-semibold text-red-900">تحذير غرامة (مهلة الساعة)</p>
+              <p className="mb-2 text-xs text-red-800">
+                عند بلوغ عمر البلاغ 40 دقيقة ولم يُنهَ — يتبقى 20 دقيقة على نهاية مهلة الساعة.
+              </p>
+              <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
+                {reporterTasks.penalty.length === 0 ? (
+                  <li className="text-slate-600">لا توجد بلاغات ضمن نطاق التحذير حاليًا.</li>
+                ) : (
+                  reporterTasks.penalty.map((t) => (
+                    <li key={t.id} className="rounded border border-red-200 bg-white p-2">
+                      <button
+                        type="button"
+                        className="w-full text-right font-medium text-red-950"
+                        onClick={() => void openTicketById(t.id)}
+                      >
+                        {t.external_ticket_number || t.ticket_number || t.id.slice(0, 8)}
+                      </button>
+                      <p className="text-xs text-red-800">{remainingUntilOneHourDeadlineAr(t.created_at, nowTs)}</p>
+                      <p className="text-xs text-slate-600">عمر البلاغ: {getAgeMinutes(t.created_at, nowTs)} دقيقة</p>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+          </div>
         </section>
       ) : null}
 
@@ -790,7 +973,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           </div>
           <div className="flex items-end">
             <Button variant="outline" className="w-full" onClick={exportCurrentView}>
-              تصدير Excel
+              تصدير جدول بيانات
             </Button>
           </div>
         </div>
@@ -799,14 +982,18 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           عرض {pageTickets.length} بلاغ من {totalCount} بعد الفلترة (الإجمالي العام: {allTickets.length})
         </div>
 
-        <p className="mb-2 text-xs text-slate-500">مرتبة من الأحدث إلى الأقدم</p>
+        <p className="mb-2 text-xs text-slate-500">
+          {isReporterDesk
+            ? "ترتيب القائمة: متأخر الاستلام أولًا، ثم قيد التنفيذ، ثم الباقي (الأحدث داخل كل مجموعة) — التوقيت: مكة"
+            : "مرتبة حسب الإعدادات والفلاتر — التوقيت: مكة"}
+        </p>
 
         {loading ? (
           <p className="text-sm text-slate-500">جاري تحميل البلاغات...</p>
         ) : (
           <>
             <div className="hidden overflow-x-auto md:block">
-              <table className="min-w-full text-left text-sm">
+              <table className="min-w-full text-right text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-slate-600">
                 <tr>
                   <th className="px-3 py-2">رقم البلاغ</th>
@@ -852,7 +1039,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                           {hasUnread ? <span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> : null}
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-xs text-slate-600">{relativeAgeLabel(ticket.created_at, nowTs)}</td>
+                      <td className="px-3 py-2 text-xs text-slate-600">{relativeAgeLabelSaudi(ticket.created_at, nowTs)}</td>
                     </tr>
                   );
                 })}
@@ -889,7 +1076,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                     </p>
                     <div className="flex items-center justify-between text-xs text-slate-500">
                       <span>{ticket.zone_id ? zoneNameMap.get(ticket.zone_id) ?? "-" : "-"}</span>
-                      <span>{relativeAgeLabel(ticket.created_at, nowTs)}</span>
+                      <span>{relativeAgeLabelSaudi(ticket.created_at, nowTs)}</span>
                     </div>
                     <div className="mt-2 flex items-center gap-2">
                       <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-medium ${categoryBadgeColor(normalizeCategoryName(ticket.ticket_categories))}`}>
@@ -998,7 +1185,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                     return {
                       user_id: staff.user_id,
                       full_name: profile?.full_name ?? "موظف",
-                      role: profile?.role ?? "staff",
+                      role: profile?.role ?? "موظف",
                       status: liveStatus,
                       latitude: staff.latitude,
                       longitude: staff.longitude,
@@ -1096,7 +1283,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                             {att.file_type === "video" || /\.(mp4|webm|mov|ogg)(\?|$)/i.test(att.file_url) ? (
                               <video src={att.file_url} className="h-36 w-full object-cover" controls muted playsInline />
                             ) : (
-                              <img src={att.file_url} alt={att.file_name ?? "ticket attachment"} className="h-36 w-full object-cover" />
+                              <img src={att.file_url} alt={att.file_name ?? "مرفق"} className="h-36 w-full object-cover" />
                             )}
                           </a>
                           <p className="text-center text-xs text-slate-600">

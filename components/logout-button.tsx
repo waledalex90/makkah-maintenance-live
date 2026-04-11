@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { signOutCurrentSessionOnly } from "@/lib/auth-sign-out";
 import { Button } from "@/components/ui/button";
 
 export function LogoutButton() {
@@ -12,7 +12,7 @@ export function LogoutButton() {
 
   const onLogout = async () => {
     setLoading(true);
-    await supabase.auth.signOut();
+    await signOutCurrentSessionOnly();
     router.replace("/login");
     router.refresh();
   };

@@ -15,10 +15,18 @@ export default async function HomePage() {
     .from("profiles")
     .select("role")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
-  if (profile?.role === "technician" || profile?.role === "supervisor") {
+  if (!profile) {
+    redirect("/login?notice=missing_profile");
+  }
+
+  if (profile.role === "technician" || profile.role === "supervisor") {
     redirect("/tasks/my-work");
+  }
+
+  if (profile.role === "reporter" || profile.role === "engineer") {
+    redirect("/dashboard/tickets");
   }
 
   redirect("/dashboard");

@@ -1,9 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { mapAuthErrorToArabic } from "@/lib/auth-error-messages-ar";
+import { signOutCurrentSessionOnly } from "@/lib/auth-sign-out";
+import { postLoginHrefForRole } from "@/lib/post-login-redirect";
 import {
   AUTH_EMAIL_DOMAIN,
   parseUsernameOrEmailLocalPart,
@@ -50,13 +53,14 @@ export default function LoginPage() {
     }
   };
 
-  const translateAuthError = (msg: string) => {
-    const m = msg.trim();
-    if (m === "Invalid login credentials") {
-      return "بيانات الدخول غير صحيحة. إذا كان حسابك باسم مستخدم داخلي، جرّب إدخال الاسم فقط (بدون بريد) أو الصيغة name@makkah.sys";
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("notice") === "missing_profile") {
+      setError("لا يوجد ملف شخصي مرتبط بحسابك. اتصل بالإدارة لإكمال التسجيل.");
+      window.history.replaceState({}, "", "/login");
     }
-    return msg;
-  };
+  }, []);
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -105,55 +109,49 @@ export default function LoginPage() {
 
       if (signInError) {
         await logAuthError("Login failed (Supabase signInWithPassword)", signInError);
-        setError(translateAuthError(signInError.message));
+        setError(mapAuthErrorToArabic(signInError));
         setLoading(false);
         return;
       }
 
       if (!data?.user) {
         await logAuthError("Login failed (no user returned)", data);
-        setError("فشل تسجيل الدخول. حاول مرة أخرى.");
+        setError("فشل تسجيل الدخول دون إرجاع مستخدم. حاول مرة أخرى.");
         setLoading(false);
         return;
       }
 
       const userId = data.user.id;
-      const fallbackName = data.user.email ?? authEmail;
 
       const { data: profileRow, error: profileReadError } = await supabase
         .from("profiles")
-        .select("id")
+        .select("role")
         .eq("id", userId)
         .maybeSingle();
 
       if (profileReadError) {
         await logAuthError("Profile check failed after login", profileReadError);
-        setError("تم الدخول لكن تعذر التحقق من الملف الشخصي. راجع السجلات.");
+        setError("تعذر التحقق من الملف الشخصي. راجع الإدارة أو حاول لاحقاً.");
+        await signOutCurrentSessionOnly();
         setLoading(false);
         return;
       }
 
       if (!profileRow) {
-        const { error: createProfileError } = await supabase.from("profiles").insert({
-          id: userId,
-          full_name: fallbackName,
-          mobile: "N/A",
-          role: "reporter",
-        });
-
-        if (createProfileError) {
-          await logAuthError("Profile creation failed after login", createProfileError);
-          setError("تم الدخول لكن فشل إنشاء الملف الشخصي. راجع السجلات.");
-          setLoading(false);
-          return;
-        }
-
-        await logInfo("Profile created/found", { status: "created", userId });
-      } else {
-        await logInfo("Profile created/found", { status: "found", userId });
+        await logAuthError("Login blocked: no profile row", { userId });
+        await signOutCurrentSessionOnly();
+        setError(
+          "لا يوجد ملف شخصي مرتبط بهذا الحساب. يجب أن يُنشئ المسؤول حسابك من «إدارة المستخدمين» أولاً.",
+        );
+        setLoading(false);
+        return;
       }
 
-      router.replace("/");
+      await logInfo("Login profile ok", { userId, role: profileRow.role });
+
+      setLoading(false);
+      const nextHref = postLoginHrefForRole(profileRow.role);
+      router.replace(nextHref);
       router.refresh();
     } catch (unexpectedError) {
       await logAuthError("Login unexpected error", unexpectedError);
@@ -181,7 +179,7 @@ export default function LoginPage() {
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(authEmail, { redirectTo });
     setResetSending(false);
     if (resetError) {
-      setError(resetError.message);
+      setError(mapAuthErrorToArabic(resetError));
       return;
     }
     setResetMessage("إن وُجد الحساب، سيصلك بريد لإعادة تعيين كلمة المرور (تحقق من صندوق الوارد أو الرسائل غير المرغوبة).");

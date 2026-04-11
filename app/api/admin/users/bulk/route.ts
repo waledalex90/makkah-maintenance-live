@@ -173,6 +173,7 @@ export async function POST(request: Request) {
 
     const permissions = mergeInvitePermissions(roleStr, permPartial);
 
+    /** يفعّل البريد في Auth فوراً؛ إن طلب Supabase تأكيداً يدوياً عطّل Confirm email من لوحة المشروع. */
     const { data: createdUser, error: createError } = await adminSupabase.auth.admin.createUser({
       email: authEmail,
       password,

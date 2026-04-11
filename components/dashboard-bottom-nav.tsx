@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { LayoutDashboard, ListTodo, LogOut, MapPinned, Settings, Ticket } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabase";
+import { signOutCurrentSessionOnly } from "@/lib/auth-sign-out";
 import type { AppPermissionKey } from "@/lib/permissions";
 
 type DashboardBottomNavProps = {
@@ -37,7 +37,7 @@ export function DashboardBottomNav({ role, permissions }: DashboardBottomNavProp
 
   const onLogout = async () => {
     setLoggingOut(true);
-    await supabase.auth.signOut();
+    await signOutCurrentSessionOnly();
     router.replace("/login");
     router.refresh();
   };

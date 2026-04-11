@@ -46,17 +46,23 @@ export async function updateSession(request: NextRequest) {
       .from("profiles")
       .select("role, permissions")
       .eq("id", user.id)
-      .single();
+      .maybeSingle();
 
-    if (profileError) {
+    if (profileError || !profile) {
       const fallbackUrl = request.nextUrl.clone();
-      fallbackUrl.pathname = "/dashboard";
+      fallbackUrl.pathname = "/login";
+      fallbackUrl.searchParams.set("notice", "missing_profile");
       return NextResponse.redirect(fallbackUrl);
     }
 
     const url = request.nextUrl.clone();
-    url.pathname =
-      profile?.role === "technician" || profile?.role === "supervisor" ? "/tasks/my-work" : "/dashboard";
+    if (profile.role === "technician" || profile.role === "supervisor") {
+      url.pathname = "/tasks/my-work";
+    } else if (profile.role === "reporter" || profile.role === "engineer") {
+      url.pathname = "/dashboard/tickets";
+    } else {
+      url.pathname = "/dashboard";
+    }
     return NextResponse.redirect(url);
   }
 

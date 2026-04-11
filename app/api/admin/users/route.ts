@@ -277,6 +277,8 @@ export async function POST(request: Request) {
   try {
     const adminSupabase = createSupabaseAdminClient();
 
+    /** `email_confirm: true` يفعّل البريد فوراً في Auth دون انتظار رابط من المستخدم.
+     * إن ظل الدخول يطلب تأكيداً، عطّل في لوحة Supabase: Authentication → Providers → Email → Confirm email. */
     const { data: created, error: createError } = await adminSupabase.auth.admin.createUser({
       email: authEmail,
       password,

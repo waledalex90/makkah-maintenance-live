@@ -22,14 +22,18 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .from("profiles")
     .select("full_name, role, permissions")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
-  if (profile?.role === "technician" || profile?.role === "supervisor") {
+  if (!profile) {
+    redirect("/login?notice=missing_profile");
+  }
+
+  if (profile.role === "technician" || profile.role === "supervisor") {
     redirect("/tasks/my-work");
   }
 
-  const fullName = profile?.full_name ?? "User";
-  const role = profile?.role ?? "engineer";
+  const fullName = profile.full_name ?? "User";
+  const role = profile.role;
   const permissions = effectivePermissions(profile?.role, profile?.permissions as Record<string, unknown> | null);
 
   return (

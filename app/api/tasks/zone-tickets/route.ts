@@ -2,25 +2,11 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { ticketCategoryNameMatchesSpecialty } from "@/lib/specialty-category-match";
 
-const OPEN_STATUSES = ["not_received", "received"] as const;
+/** كل الحالات عدا finished — يبقى البلاغ ظاهراً بعد الاستلام (received) لكل من له نفس المنطقة والتخصص */
+const VISIBLE_UNTIL_CLOSED = "finished" as const;
 
 const TICKET_SELECT =
   "id, ticket_number, external_ticket_number, location, description, status, created_at, assigned_technician_id, assigned_supervisor_id, assigned_engineer_id, zone_id, category_id, category, ticket_categories(name), zones(name)";
-
-function isAssignedToUser(
-  row: {
-    assigned_technician_id: string | null;
-    assigned_supervisor_id: string | null;
-    assigned_engineer_id: string | null;
-  },
-  userId: string,
-) {
-  return (
-    row.assigned_technician_id === userId ||
-    row.assigned_supervisor_id === userId ||
-    row.assigned_engineer_id === userId
-  );
-}
 
 type TicketRow = {
   zone_id: string | null;
@@ -91,7 +77,7 @@ export async function GET() {
     const { data: myTickets, error: myErr } = await supabase
       .from("tickets")
       .select(TICKET_SELECT)
-      .in("status", [...OPEN_STATUSES])
+      .neq("status", VISIBLE_UNTIL_CLOSED)
       .or(
         `assigned_technician_id.eq.${user.id},assigned_supervisor_id.eq.${user.id},assigned_engineer_id.eq.${user.id}`,
       )
@@ -119,7 +105,7 @@ export async function GET() {
       .from("tickets")
       .select(TICKET_SELECT)
       .in("zone_id", zoneIds)
-      .in("status", [...OPEN_STATUSES])
+      .neq("status", VISIBLE_UNTIL_CLOSED)
       .order("created_at", { ascending: false });
 
     if (poolErr) {
@@ -129,7 +115,8 @@ export async function GET() {
     const poolRows = (zonePool ?? []) as TicketRow[];
     const filteredPool = poolRows.filter((row) => rowMatchesPoolFilters(row, specialty, region));
 
-    const areaTickets = filteredPool.filter((row) => !isAssignedToUser(row, user.id));
+    /** لا نُخفِ البلاغ من المنطقة بعد التعيين — يظل ظاهراً لزملاء المنطقة/التخصص حتى finished */
+    const areaTickets = filteredPool;
 
     return NextResponse.json({
       areaTickets,

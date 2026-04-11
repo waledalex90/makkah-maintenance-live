@@ -4,7 +4,12 @@ import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { resolveSignInEmail } from "@/lib/username-auth";
+import {
+  AUTH_EMAIL_DOMAIN,
+  parseUsernameOrEmailLocalPart,
+  resolveSignInEmail,
+  toAuthEmail,
+} from "@/lib/username-auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -45,6 +50,14 @@ export default function LoginPage() {
     }
   };
 
+  const translateAuthError = (msg: string) => {
+    const m = msg.trim();
+    if (m === "Invalid login credentials") {
+      return "بيانات الدخول غير صحيحة. إذا كان حسابك باسم مستخدم داخلي، جرّب إدخال الاسم فقط (بدون بريد) أو الصيغة name@makkah.sys";
+    }
+    return msg;
+  };
+
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
@@ -60,14 +73,39 @@ export default function LoginPage() {
         return;
       }
 
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      let { data, error: signInError } = await supabase.auth.signInWithPassword({
         email: authEmail,
         password,
       });
 
+      /** إن فشل الدخول ببريد حقيقي (مثل Gmail) جرّب الحساب الاصطناعي user@makkah.sys لأن كثيرًا من الحسابات تُخزَّن هكذا */
+      const raw = username.trim();
+      const looksInvalidCreds =
+        signInError &&
+        (signInError.message?.toLowerCase().includes("invalid login") ||
+          signInError.message?.toLowerCase().includes("invalid credential"));
+      if (looksInvalidCreds && raw.includes("@") && !raw.toLowerCase().endsWith(`@${AUTH_EMAIL_DOMAIN}`)) {
+        const local = parseUsernameOrEmailLocalPart(raw);
+        if (local) {
+          try {
+            const synthetic = toAuthEmail(local);
+            if (synthetic.toLowerCase() !== authEmail.toLowerCase()) {
+              const second = await supabase.auth.signInWithPassword({
+                email: synthetic,
+                password,
+              });
+              data = second.data;
+              signInError = second.error;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
       if (signInError) {
         await logAuthError("Login failed (Supabase signInWithPassword)", signInError);
-        setError(signInError.message);
+        setError(translateAuthError(signInError.message));
         setLoading(false);
         return;
       }

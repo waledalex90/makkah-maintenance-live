@@ -25,7 +25,7 @@ export function ThemeToggle() {
     <Button
       type="button"
       variant="outline"
-      className="h-10 min-w-10 border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+      className="h-10 min-w-10 border-slate-400 text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-50 dark:hover:bg-slate-800"
       onClick={toggleTheme}
       aria-label="تبديل المظهر"
       title="تبديل المظهر"

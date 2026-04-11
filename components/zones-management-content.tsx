@@ -1,12 +1,19 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import { divIcon } from "leaflet";
-import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { getLeafletTileProps } from "@/lib/maptiler";
 import { supabase } from "@/lib/supabase";
+
+const ZonePickerMap = dynamic(
+  () => import("@/components/zone-picker-map").then((m) => m.ZonePickerMap),
+  {
+    ssr: false,
+    loading: () => <div className="h-56 animate-pulse rounded-md border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800/50" />,
+  },
+);
 
 type ZoneRow = {
   id: string;
@@ -27,44 +34,6 @@ type ProfileRow = {
 };
 
 const MAKKAH_CENTER: [number, number] = [21.4225, 39.8262];
-const ZONE_MARKER_ICON = divIcon({
-  className: "",
-  html: `<div style="width:16px;height:16px;border-radius:9999px;background:#16a34a;border:2px solid #ffffff;box-shadow:0 0 0 1px rgba(15,23,42,0.25);"></div>`,
-  iconSize: [16, 16],
-  iconAnchor: [8, 8],
-});
-
-type MiniMapCenterControllerProps = {
-  center: [number, number];
-};
-
-function MiniMapCenterController({ center }: MiniMapCenterControllerProps) {
-  const map = useMapEvents({});
-
-  useEffect(() => {
-    map.setView(center, 14, { animate: true });
-  }, [map, center]);
-
-  return null;
-}
-
-type ZoneLocationPickerMapProps = {
-  latitude: number | null;
-  longitude: number | null;
-  onPick: (lat: number, lng: number) => void;
-};
-
-function ZoneLocationPickerMap({ latitude, longitude, onPick }: ZoneLocationPickerMapProps) {
-  useMapEvents({
-    click(event) {
-      onPick(Number(event.latlng.lat.toFixed(6)), Number(event.latlng.lng.toFixed(6)));
-    },
-  });
-
-  return latitude !== null && longitude !== null ? (
-    <Marker position={[latitude, longitude]} icon={ZONE_MARKER_ICON} />
-  ) : null;
-}
 
 export function ZonesManagementContent() {
   const mapTiles = useMemo(() => getLeafletTileProps(), []);
@@ -399,25 +368,17 @@ export function ZonesManagementContent() {
               <div>
                 <p className="mb-2 text-sm font-medium">حدد موقع المنطقة على الخريطة</p>
                 <div className="h-56 overflow-hidden rounded-md border border-slate-200">
-                  <MapContainer center={miniMapCenter} zoom={12} maxZoom={mapTiles.maxZoom} scrollWheelZoom className="h-full w-full">
-                    <TileLayer
-                      attribution={mapTiles.attribution}
-                      url={mapTiles.url}
-                      maxZoom={mapTiles.maxZoom}
-                      maxNativeZoom={mapTiles.maxNativeZoom}
-                      crossOrigin={mapTiles.crossOrigin}
-                    />
-                    <MiniMapCenterController center={miniMapCenter} />
-                    <ZoneLocationPickerMap
-                      latitude={formLatitude}
-                      longitude={formLongitude}
-                      onPick={(lat, lng) => {
-                        setFormLatitude(lat);
-                        setFormLongitude(lng);
-                        setErrors((prev) => ({ ...prev, map: undefined }));
-                      }}
-                    />
-                  </MapContainer>
+                  <ZonePickerMap
+                    center={miniMapCenter}
+                    mapTiles={mapTiles}
+                    latitude={formLatitude}
+                    longitude={formLongitude}
+                    onPick={(lat, lng) => {
+                      setFormLatitude(lat);
+                      setFormLongitude(lng);
+                      setErrors((prev) => ({ ...prev, map: undefined }));
+                    }}
+                  />
                 </div>
                 <p className="mt-2 text-xs text-slate-600">اضغط على الخريطة لتحديد الإحداثيات بدقة.</p>
                 {formLatitude !== null && formLongitude !== null ? (

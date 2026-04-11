@@ -21,7 +21,7 @@ export function LogoutIconButton() {
     <Button
       type="button"
       variant="outline"
-      className="h-10 min-w-10 border-red-300 bg-white text-red-600 hover:bg-red-50 dark:border-red-800 dark:bg-slate-800 dark:text-red-400 dark:hover:bg-slate-700"
+      className="h-10 min-w-10 border-red-400 bg-white text-red-800 hover:bg-red-50 dark:border-red-700 dark:bg-slate-900 dark:text-red-300 dark:hover:bg-slate-800"
       onClick={onLogout}
       disabled={loading}
       aria-label="تسجيل الخروج"

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -136,9 +137,12 @@ export default function LoginPage() {
       <Card className="w-full max-w-md">
         <CardHeader>
           <div className="mb-3 flex justify-center">
-            <img
-              src="https://abn.sa.com/wp-content/uploads/2022/01/logo-removebg-preview.png"
+            <Image
+              src="/icons/logo.webp"
               alt="شعار الشركة"
+              width={220}
+              height={88}
+              priority
               className="h-20 w-auto object-contain"
             />
           </div>
@@ -174,20 +178,20 @@ export default function LoginPage() {
 
             <button
               type="button"
-              className="text-sm font-medium text-green-700 hover:underline disabled:opacity-60"
+              className="text-sm font-semibold text-green-800 underline-offset-2 hover:underline disabled:opacity-60 dark:text-green-400"
               onClick={() => void onForgotPassword()}
               disabled={resetSending}
             >
               {resetSending ? "جاري إرسال الرابط..." : "نسيت كلمة المرور؟"}
             </button>
 
-            <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" disabled={loading}>
+            <Button type="submit" className="w-full bg-green-700 text-white hover:bg-green-800 dark:bg-green-600 dark:hover:bg-green-500" disabled={loading}>
               {loading ? "Signing in..." : "Sign in"}
             </Button>
           </form>
         </CardContent>
       </Card>
-      <p className="absolute bottom-3 text-[10px] text-slate-500">v1.0.5 - Azzam Live</p>
+      <p className="absolute bottom-3 text-[10px] font-medium text-slate-600 dark:text-slate-400">v1.0.5 - Azzam Live</p>
     </main>
   );
 }

@@ -35,8 +35,8 @@ export function DashboardBottomNav({ role }: DashboardBottomNavProps) {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium",
-                active ? "text-emerald-700" : "text-slate-600",
+                "flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-semibold",
+                active ? "text-emerald-800 dark:text-emerald-400" : "text-slate-800 dark:text-slate-200",
               )}
             >
               <Icon className="h-4 w-4" />

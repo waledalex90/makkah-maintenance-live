@@ -124,7 +124,8 @@ export async function GET() {
       zoneMap.set(link.profile_id, current);
     });
 
-    const userMap = new Map(usersResult.data.users.map((u) => [u.id, u]));
+    const authUsers = usersResult.data?.users ?? [];
+    const userMap = new Map(authUsers.map((u) => [u.id, u]));
     const rows = ((profiles as ProfileRow[]) ?? []).map((profile) => {
       const authUser = userMap.get(profile.id);
       const email = authUser?.email ?? "غير متوفر";
@@ -149,7 +150,8 @@ export async function GET() {
     return NextResponse.json({ users: rows, zones: zones ?? [] });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = message.includes("Missing Supabase admin") ? 503 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }
 
@@ -247,7 +249,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = message.includes("Missing Supabase admin") ? 503 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }
 

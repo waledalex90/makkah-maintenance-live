@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { OperationsMap } from "@/components/operations-map";
+import { OperationsMapLoader } from "@/components/operations-map-loader";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export default async function DashboardMapPage() {
@@ -22,5 +22,5 @@ export default async function DashboardMapPage() {
     redirect("/dashboard/tickets");
   }
 
-  return <OperationsMap />;
+  return <OperationsMapLoader />;
 }

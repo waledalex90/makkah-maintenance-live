@@ -78,11 +78,11 @@ export function DashboardSidebar({ fullName, role, canViewReports = false }: Das
             className={cn(
               "flex min-h-12 items-center gap-2 rounded-md px-3 py-3 text-sm font-medium transition",
               active
-                ? "border-s border-green-600 bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100"
-                : "text-slate-700 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-900",
+                ? "border-s border-green-700 bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-50"
+                : "text-slate-900 hover:bg-white dark:text-slate-100 dark:hover:bg-slate-900",
             )}
           >
-            <Icon className={cn("h-5 w-5", active ? "text-green-600" : "text-slate-600 dark:text-slate-400")} />
+            <Icon className={cn("h-5 w-5", active ? "text-green-700 dark:text-green-500" : "text-slate-700 dark:text-slate-300")} />
             <span>{item.label}</span>
           </Link>
         );
@@ -122,7 +122,7 @@ export function DashboardSidebar({ fullName, role, canViewReports = false }: Das
               <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">القائمة</p>
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
-              <p className="text-xs text-slate-500 dark:text-slate-400">تسجيل الدخول باسم</p>
+              <p className="text-xs font-medium text-slate-700 dark:text-slate-200">تسجيل الدخول باسم</p>
               <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{roleLabel}: {fullName}</p>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto pb-4">{navList}</div>
@@ -135,7 +135,7 @@ export function DashboardSidebar({ fullName, role, canViewReports = false }: Das
 
       <aside className="hidden h-screen w-72 flex-col border-r border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-950 md:flex" dir="rtl" lang="ar">
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
-        <p className="text-xs text-slate-500 dark:text-slate-400">تسجيل الدخول باسم</p>
+        <p className="text-xs font-medium text-slate-700 dark:text-slate-200">تسجيل الدخول باسم</p>
         <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{roleLabel}: {fullName}</p>
       </div>
       {navList}

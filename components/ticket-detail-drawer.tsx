@@ -722,9 +722,24 @@ export function TicketDetailDrawer({
                           className="block overflow-hidden rounded-lg border border-slate-200"
                         >
                           {att.file_type === "video" || /\.(mp4|webm|mov|ogg)(\?|$)/i.test(att.file_url) ? (
-                            <video src={att.file_url} className="h-32 w-full object-cover" controls muted playsInline />
+                            <video
+                              src={att.file_url}
+                              className="h-32 w-full object-cover"
+                              controls
+                              muted
+                              playsInline
+                              preload="none"
+                            />
                           ) : (
-                            <img src={att.file_url} alt={att.file_name ?? "مرفق"} className="h-32 w-full object-cover" />
+                            <img
+                              src={att.file_url}
+                              alt={att.file_name ?? "مرفق"}
+                              width={800}
+                              height={256}
+                              loading="lazy"
+                              decoding="async"
+                              className="h-32 w-full object-cover"
+                            />
                           )}
                         </a>
                         <p className="mt-1 text-right">

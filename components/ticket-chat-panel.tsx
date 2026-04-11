@@ -223,8 +223,15 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
                     <img
                       src={msg.image_url}
                       alt=""
+                      width={400}
+                      height={160}
+                      loading="lazy"
+                      decoding="async"
                       onLoad={() => requestAnimationFrame(() => scrollToBottom())}
-                      className={cn("max-h-40 rounded-lg border object-cover", mine ? "border-emerald-500/50" : "border-slate-200")}
+                      className={cn(
+                        "h-40 w-full max-w-sm rounded-lg border object-cover",
+                        mine ? "border-emerald-500/50" : "border-slate-200",
+                      )}
                     />
                   </a>
                 ) : null}

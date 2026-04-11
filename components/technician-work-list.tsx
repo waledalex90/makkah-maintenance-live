@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type TouchEventHandler } from "react";
+import { useEffect, useMemo, useRef, useState, type TouchEventHandler } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LogoutButton } from "@/components/logout-button";
@@ -9,36 +10,17 @@ import { playWorkNotificationSound } from "@/lib/work-notification";
 import { TicketDetailDrawer, type TicketDetailRow } from "@/components/ticket-detail-drawer";
 import { TicketReceptionCaption } from "@/components/ticket-reception-caption";
 import { pushLiveLocationOnce } from "@/lib/push-live-location";
-import { effectivePermissions } from "@/lib/permissions";
+import {
+  fetchZoneTicketsWorkspace,
+  ZONE_TICKETS_AREA_KEY,
+  ZONE_TICKETS_MINE_KEY,
+  ZONE_TICKETS_QUERY_KEY,
+  type TechnicianTicket,
+  type ZoneJoin,
+} from "@/lib/zone-tickets-query";
 import { TICKET_DRAWER_WITH_HANDLER_PROFILES } from "@/lib/ticket-handler-select";
 import { formatSaudiDateTime } from "@/lib/saudi-time";
-import { type TicketStatus, statusLabelAr } from "@/lib/ticket-status";
-
-type ZoneJoin = { name: string } | { name: string }[] | null;
-
-type TechnicianTicket = {
-  id: string;
-  ticket_number: number | null;
-  external_ticket_number: string | null;
-  title?: string | null;
-  location: string;
-  description: string;
-  status: TicketStatus;
-  created_at: string;
-  assigned_technician_id: string | null;
-  assigned_supervisor_id: string | null;
-  assigned_engineer_id?: string | null;
-  zone_id: string | null;
-  category?: string | null;
-  ticket_categories?: { name: string } | { name: string }[] | null;
-  zones?: ZoneJoin;
-  closed_at?: string | null;
-  closed_by?: string | null;
-  assigned_technician?: { full_name: string } | null;
-  assigned_supervisor?: { full_name: string } | null;
-  assigned_engineer?: { full_name: string } | null;
-  closed_by_profile?: { full_name: string } | null;
-};
+import { statusLabelAr } from "@/lib/ticket-status";
 
 type ZoneNotificationRow = {
   id: number;
@@ -66,16 +48,28 @@ type TechnicianWorkListProps = {
 };
 
 export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
-  const [areaTickets, setAreaTickets] = useState<TechnicianTicket[]>([]);
-  const [myTickets, setMyTickets] = useState<TechnicianTicket[]>([]);
+  const queryClient = useQueryClient();
+  const zoneQuery = useQuery({
+    queryKey: ZONE_TICKETS_QUERY_KEY,
+    queryFn: async () => {
+      const result = await fetchZoneTicketsWorkspace();
+      queryClient.setQueryData(ZONE_TICKETS_AREA_KEY, result.areaTickets);
+      queryClient.setQueryData(ZONE_TICKETS_MINE_KEY, result.myTickets);
+      return result;
+    },
+    placeholderData: (previousData) => previousData,
+  });
+
+  const areaTickets = zoneQuery.data?.areaTickets ?? [];
+  const myTickets = zoneQuery.data?.myTickets ?? [];
+  const myUserId = zoneQuery.data?.myUserId ?? null;
+  const canViewMap = zoneQuery.data?.canViewMap ?? false;
+
   const [tab, setTab] = useState<WorkTab>("area");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTicket, setDrawerTicket] = useState<TicketDetailRow | null>(null);
   const [drawerZoneName, setDrawerZoneName] = useState("-");
   const drawerTicketIdRef = useRef<string | null>(null);
-  const [myUserId, setMyUserId] = useState<string | null>(null);
-  const [canViewMap, setCanViewMap] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [pullStartY, setPullStartY] = useState<number | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
   const [pullRefreshing, setPullRefreshing] = useState(false);
@@ -84,51 +78,19 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
 
   const visibleTickets = tab === "area" ? areaTickets : myTickets;
 
-  const loadTickets = useCallback(async () => {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+  const firstLoadBlocking = zoneQuery.isPending && zoneQuery.data === undefined;
 
-    if (userError || !user) {
+  useEffect(() => {
+    if (!zoneQuery.isError || !zoneQuery.error) return;
+    const msg = zoneQuery.error.message;
+    if (msg === "SESSION") {
       toast.error("انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى.");
-      setLoading(false);
-      return;
-    }
-    setMyUserId(user.id);
-
-    const { data: profileRow } = await supabase
-      .from("profiles")
-      .select("role, permissions")
-      .eq("id", user.id)
-      .maybeSingle();
-    setCanViewMap(
-      effectivePermissions(profileRow?.role, profileRow?.permissions as Record<string, unknown> | null).view_map,
-    );
-
-    const res = await fetch("/api/tasks/zone-tickets", { cache: "no-store" });
-    const payload = (await res.json()) as {
-      areaTickets?: TechnicianTicket[];
-      myTickets?: TechnicianTicket[];
-      tickets?: TechnicianTicket[];
-      error?: string;
-    };
-
-    if (!res.ok) {
-      toast.error(payload.error ?? "تعذر تحميل المهام.");
-      setLoading(false);
-      return;
-    }
-
-    if (payload.tickets && !payload.areaTickets) {
-      setAreaTickets([]);
-      setMyTickets(payload.tickets ?? []);
+    } else if (msg === "FETCH") {
+      toast.error("تعذر تحميل المهام.");
     } else {
-      setAreaTickets(payload.areaTickets ?? []);
-      setMyTickets(payload.myTickets ?? []);
+      toast.error(msg);
     }
-    setLoading(false);
-  }, []);
+  }, [zoneQuery.isError, zoneQuery.error]);
 
   const loadDrawerTicket = async (ticketId: string) => {
     const { data, error } = await supabase
@@ -160,11 +122,6 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
   };
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-only work list
-    void loadTickets();
-  }, [loadTickets]);
-
-  useEffect(() => {
     if (!myUserId) return;
     const channel = supabase
       .channel(`my-work-assignments-${myUserId}`)
@@ -189,10 +146,12 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
               toast.success("تم تكليفك بتنفيذ بلاغ جديد.");
             }
           }
-          void loadTickets();
+          void queryClient.invalidateQueries({ queryKey: ZONE_TICKETS_QUERY_KEY });
         },
       )
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "tickets" }, () => void loadTickets())
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "tickets" }, () =>
+        void queryClient.invalidateQueries({ queryKey: ZONE_TICKETS_QUERY_KEY }),
+      )
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "zone_notifications", filter: `recipient_id=eq.${myUserId}` },
@@ -214,7 +173,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
               }
             });
           }
-          void loadTickets();
+          void queryClient.invalidateQueries({ queryKey: ZONE_TICKETS_QUERY_KEY });
         },
       )
       .subscribe();
@@ -222,7 +181,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [myUserId, role, loadTickets]);
+  }, [myUserId, role, queryClient]);
 
   useEffect(() => {
     if (!("Notification" in window)) return;
@@ -238,7 +197,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
   }, [areaTickets, myTickets]);
 
   useEffect(() => {
-    if (loading) return;
+    if (firstLoadBlocking) return;
     const ids = new Set(combinedTickets.map((t) => t.id));
     if (!initialListHydratedRef.current) {
       seenTicketIdsRef.current = ids;
@@ -256,7 +215,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       playWorkNotificationSound();
     }
     seenTicketIdsRef.current = ids;
-  }, [combinedTickets, loading]);
+  }, [combinedTickets, firstLoadBlocking]);
 
   const [pendingClaimId, setPendingClaimId] = useState<string | null>(null);
   const [pendingAcceptId, setPendingAcceptId] = useState<string | null>(null);
@@ -275,7 +234,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       }
       void pushLiveLocationOnce();
       toast.success("تم قبول البلاغ وتحويله لك.");
-      await loadTickets();
+      await queryClient.invalidateQueries({ queryKey: ZONE_TICKETS_QUERY_KEY });
     } finally {
       setPendingClaimId(null);
     }
@@ -295,7 +254,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       }
       void pushLiveLocationOnce();
       toast.success("تم قبول المهمة وبدء التنفيذ.");
-      await loadTickets();
+      await queryClient.invalidateQueries({ queryKey: ZONE_TICKETS_QUERY_KEY });
     } finally {
       setPendingAcceptId(null);
     }
@@ -304,7 +263,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
   const refreshByPull = async () => {
     if (pullRefreshing) return;
     setPullRefreshing(true);
-    await loadTickets();
+    await zoneQuery.refetch();
     setPullRefreshing(false);
     toast.success("تم تحديث المهام.");
   };
@@ -373,7 +332,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
           </div>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {firstLoadBlocking ? (
             <p className="text-sm text-slate-500">جاري التحميل...</p>
           ) : visibleTickets.length === 0 ? (
             <p className="text-sm text-slate-500">
@@ -463,7 +422,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
         ticket={drawerTicket}
         zoneName={drawerZoneName}
         onTicketUpdated={async () => {
-          await loadTickets();
+          await queryClient.invalidateQueries({ queryKey: ZONE_TICKETS_QUERY_KEY });
           const id = drawerTicketIdRef.current;
           if (id) {
             await loadDrawerTicket(id);

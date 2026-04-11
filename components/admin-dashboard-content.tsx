@@ -1019,9 +1019,24 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                         <div key={att.id} className="space-y-1">
                           <a href={att.file_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-slate-200">
                             {att.file_type === "video" || /\.(mp4|webm|mov|ogg)(\?|$)/i.test(att.file_url) ? (
-                              <video src={att.file_url} className="h-36 w-full object-cover" controls muted playsInline />
+                              <video
+                                src={att.file_url}
+                                className="h-36 w-full object-cover"
+                                controls
+                                muted
+                                playsInline
+                                preload="none"
+                              />
                             ) : (
-                              <img src={att.file_url} alt={att.file_name ?? "مرفق"} className="h-36 w-full object-cover" />
+                              <img
+                                src={att.file_url}
+                                alt={att.file_name ?? "مرفق"}
+                                width={800}
+                                height={288}
+                                loading="lazy"
+                                decoding="async"
+                                className="h-36 w-full object-cover"
+                              />
                             )}
                           </a>
                           <p className="text-center text-xs text-slate-600">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -252,6 +252,10 @@ export function UsersManagementContent() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [nameSearch, setNameSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
 
   const fetchAllAdminUsers = useCallback(async () => {
     const res = await fetch("/api/admin/users", { cache: "no-store" });
@@ -297,6 +301,34 @@ export function UsersManagementContent() {
       return name.includes(q) || un.includes(q) || mob.includes(q);
     });
   }, [users, nameSearch]);
+
+  const isSuperAdminViewer = isProtectedSuperAdminEmail(currentUserEmail);
+
+  const selectableFilteredUsers = useMemo(
+    () =>
+      filteredUsers.filter((u) => !isProtectedSuperAdminEmail(u.email) && u.id !== currentUserId),
+    [filteredUsers, currentUserId],
+  );
+
+  const { allSelectableSelected, someSelectableSelected } = useMemo(() => {
+    if (selectableFilteredUsers.length === 0) {
+      return { allSelectableSelected: false, someSelectableSelected: false };
+    }
+    let n = 0;
+    for (const u of selectableFilteredUsers) {
+      if (selectedIds.has(u.id)) n += 1;
+    }
+    return {
+      allSelectableSelected: n === selectableFilteredUsers.length,
+      someSelectableSelected: n > 0 && n < selectableFilteredUsers.length,
+    };
+  }, [selectableFilteredUsers, selectedIds]);
+
+  useEffect(() => {
+    const el = selectAllCheckboxRef.current;
+    if (!el) return;
+    el.indeterminate = someSelectableSelected;
+  }, [someSelectableSelected, allSelectableSelected]);
 
   useEffect(() => {
     if (usersQueryError) {
@@ -732,9 +764,67 @@ export function UsersManagementContent() {
     closePasswordModal();
   };
 
+  const rowSelectable = (user: UserRow) =>
+    !isProtectedSuperAdminEmail(user.email) && user.id !== currentUserId;
+
+  const toggleUserSelected = (user: UserRow) => {
+    if (!rowSelectable(user)) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(user.id)) next.delete(user.id);
+      else next.add(user.id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllFiltered = () => {
+    setSelectedIds((prev) => {
+      if (selectableFilteredUsers.length === 0) return new Set(prev);
+      const allOn = selectableFilteredUsers.every((u) => prev.has(u.id));
+      const next = new Set(prev);
+      if (allOn) {
+        for (const u of selectableFilteredUsers) next.delete(u.id);
+      } else {
+        for (const u of selectableFilteredUsers) next.add(u.id);
+      }
+      return next;
+    });
+  };
+
+  const runBulkDelete = async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    setBulkDeleting(true);
+    try {
+      const res = await fetch("/api/admin/users/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        deleted_count?: number;
+        skipped?: Array<{ id: string; reason: string }>;
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(data.error ?? "فشل الحذف الجماعي.");
+        return;
+      }
+      const skipped = data.skipped ?? [];
+      toast.success(`تم حذف ${data.deleted_count ?? 0} مستخدم${skipped.length ? ` (تخطي ${skipped.length})` : ""}.`);
+      setBulkDeleteOpen(false);
+      setSelectedIds(new Set());
+      await invalidateUsers();
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   return (
     <section className="w-full min-w-0 max-w-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm" dir="rtl" lang="ar">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold">إدارة المستخدمين</h1>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -763,6 +853,15 @@ export function UsersManagementContent() {
             />
             {bulkUploading ? "جاري الرفع…" : "الرفع"}
           </label>
+          {isSuperAdminViewer && selectedIds.size > 0 ? (
+            <button
+              type="button"
+              className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-800 shadow-sm transition hover:bg-red-100 dark:border-red-900 dark:bg-red-950/50 dark:text-red-200"
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              حذف المحددين ({selectedIds.size})
+            </button>
+          ) : null}
           <button
             className="rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
             onClick={() => void openInviteModal()}
@@ -770,6 +869,11 @@ export function UsersManagementContent() {
             إضافة مستخدم جديد
           </button>
         </div>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+          نموذج الرفع يتضمّن عمود <span className="font-mono">access_work_list</span> (1 = تفعيل واجهة مهام الميدان، 0 = إيقافها). ورقة Excel
+          «إرشادات_access_work_list» وملف CSV يبدأ بتعليق يشرح العمود؛ إن تُرك فارغاً يُحدَّد تلقائياً حسب الدور.
+        </p>
       </div>
 
       <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-900/30">
@@ -798,10 +902,22 @@ export function UsersManagementContent() {
       ) : (
         <>
         <div className="w-full max-w-full overflow-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 max-h-[min(72vh,calc(100vh-13rem))]">
-          <table className="min-w-[1100px] w-full table-fixed border-collapse text-right text-sm">
+          <table className="min-w-[1140px] w-full table-fixed border-collapse text-right text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-slate-800 dark:border-slate-700 dark:text-slate-100">
-                <th className="sticky right-0 top-0 z-[21] min-w-[7.5rem] max-w-[9rem] bg-slate-100 px-2 py-2 text-xs font-semibold shadow-[4px_0_8px_-4px_rgba(0,0,0,0.08)] dark:bg-slate-900 dark:shadow-[4px_0_8px_-4px_rgba(0,0,0,0.25)]">
+                <th className="sticky right-0 top-0 z-[23] w-9 min-w-[2.25rem] max-w-[2.25rem] bg-slate-100 px-1 py-2 text-center align-middle shadow-[4px_0_8px_-4px_rgba(0,0,0,0.08)] dark:bg-slate-900">
+                  <input
+                    ref={selectAllCheckboxRef}
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-sky-600"
+                    disabled={selectableFilteredUsers.length === 0}
+                    checked={allSelectableSelected}
+                    onChange={() => toggleSelectAllFiltered()}
+                    title="تحديد الكل في القائمة المعروضة"
+                    aria-label="تحديد كل المستخدمين المعروضين"
+                  />
+                </th>
+                <th className="sticky right-9 top-0 z-[21] min-w-[7.5rem] max-w-[9rem] bg-slate-100 px-2 py-2 text-xs font-semibold shadow-[4px_0_8px_-4px_rgba(0,0,0,0.08)] dark:bg-slate-900 dark:shadow-[4px_0_8px_-4px_rgba(0,0,0,0.25)]">
                   الاسم
                 </th>
                 <th className="sticky top-0 z-20 min-w-[6.5rem] max-w-[7rem] bg-slate-100 px-2 py-2 text-xs font-semibold dark:bg-slate-900">
@@ -850,6 +966,7 @@ export function UsersManagementContent() {
                 const zebraEven = rowIdx % 2 === 0;
                 const rowBg = zebraEven ? "bg-white dark:bg-slate-950" : "bg-slate-50/80 dark:bg-slate-900/40";
                 const jobTitle = user.job_title || "—";
+                const canSelectRow = rowSelectable(user);
                 return (
                   <tr
                     key={user.id}
@@ -860,7 +977,22 @@ export function UsersManagementContent() {
                   >
                     <td
                       className={cn(
-                        "sticky right-0 z-[11] max-w-[9rem] px-2 py-1.5 align-middle font-medium shadow-[4px_0_8px_-4px_rgba(0,0,0,0.06)] dark:text-slate-50",
+                        "sticky right-0 z-[12] w-9 min-w-[2.25rem] px-1 py-1.5 text-center align-middle shadow-[4px_0_8px_-4px_rgba(0,0,0,0.06)]",
+                        rowBg,
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 cursor-pointer accent-sky-600 disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={!canSelectRow}
+                        checked={selectedIds.has(user.id)}
+                        onChange={() => toggleUserSelected(user)}
+                        aria-label={`تحديد ${user.full_name}`}
+                      />
+                    </td>
+                    <td
+                      className={cn(
+                        "sticky right-9 z-[11] max-w-[9rem] px-2 py-1.5 align-middle font-medium shadow-[4px_0_8px_-4px_rgba(0,0,0,0.06)] dark:text-slate-50",
                         rowBg,
                       )}
                     >
@@ -1003,13 +1135,13 @@ export function UsersManagementContent() {
               })}
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="px-3 py-10 text-center text-slate-500">
+                  <td colSpan={14} className="px-3 py-10 text-center text-slate-500">
                     لا يوجد مستخدمون حالياً.
                   </td>
                 </tr>
               ) : filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="px-3 py-10 text-center text-slate-500">
+                  <td colSpan={14} className="px-3 py-10 text-center text-slate-500">
                     لا توجد نتائج مطابقة للبحث.
                   </td>
                 </tr>
@@ -1415,6 +1547,41 @@ export function UsersManagementContent() {
                 disabled={passwordSaving}
               >
                 {passwordSaving ? "جاري الحفظ..." : "حفظ كلمة المرور"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {bulkDeleteOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4"
+          onClick={() => (bulkDeleting ? undefined : setBulkDeleteOpen(false))}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-slate-900">تأكيد الحذف الجماعي</h3>
+            <p className="mt-3 text-sm text-slate-600">
+              هل أنت متأكد من حذف {selectedIds.size} مستخدمين نهائياً؟
+            </p>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                disabled={bulkDeleting}
+                onClick={() => setBulkDeleteOpen(false)}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                disabled={bulkDeleting}
+                onClick={() => void runBulkDelete()}
+              >
+                {bulkDeleting ? "جاري الحذف…" : "تأكيد الحذف"}
               </button>
             </div>
           </div>

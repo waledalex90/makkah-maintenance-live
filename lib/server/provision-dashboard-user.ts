@@ -23,22 +23,24 @@ export async function upsertProfileAndZones(
     zoneIds: string[];
     permissions: Record<string, unknown>;
     username: string;
+    access_work_list?: boolean;
   },
 ) {
-  const { fullName, mobile, jobTitle, specialty, role, zoneIds, permissions, username } = params;
-  const { error: upsertError } = await adminSupabase.from("profiles").upsert(
-    {
-      id: userId,
-      full_name: fullName,
-      mobile,
-      job_title: jobTitle,
-      specialty,
-      role: role ?? "technician",
-      permissions,
-      username,
-    },
-    { onConflict: "id" },
-  );
+  const { fullName, mobile, jobTitle, specialty, role, zoneIds, permissions, username, access_work_list } = params;
+  const row: Record<string, unknown> = {
+    id: userId,
+    full_name: fullName,
+    mobile,
+    job_title: jobTitle,
+    specialty,
+    role: role ?? "technician",
+    permissions,
+    username,
+  };
+  if (typeof access_work_list === "boolean") {
+    row.access_work_list = access_work_list;
+  }
+  const { error: upsertError } = await adminSupabase.from("profiles").upsert(row, { onConflict: "id" });
 
   if (upsertError) {
     return upsertError;

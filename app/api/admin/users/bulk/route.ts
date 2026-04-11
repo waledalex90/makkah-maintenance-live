@@ -34,6 +34,20 @@ function parseBool(v: string): boolean | undefined {
   return undefined;
 }
 
+/** فني / مهندس / مشرف (مراقب) → واجهة المهام افتراضياً */
+function defaultAccessWorkListForRole(role: Role): boolean {
+  return role === "technician" || role === "engineer" || role === "supervisor";
+}
+
+function resolveAccessWorkList(raw: string, role: Role): boolean {
+  const t = raw.trim();
+  if (t === "") {
+    return defaultAccessWorkListForRole(role);
+  }
+  const b = parseBool(t);
+  return b === undefined ? defaultAccessWorkListForRole(role) : b;
+}
+
 export async function POST(request: Request) {
   const access = await requireManageUsers();
   if (!access.ok) {
@@ -51,7 +65,11 @@ export async function POST(request: Request) {
   let workbook: XLSX.WorkBook;
   try {
     if (fileName.endsWith(".csv")) {
-      const text = buffer.toString("utf-8").replace(/^\uFEFF/, "");
+      let text = buffer.toString("utf-8").replace(/^\uFEFF/, "");
+      text = text
+        .split(/\r?\n/)
+        .filter((line) => !line.trim().startsWith("#"))
+        .join("\n");
       workbook = XLSX.read(text, { type: "string" });
     } else {
       workbook = XLSX.read(buffer, { type: "buffer" });
@@ -98,6 +116,7 @@ export async function POST(request: Request) {
     const specialty = pickCell(row, "specialty", "التخصص", "تخصص") || "civil";
     const roleStr = (pickCell(row, "role", "الدور") || "technician") as Role;
     const zonesCell = pickCell(row, "zones", "المنطقة", "المناطق", "مناطق");
+    const accessWorkListRaw = pickCell(row, "access_work_list", "access work list", "واجهة_الفريق", "واجهة الفريق");
 
     if (!usernameRaw || !password || !fullName || !mobile || !jobTitle || !zonesCell) {
       errors.push({ row: rowNum, message: "حقول مطلوبة ناقصة (username, password, full_name, mobile, job_title, zones)." });
@@ -172,6 +191,7 @@ export async function POST(request: Request) {
     }
 
     const permissions = mergeInvitePermissions(roleStr, permPartial);
+    const access_work_list = resolveAccessWorkList(accessWorkListRaw, roleStr);
 
     /** يفعّل البريد في Auth فوراً؛ إن طلب Supabase تأكيداً يدوياً عطّل Confirm email من لوحة المشروع. */
     const { data: createdUser, error: createError } = await adminSupabase.auth.admin.createUser({
@@ -195,6 +215,7 @@ export async function POST(request: Request) {
       zoneIds,
       permissions,
       username: usernameNormalized,
+      access_work_list,
     });
 
     if (zoneErr) {

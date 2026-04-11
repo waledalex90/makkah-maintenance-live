@@ -14,6 +14,9 @@ const DATA_HEADERS_AR = [
   "المهنة",
 ];
 
+/** 1 = واجهة مهام الميدان عند الدخول، 0 = إيقافها؛ إن تُرك فارغاً يُحدَّد تلقائياً (فني/مهندس/مشرف = 1، غيرهم = 0) */
+const ACCESS_WORK_LIST_HEADER = "access_work_list";
+
 const PERM_HEADERS = [
   "view_dashboard",
   "view_tickets",
@@ -34,7 +37,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const format = searchParams.get("format") === "csv" ? "csv" : "xlsx";
 
-  const headers = [...DATA_HEADERS_AR, ...PERM_HEADERS];
+  const headers = [...DATA_HEADERS_AR, ACCESS_WORK_LIST_HEADER, ...PERM_HEADERS];
   const example = [
     "أحمد مثال",
     "ahmed.example",
@@ -44,6 +47,7 @@ export async function GET(request: Request) {
     "اسم منطقة مطابقة من النظام",
     "0500000000",
     "فني كهرباء",
+    1,
     1,
     1,
     0,
@@ -59,9 +63,23 @@ export async function GET(request: Request) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "مستخدمون");
 
+  const instructionsAoa = [
+    ["عمود access_work_list"],
+    [
+      "1 = تفعيل واجهة مهام الميدان (/tasks/my-work) عند تسجيل الدخول. 0 = عدم التوجيه لهذه الواجهة.",
+    ],
+    [
+      "إذا تُرك الخلية فارغة: يُفعَّل تلقائياً للأدوار فني (technician) أو مهندس (engineer) أو مشرف (supervisor)، ويُعطَّل لبقية الأدوار.",
+    ],
+  ];
+  const wsGuide = XLSX.utils.aoa_to_sheet(instructionsAoa);
+  XLSX.utils.book_append_sheet(wb, wsGuide, "إرشادات_access_work_list");
+
   if (format === "csv") {
     const csv = XLSX.utils.sheet_to_csv(ws);
-    const body = "\uFEFF" + csv;
+    const comment =
+      "# إرشادات: العمود access_work_list — أدخل 1 للتفعيل أو 0 للإيقاف. فارغ = تلقائي حسب الدور (فني/مهندس/مشرف = 1، غيرهم = 0).\n";
+    const body = "\uFEFF" + comment + csv;
     return new NextResponse(body, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",

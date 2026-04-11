@@ -6,17 +6,32 @@ import { usePathname } from "next/navigation";
 import { BarChart3, LayoutDashboard, MapPinned, Menu, Settings, Ticket, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "@/components/logout-button";
+import type { AppPermissionKey } from "@/lib/permissions";
 
 type DashboardSidebarProps = {
   fullName: string;
   role: string;
-  /** Extra access to /dashboard/reports (e.g. permissions.view_admin_reports) */
-  canViewReports?: boolean;
+  permissions: Record<AppPermissionKey, boolean>;
 };
 
-type NavItem = { href: string; label: string; icon: typeof MapPinned };
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof MapPinned;
+  perm: AppPermissionKey;
+};
 
-export function DashboardSidebar({ fullName, role, canViewReports = false }: DashboardSidebarProps) {
+const NAV_DEF: NavItem[] = [
+  { href: "/dashboard/map", label: "الخريطة", icon: MapPinned, perm: "view_map" },
+  { href: "/dashboard", label: "لوحة التحكم", icon: LayoutDashboard, perm: "view_dashboard" },
+  { href: "/dashboard/tickets", label: "البلاغات", icon: Ticket, perm: "view_tickets" },
+  { href: "/dashboard/reports", label: "التقارير", icon: BarChart3, perm: "view_reports" },
+  { href: "/dashboard/admin/zones", label: "إدارة المناطق", icon: MapPinned, perm: "manage_zones" },
+  { href: "/dashboard/admin/users", label: "إدارة المستخدمين", icon: Users, perm: "manage_users" },
+  { href: "/dashboard/settings", label: "الإعدادات", icon: Settings, perm: "view_settings" },
+];
+
+export function DashboardSidebar({ fullName, role, permissions }: DashboardSidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const roleLabel =
@@ -24,44 +39,19 @@ export function DashboardSidebar({ fullName, role, canViewReports = false }: Das
       ? "مدير النظام"
       : role === "projects_director"
         ? "مدير المشاريع"
-      : role === "project_manager"
-        ? "مدير مشروع"
-      : role === "engineer"
-        ? "مهندس"
-        : role === "reporter"
-          ? "مدخل بيانات"
-        : role === "supervisor"
-          ? "مشرف"
-          : role === "technician"
-            ? "فني"
-            : role;
-  const navItems: NavItem[] = (() => {
-    const common: NavItem[] = [
-      { href: "/dashboard", label: "لوحة التحكم", icon: LayoutDashboard },
-      { href: "/dashboard/tickets", label: "البلاغات", icon: Ticket },
-      { href: "/dashboard/settings", label: "الإعدادات", icon: Settings },
-    ];
-    if (role === "admin" || role === "project_manager" || role === "projects_director") {
-      return [
-        { href: "/dashboard/map", label: "الخريطة", icon: MapPinned },
-        ...common,
-        { href: "/dashboard/reports", label: "التقارير", icon: BarChart3 },
-        { href: "/dashboard/admin/zones", label: "إدارة المناطق", icon: MapPinned },
-        { href: "/dashboard/admin/users", label: "إدارة المستخدمين", icon: Users },
-      ];
-    }
-    if (canViewReports) {
-      return [
-        { href: "/dashboard/map", label: "الخريطة", icon: MapPinned },
-        ...common,
-        { href: "/dashboard/reports", label: "التقارير", icon: BarChart3 },
-      ];
-    }
-    if (role === "reporter") {
-      return common;
-    }
-    return [{ href: "/dashboard/map", label: "الخريطة", icon: MapPinned }, ...common];
-  })();
+        : role === "project_manager"
+          ? "مدير مشروع"
+          : role === "engineer"
+            ? "مهندس"
+            : role === "reporter"
+              ? "مدخل بيانات"
+              : role === "supervisor"
+                ? "مشرف"
+                : role === "technician"
+                  ? "فني"
+                  : role;
+
+  const navItems = NAV_DEF.filter((item) => permissions[item.perm]);
 
   const navList = (
     <nav className="mt-6 space-y-2">
@@ -123,7 +113,9 @@ export function DashboardSidebar({ fullName, role, canViewReports = false }: Das
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
               <p className="text-xs font-medium text-slate-700 dark:text-slate-200">تسجيل الدخول باسم</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{roleLabel}: {fullName}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                {roleLabel}: {fullName}
+              </p>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto pb-4">{navList}</div>
             <div className="absolute bottom-4 left-4 right-4">
@@ -134,15 +126,17 @@ export function DashboardSidebar({ fullName, role, canViewReports = false }: Das
       ) : null}
 
       <aside className="hidden h-screen w-72 flex-col border-r border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-950 md:flex" dir="rtl" lang="ar">
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
-        <p className="text-xs font-medium text-slate-700 dark:text-slate-200">تسجيل الدخول باسم</p>
-        <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{roleLabel}: {fullName}</p>
-      </div>
-      {navList}
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+          <p className="text-xs font-medium text-slate-700 dark:text-slate-200">تسجيل الدخول باسم</p>
+          <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+            {roleLabel}: {fullName}
+          </p>
+        </div>
+        {navList}
 
-      <div className="mt-auto pt-4">
-        <LogoutButton />
-      </div>
+        <div className="mt-auto pt-4">
+          <LogoutButton />
+        </div>
       </aside>
     </>
   );

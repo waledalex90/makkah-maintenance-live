@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { UsersManagementContent } from "@/components/users-management-content";
+import { effectivePermissions } from "@/lib/permissions";
 
 export default async function AdminUsersPage() {
   const supabase = await createSupabaseServerClient();
@@ -14,14 +15,14 @@ export default async function AdminUsersPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, permissions")
     .eq("id", user.id)
     .single();
 
-  if (profile?.role !== "admin") {
-    redirect("/dashboard/admin");
+  const perms = effectivePermissions(profile?.role, profile?.permissions as Record<string, unknown> | null);
+  if (!perms.manage_users) {
+    redirect("/dashboard");
   }
 
   return <UsersManagementContent />;
 }
-

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireManageUsers } from "@/lib/auth-guards";
 
 type ProfileRow = {
   id: string;
@@ -20,32 +21,8 @@ type ProfileRow = {
     | "reporter";
 };
 
-async function ensureAdminAccess() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    return { ok: false as const, status: 401 };
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError || profile?.role !== "admin") {
-    return { ok: false as const, status: 403 };
-  }
-
-  return { ok: true as const };
-}
-
 export async function GET() {
-  const access = await ensureAdminAccess();
+  const access = await requireManageUsers();
   if (!access.ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
   }
@@ -156,7 +133,9 @@ export async function GET() {
 }
 
 type InvitePayload = {
+  mode?: "invite" | "direct_password";
   email?: string;
+  password?: string;
   full_name?: string;
   mobile?: string;
   job_title?: string;
@@ -172,8 +151,57 @@ type InvitePayload = {
     | "reporter";
 };
 
+async function upsertProfileAndZones(
+  adminSupabase: ReturnType<typeof createSupabaseAdminClient>,
+  userId: string,
+  params: {
+    fullName: string;
+    mobile: string;
+    jobTitle: string;
+    specialty: string;
+    role: InvitePayload["role"];
+    zoneIds: string[];
+  },
+) {
+  const { fullName, mobile, jobTitle, specialty, role, zoneIds } = params;
+  const { error: upsertError } = await adminSupabase.from("profiles").upsert(
+    {
+      id: userId,
+      full_name: fullName,
+      mobile,
+      job_title: jobTitle,
+      specialty: specialty,
+      role: role ?? "technician",
+    },
+    { onConflict: "id" },
+  );
+
+  if (upsertError) {
+    return upsertError;
+  }
+
+  const { error: deleteZonesError } = await adminSupabase.from("zone_profiles").delete().eq("profile_id", userId);
+  if (deleteZonesError) {
+    return deleteZonesError;
+  }
+
+  if (zoneIds.length > 0) {
+    const { error: insertZonesError } = await adminSupabase.from("zone_profiles").insert(
+      zoneIds.map((zoneId) => ({
+        zone_id: zoneId,
+        profile_id: userId,
+      })),
+    );
+    if (insertZonesError) {
+      return insertZonesError;
+    }
+  }
+
+  return null;
+}
+
 export async function POST(request: Request) {
-  const access = await ensureAdminAccess();
+  const access = await requireManageUsers();
   if (!access.ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
   }
@@ -186,13 +214,55 @@ export async function POST(request: Request) {
   const specialty = body.specialty ?? "civil";
   const zoneIds = Array.isArray(body.zone_ids) ? body.zone_ids.filter((value) => typeof value === "string") : [];
   const role = body.role ?? "technician";
+  const mode = body.mode ?? "invite";
 
   if (!email || !fullName || !mobile || !jobTitle || zoneIds.length === 0) {
     return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
   }
 
+  if (mode === "direct_password") {
+    const password = body.password?.trim() ?? "";
+    if (password.length < 8) {
+      return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
+    }
+  }
+
   try {
     const adminSupabase = createSupabaseAdminClient();
+
+    if (mode === "direct_password") {
+      const password = body.password?.trim() ?? "";
+      const { data: created, error: createError } = await adminSupabase.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+      });
+
+      if (createError) {
+        return NextResponse.json({ error: createError.message }, { status: 400 });
+      }
+
+      const newUserId = created.user?.id;
+      if (!newUserId) {
+        return NextResponse.json({ error: "Failed to resolve new user id." }, { status: 400 });
+      }
+
+      const zoneErr = await upsertProfileAndZones(adminSupabase, newUserId, {
+        fullName,
+        mobile,
+        jobTitle,
+        specialty,
+        role,
+        zoneIds,
+      });
+      if (zoneErr) {
+        await adminSupabase.auth.admin.deleteUser(newUserId);
+        return NextResponse.json({ error: zoneErr.message }, { status: 400 });
+      }
+
+      return NextResponse.json({ ok: true });
+    }
+
     const appBaseUrl =
       process.env.NEXT_PUBLIC_APP_URL ??
       process.env.NEXT_PUBLIC_SITE_URL ??
@@ -212,38 +282,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to resolve invited user id." }, { status: 400 });
     }
 
-    const { error: upsertError } = await adminSupabase.from("profiles").upsert(
-      {
-        id: invitedUserId,
-        full_name: fullName,
-        mobile,
-        job_title: jobTitle,
-        specialty: specialty,
-        role,
-      },
-      { onConflict: "id" },
-    );
-
-    if (upsertError) {
-      return NextResponse.json({ error: upsertError.message }, { status: 400 });
-    }
-
-    const { error: deleteZonesError } = await adminSupabase
-      .from("zone_profiles")
-      .delete()
-      .eq("profile_id", invitedUserId);
-    if (deleteZonesError) {
-      return NextResponse.json({ error: deleteZonesError.message }, { status: 400 });
-    }
-
-    const { error: insertZonesError } = await adminSupabase.from("zone_profiles").insert(
-      zoneIds.map((zoneId) => ({
-        zone_id: zoneId,
-        profile_id: invitedUserId,
-      })),
-    );
-    if (insertZonesError) {
-      return NextResponse.json({ error: insertZonesError.message }, { status: 400 });
+    const zoneErr = await upsertProfileAndZones(adminSupabase, invitedUserId, {
+      fullName,
+      mobile,
+      jobTitle,
+      specialty,
+      role,
+      zoneIds,
+    });
+    if (zoneErr) {
+      return NextResponse.json({ error: zoneErr.message }, { status: 400 });
     }
 
     return NextResponse.json({ ok: true });

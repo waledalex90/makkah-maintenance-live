@@ -3,6 +3,56 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { APP_PERMISSION_KEYS, effectivePermissions, type AppPermissionKey } from "@/lib/permissions";
+
+const PERM_LABELS_AR: Record<AppPermissionKey, string> = {
+  view_dashboard: "لوحة التحكم",
+  view_tickets: "البلاغات والمهام",
+  view_map: "الخريطة التفاعلية",
+  view_reports: "التقارير والمؤشرات",
+  manage_zones: "إدارة المناطق",
+  manage_users: "إدارة المستخدمين",
+  view_settings: "الإعدادات",
+};
+
+function PermToggle({
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/50">
+      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          "relative h-7 w-12 shrink-0 rounded-full transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-green-600",
+          checked ? "bg-green-600" : "bg-slate-300 dark:bg-slate-600",
+          disabled && "cursor-not-allowed opacity-50",
+        )}
+        aria-label={label}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all",
+            checked ? "left-5" : "left-0.5",
+          )}
+        />
+      </button>
+    </div>
+  );
+}
 
 type UserRole =
   | "admin"
@@ -79,7 +129,11 @@ export function UsersManagementContent() {
     mobile?: string;
     job_title?: string;
     zone_ids?: string;
+    password?: string;
   }>({});
+
+  const [inviteMode, setInviteMode] = useState<"invite" | "direct_password">("invite");
+  const [invitePassword, setInvitePassword] = useState("");
 
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
   const [editName, setEditName] = useState("");
@@ -87,7 +141,7 @@ export function UsersManagementContent() {
   const [editRegion, setEditRegion] = useState("");
   const [editSpecialty, setEditSpecialty] = useState<Specialty>("civil");
   const [editZoneIds, setEditZoneIds] = useState<string[]>([]);
-  const [editViewReports, setEditViewReports] = useState(false);
+  const [permToggles, setPermToggles] = useState<Record<AppPermissionKey, boolean> | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editZoneDropdownOpen, setEditZoneDropdownOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -153,10 +207,19 @@ export function UsersManagementContent() {
     setZoneDropdownOpen(false);
     setInviteRole("technician");
     setInviteErrors({});
+    setInviteMode("invite");
+    setInvitePassword("");
   };
 
   const validateInvite = () => {
-    const nextErrors: { full_name?: string; email?: string; mobile?: string; job_title?: string; zone_ids?: string } = {};
+    const nextErrors: {
+      full_name?: string;
+      email?: string;
+      mobile?: string;
+      job_title?: string;
+      zone_ids?: string;
+      password?: string;
+    } = {};
 
     if (!inviteName.trim()) {
       nextErrors.full_name = "هذا الحقل مطلوب";
@@ -175,6 +238,11 @@ export function UsersManagementContent() {
     if (inviteZoneIds.length === 0) {
       nextErrors.zone_ids = "يرجى اختيار منطقة واحدة على الأقل";
     }
+    if (inviteMode === "direct_password") {
+      if (!invitePassword.trim() || invitePassword.trim().length < 8) {
+        nextErrors.password = "كلمة المرور مطلوبة (8 أحرف على الأقل)";
+      }
+    }
 
     setInviteErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -184,18 +252,23 @@ export function UsersManagementContent() {
     if (!validateInvite()) return;
 
     setInviting(true);
+    const payload: Record<string, unknown> = {
+      mode: inviteMode,
+      full_name: inviteName.trim(),
+      email: inviteEmail.trim(),
+      mobile: inviteMobile.trim(),
+      job_title: inviteJobTitle.trim(),
+      specialty: inviteSpecialty,
+      zone_ids: inviteZoneIds,
+      role: inviteRole,
+    };
+    if (inviteMode === "direct_password") {
+      payload.password = invitePassword.trim();
+    }
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        full_name: inviteName.trim(),
-        email: inviteEmail.trim(),
-        mobile: inviteMobile.trim(),
-        job_title: inviteJobTitle.trim(),
-        specialty: inviteSpecialty,
-        zone_ids: inviteZoneIds,
-        role: inviteRole,
-      }),
+      body: JSON.stringify(payload),
     });
     const data = (await res.json()) as { ok?: boolean; error?: string };
     setInviting(false);
@@ -205,7 +278,7 @@ export function UsersManagementContent() {
       return;
     }
 
-    toast.success("تم إرسال دعوة المستخدم بنجاح.");
+    toast.success(inviteMode === "direct_password" ? "تم إنشاء الحساب وتفعيله بنجاح." : "تم إرسال دعوة المستخدم بنجاح.");
     closeInviteModal();
     await loadUsers();
   };
@@ -242,7 +315,7 @@ export function UsersManagementContent() {
     setEditRegion(user.region ?? "");
     setEditSpecialty((user.specialty as Specialty) ?? "civil");
     setEditZoneIds((user.zones ?? []).map((z) => z.id));
-    setEditViewReports(Boolean(user.permissions?.view_admin_reports));
+    setPermToggles(effectivePermissions(user.role, user.permissions ?? undefined));
     setEditZoneDropdownOpen(false);
     setDeleteConfirm(false);
   };
@@ -259,17 +332,23 @@ export function UsersManagementContent() {
       return;
     }
     setEditSaving(true);
+    const patchBody: Record<string, unknown> = {
+      full_name: editName.trim(),
+      role: editRole,
+      region: editRegion.trim() || null,
+      specialty: editSpecialty,
+      zone_ids: editZoneIds,
+    };
+    if (editRole !== "admin" && permToggles) {
+      patchBody.permissions = {
+        ...permToggles,
+        view_admin_reports: permToggles.view_reports,
+      };
+    }
     const res = await fetch(`/api/admin/users/${editingUser.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        full_name: editName.trim(),
-        role: editRole,
-        region: editRegion.trim() || null,
-        specialty: editSpecialty,
-        zone_ids: editZoneIds,
-        permissions: { view_admin_reports: editViewReports },
-      }),
+      body: JSON.stringify(patchBody),
     });
     const data = (await res.json()) as { ok?: boolean; error?: string };
     setEditSaving(false);
@@ -443,6 +522,39 @@ export function UsersManagementContent() {
               </button>
             </div>
 
+            <div className="mb-4 flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-900/50">
+              <button
+                type="button"
+                className={cn(
+                  "flex-1 rounded-md px-3 py-2 text-sm font-medium transition",
+                  inviteMode === "invite"
+                    ? "bg-white text-slate-900 shadow dark:bg-slate-800 dark:text-slate-50"
+                    : "text-slate-600 hover:text-slate-900 dark:text-slate-400",
+                )}
+                onClick={() => {
+                  setInviteMode("invite");
+                  setInviteErrors((e) => ({ ...e, password: undefined }));
+                }}
+              >
+                دعوة بالبريد
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex-1 rounded-md px-3 py-2 text-sm font-medium transition",
+                  inviteMode === "direct_password"
+                    ? "bg-white text-slate-900 shadow dark:bg-slate-800 dark:text-slate-50"
+                    : "text-slate-600 hover:text-slate-900 dark:text-slate-400",
+                )}
+                onClick={() => {
+                  setInviteMode("direct_password");
+                  setInviteErrors((e) => ({ ...e, password: undefined }));
+                }}
+              >
+                إنشاء فوري (بريد + كلمة مرور)
+              </button>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <p className="mb-2 text-sm font-medium">الاسم الكامل</p>
@@ -458,7 +570,7 @@ export function UsersManagementContent() {
               </div>
 
               <div>
-                <p className="mb-2 text-sm font-medium">الإيميل</p>
+                <p className="mb-2 text-sm font-medium">البريد الإلكتروني (اسم الدخول)</p>
                 <Input
                   type="email"
                   value={inviteEmail}
@@ -470,6 +582,23 @@ export function UsersManagementContent() {
                 />
                 {inviteErrors.email ? <p className="mt-1 text-xs text-red-600">{inviteErrors.email}</p> : null}
               </div>
+
+              {inviteMode === "direct_password" ? (
+                <div>
+                  <p className="mb-2 text-sm font-medium">كلمة المرور</p>
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    value={invitePassword}
+                    onChange={(e) => {
+                      setInvitePassword(e.target.value);
+                      setInviteErrors((prev) => ({ ...prev, password: undefined }));
+                    }}
+                    placeholder="8 أحرف على الأقل"
+                  />
+                  {inviteErrors.password ? <p className="mt-1 text-xs text-red-600">{inviteErrors.password}</p> : null}
+                </div>
+              ) : null}
 
               <div>
                 <p className="mb-2 text-sm font-medium">رقم الجوال</p>
@@ -581,7 +710,7 @@ export function UsersManagementContent() {
                 onClick={() => void inviteUser()}
                 disabled={inviting}
               >
-                {inviting ? "جاري الإرسال..." : "إرسال الدعوة"}
+                {inviting ? "جاري المعالجة..." : inviteMode === "direct_password" ? "إنشاء الحساب وتفعيله" : "إرسال الدعوة"}
               </button>
             </div>
           </div>
@@ -609,7 +738,11 @@ export function UsersManagementContent() {
                 <select
                   className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
                   value={editRole}
-                  onChange={(e) => setEditRole(e.target.value as UserRole)}
+                  onChange={(e) => {
+                    const nr = e.target.value as UserRole;
+                    setEditRole(nr);
+                    setPermToggles(effectivePermissions(nr, editingUser.permissions ?? undefined));
+                  }}
                 >
                   {ROLE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -659,11 +792,28 @@ export function UsersManagementContent() {
                   </div>
                 ) : null}
               </div>
-              <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <label className="flex cursor-pointer items-center gap-2 text-sm">
-                  <input type="checkbox" checked={editViewReports} onChange={(e) => setEditViewReports(e.target.checked)} />
-                  <span>صلاحية عرض تقارير الإدارة (لوحة التقارير)</span>
-                </label>
+              <div className="md:col-span-2 space-y-2">
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">صلاحيات الواجهة</p>
+                {editRole === "admin" ? (
+                  <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
+                    مدير النظام يملك جميع الصلاحيات تلقائياً.
+                  </p>
+                ) : (
+                  APP_PERMISSION_KEYS.map((key) => (
+                    <PermToggle
+                      key={key}
+                      label={PERM_LABELS_AR[key]}
+                      checked={Boolean(permToggles?.[key])}
+                      onChange={(v) =>
+                        setPermToggles((prev) => {
+                          const base =
+                            prev ?? effectivePermissions(editRole, editingUser.permissions ?? undefined);
+                          return { ...base, [key]: v };
+                        })
+                      }
+                    />
+                  ))
+                )}
               </div>
             </div>
 

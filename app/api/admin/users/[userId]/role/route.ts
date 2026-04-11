@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireManageUsers } from "@/lib/auth-guards";
 
 type RolePayload = {
   role?:
@@ -13,32 +13,8 @@ type RolePayload = {
     | "reporter";
 };
 
-async function ensureAdminAccess() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    return { ok: false as const, status: 401 };
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError || profile?.role !== "admin") {
-    return { ok: false as const, status: 403 };
-  }
-
-  return { ok: true as const };
-}
-
 export async function PATCH(request: Request, context: { params: Promise<{ userId: string }> }) {
-  const access = await ensureAdminAccess();
+  const access = await requireManageUsers();
   if (!access.ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
   }

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { effectivePermissions } from "@/lib/permissions";
 
 type TopPerformer = {
   id: string;
@@ -23,11 +24,9 @@ export default async function ReportsPage() {
     .eq("id", user.id)
     .single();
 
-  const perms = profile?.permissions as { view_admin_reports?: boolean } | null | undefined;
-  const allowedRole = profile?.role && ["admin", "project_manager", "projects_director"].includes(profile.role);
-  const allowedByPermission = Boolean(perms?.view_admin_reports);
-  if (!allowedRole && !allowedByPermission) {
-    redirect("/dashboard/tickets");
+  const canReports = effectivePermissions(profile?.role, profile?.permissions as Record<string, unknown> | null).view_reports;
+  if (!canReports) {
+    redirect("/dashboard");
   }
 
   const { count: totalDone } = await supabase

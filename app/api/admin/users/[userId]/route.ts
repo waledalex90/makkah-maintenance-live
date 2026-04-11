@@ -1,30 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-
-async function ensureAdminAccess() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    return { ok: false as const, status: 401 };
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError || profile?.role !== "admin") {
-    return { ok: false as const, status: 403 };
-  }
-
-  return { ok: true as const };
-}
+import { requireManageUsers } from "@/lib/auth-guards";
 
 type PatchBody = {
   full_name?: string;
@@ -43,7 +20,7 @@ type PatchBody = {
 };
 
 export async function PATCH(request: Request, context: { params: Promise<{ userId: string }> }) {
-  const access = await ensureAdminAccess();
+  const access = await requireManageUsers();
   if (!access.ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
   }
@@ -60,7 +37,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
   if (body.permissions !== undefined && typeof body.permissions === "object" && body.permissions !== null) {
     const { data: current } = await admin.from("profiles").select("permissions").eq("id", userId).single();
     const prev = (current?.permissions as Record<string, unknown> | null) ?? {};
-    updates.permissions = { ...prev, ...body.permissions };
+    const merged = { ...prev, ...body.permissions } as Record<string, unknown>;
+    if (merged.view_reports !== undefined) {
+      merged.view_admin_reports = merged.view_reports;
+    }
+    updates.permissions = merged;
   }
 
   if (Object.keys(updates).length > 0) {
@@ -90,7 +71,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
 }
 
 export async function DELETE(_request: Request, context: { params: Promise<{ userId: string }> }) {
-  const access = await ensureAdminAccess();
+  const access = await requireManageUsers();
   if (!access.ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
   }

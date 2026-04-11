@@ -4,21 +4,31 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, MapPinned, Settings, Ticket } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { AppPermissionKey } from "@/lib/permissions";
 
 type DashboardBottomNavProps = {
-  role: string;
+  permissions: Record<AppPermissionKey, boolean>;
 };
 
-export function DashboardBottomNav({ role }: DashboardBottomNavProps) {
-  const pathname = usePathname();
-  const nav = [
-    { href: "/dashboard", label: "الرئيسية", icon: LayoutDashboard },
-    { href: "/dashboard/tickets", label: "الطلبات", icon: Ticket },
-    { href: "/dashboard/map", label: "الخريطة", icon: MapPinned },
-    { href: "/dashboard/settings", label: "الإعدادات", icon: Settings },
-  ];
+const MOBILE_NAV: Array<{
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  perm: AppPermissionKey;
+}> = [
+  { href: "/dashboard", label: "الرئيسية", icon: LayoutDashboard, perm: "view_dashboard" },
+  { href: "/dashboard/tickets", label: "الطلبات", icon: Ticket, perm: "view_tickets" },
+  { href: "/dashboard/map", label: "الخريطة", icon: MapPinned, perm: "view_map" },
+  { href: "/dashboard/settings", label: "الإعدادات", icon: Settings, perm: "view_settings" },
+];
 
-  const filtered = role === "reporter" ? nav.filter((item) => item.href !== "/dashboard/map") : nav;
+export function DashboardBottomNav({ permissions }: DashboardBottomNavProps) {
+  const pathname = usePathname();
+  const filtered = MOBILE_NAV.filter((item) => permissions[item.perm]);
+
+  if (filtered.length === 0) {
+    return null;
+  }
 
   return (
     <nav

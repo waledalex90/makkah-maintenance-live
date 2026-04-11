@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { OperationsMapLoader } from "@/components/operations-map-loader";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { effectivePermissions } from "@/lib/permissions";
 
 export default async function DashboardMapPage() {
   const supabase = await createSupabaseServerClient();
@@ -14,12 +15,13 @@ export default async function DashboardMapPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, permissions")
     .eq("id", user.id)
     .single();
 
-  if (profile?.role === "reporter") {
-    redirect("/dashboard/tickets");
+  const perms = effectivePermissions(profile?.role, profile?.permissions as Record<string, unknown> | null);
+  if (!perms.view_map) {
+    redirect("/dashboard");
   }
 
   return <OperationsMapLoader />;

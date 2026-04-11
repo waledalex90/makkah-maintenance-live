@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TicketMediaDropzone } from "@/components/ticket-media-dropzone";
+import { arabicErrorMessage } from "@/lib/arabic-errors";
 import { type TicketStatus, statusBadgeVariant, statusLabelAr } from "@/lib/ticket-status";
 
 type TicketRow = {
@@ -85,9 +86,9 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
         .limit(100),
     ]);
 
-    if (zonesRes.error) toast.error(zonesRes.error.message);
-    if (categoriesRes.error) toast.error(categoriesRes.error.message);
-    if (ticketsRes.error) toast.error(ticketsRes.error.message);
+    if (zonesRes.error) toast.error(arabicErrorMessage(zonesRes.error.message));
+    if (categoriesRes.error) toast.error(arabicErrorMessage(categoriesRes.error.message));
+    if (ticketsRes.error) toast.error(arabicErrorMessage(ticketsRes.error.message));
 
     setZones((zonesRes.data as ZoneRow[]) ?? []);
     setCategories((categoriesRes.data as CategoryRow[]) ?? []);

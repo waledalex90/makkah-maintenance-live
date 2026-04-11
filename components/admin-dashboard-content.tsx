@@ -16,6 +16,7 @@ import {
   statusDotClass,
   statusLabelAr,
 } from "@/lib/ticket-status";
+import { arabicErrorMessage } from "@/lib/arabic-errors";
 import {
   formatSaudiDateTime,
   formatSaudiNow,
@@ -141,14 +142,6 @@ function mapCategoryToSpecialty(categoryName: string): string | null {
   if (lower.includes("مدني") || lower.includes("مدنى") || lower.includes("civil")) return "civil";
   if (lower.includes("مطابخ") || lower.includes("kitchen")) return "kitchens";
   return null;
-}
-
-function arabicErrorMessage(message: string): string {
-  const m = message.toLowerCase();
-  if (m.includes("jwt") || m.includes("session")) return "انتهت الجلسة. يرجى تسجيل الدخول مجددًا.";
-  if (m.includes("permission") || m.includes("policy")) return "لا تملك صلاحية لتنفيذ هذا الإجراء.";
-  if (m.includes("network") || m.includes("fetch")) return "تعذر الاتصال بالخادم. تحقق من الشبكة.";
-  return message;
 }
 
 /** ترتيب مسؤول البلاغات: متأخر الاستلام أولاً، ثم قيد التنفيذ، ثم الباقي (الأحدث داخل كل مجموعة) */
@@ -899,17 +892,18 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                 )}
               </ul>
             </div>
-            <div className="rounded-lg border border-red-300 bg-red-50/60 p-3">
-              <p className="mb-2 text-sm font-semibold text-red-900">تحذير غرامة (مهلة الساعة)</p>
-              <p className="mb-2 text-xs text-red-800">
-                عند بلوغ عمر البلاغ 40 دقيقة ولم يُنهَ — يتبقى 20 دقيقة على نهاية مهلة الساعة.
+            <div className="animate-pulse rounded-lg border-4 border-red-600 bg-red-100 p-3 shadow-lg shadow-red-300/50 ring-4 ring-red-500/30">
+              <p className="mb-2 text-base font-black text-red-950">تحذير غرامة — مهلة الساعة</p>
+              <p className="mb-2 text-xs font-semibold text-red-900">
+                عند بلوغ عمر البلاغ 40 دقيقة دون إنهاء — يتبقى 20 دقيقة فقط على نهاية مهلة الساعة (من لحظة الإنشاء بتوقيت
+                السعودية).
               </p>
               <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
                 {reporterTasks.penalty.length === 0 ? (
-                  <li className="text-slate-600">لا توجد بلاغات ضمن نطاق التحذير حاليًا.</li>
+                  <li className="text-slate-700">لا توجد بلاغات ضمن نطاق التحذير حاليًا.</li>
                 ) : (
                   reporterTasks.penalty.map((t) => (
-                    <li key={t.id} className="rounded border border-red-200 bg-white p-2">
+                    <li key={t.id} className="rounded border-2 border-red-500 bg-white p-2 shadow-sm">
                       <button
                         type="button"
                         className="w-full text-right font-medium text-red-950"

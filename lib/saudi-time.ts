@@ -9,6 +9,12 @@ export function getAgeMs(createdAtIso: string, nowMs: number): number {
   return Math.max(0, nowMs - new Date(createdAtIso).getTime());
 }
 
+/**
+ * دقائق عمر البلاغ من لحظة الإنشاء حتى «الآن».
+ * أعمار البلاغات (دقيقتان، 40 دقيقة، مهلة الساعة) تُحسب من فرق الطابع الزمني الفعلي
+ * بين `created_at` (timestamptz) والوقت الحالي — مطابق لساعة المملكة (GMT+3) لأن كلا الطرفين
+ * يمثلان نفس اللحظة العالمية.
+ */
 export function getAgeMinutes(createdAtIso: string, nowMs: number): number {
   return Math.floor(getAgeMs(createdAtIso, nowMs) / 60_000);
 }

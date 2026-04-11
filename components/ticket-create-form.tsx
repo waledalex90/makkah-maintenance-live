@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TicketMediaDropzone } from "@/components/ticket-media-dropzone";
+import { arabicErrorMessage } from "@/lib/arabic-errors";
 import type { TicketStatus } from "@/lib/ticket-status";
 
 type ZoneRow = {
@@ -50,8 +51,8 @@ export function TicketCreateForm({ role: _role, onCreated, onCancel }: TicketCre
         supabase.from("zones").select("id, name").order("name"),
         supabase.from("ticket_categories").select("id, name").eq("is_active", true).order("id"),
       ]);
-      if (zonesRes.error) toast.error(zonesRes.error.message);
-      if (categoriesRes.error) toast.error(categoriesRes.error.message);
+      if (zonesRes.error) toast.error(arabicErrorMessage(zonesRes.error.message));
+      if (categoriesRes.error) toast.error(arabicErrorMessage(categoriesRes.error.message));
       setZones((zonesRes.data as ZoneRow[]) ?? []);
       setCategories((categoriesRes.data as CategoryRow[]) ?? []);
       setLoading(false);
@@ -133,7 +134,7 @@ export function TicketCreateForm({ role: _role, onCreated, onCancel }: TicketCre
       .single();
 
     if (ticketError || !ticketData) {
-      toast.error(ticketError?.message ?? "تعذر إنشاء البلاغ.");
+      toast.error(arabicErrorMessage(ticketError?.message ?? "تعذر إنشاء البلاغ."));
       setCreating(false);
       return;
     }

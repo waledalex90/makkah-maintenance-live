@@ -22,7 +22,7 @@ const MOBILE_NAV: Array<{
 }> = [
   { href: "/dashboard", label: "الرئيسية", icon: LayoutDashboard, perm: "view_dashboard" },
   { href: "/dashboard/tickets", label: "الطلبات", icon: Ticket, perm: "view_tickets" },
-  { href: "/dashboard/tasks", label: "المهام", icon: ListTodo, perm: "view_tickets", roles: ["reporter"] },
+  { href: "/dashboard/tasks", label: "المهام", icon: ListTodo, perm: "view_tickets", roles: ["reporter", "admin"] },
   { href: "/dashboard/map", label: "الخريطة", icon: MapPinned, perm: "view_map" },
   { href: "/dashboard/settings", label: "الإعدادات", icon: Settings, perm: "view_settings" },
 ];

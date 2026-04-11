@@ -59,6 +59,7 @@ export function ReporterTasksPageContent() {
   const [followups, setFollowups] = useState<FollowupRow[]>([]);
   const [profiles, setProfiles] = useState<Record<string, string>>({});
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [myRole, setMyRole] = useState<string | null>(null);
   const [nowTs, setNowTs] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
@@ -105,6 +106,12 @@ export function ReporterTasksPageContent() {
         data: { user },
       } = await supabase.auth.getUser();
       setMyUserId(user?.id ?? null);
+      if (!user?.id) {
+        setMyRole(null);
+        return;
+      }
+      const { data: prof } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
+      setMyRole((prof as { role?: string } | null)?.role ?? null);
     })();
   }, []);
 
@@ -239,6 +246,8 @@ export function ReporterTasksPageContent() {
 
   const ticketLabel = (t: TicketRow) => t.external_ticket_number || t.ticket_number || t.id.slice(0, 8);
 
+  const showReporterFollowupControls = myRole === "reporter";
+
   const renderTable = (rows: TicketRow[], kind: "followup" | "timeline" | "external") => {
     if (rows.length === 0) {
       return <p className="py-6 text-center text-sm text-slate-500">لا توجد عناصر في هذا القسم حاليًا.</p>;
@@ -279,26 +288,30 @@ export function ReporterTasksPageContent() {
                   ) : null}
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap items-center justify-end gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100"
-                        disabled={busy}
-                        onClick={() => void toggleWorking(t.id)}
-                      >
-                        {myWorking(t.id) ? "إيقاف المتابعة" : "جاري العمل"}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="border-slate-200"
-                        disabled={busy}
-                        onClick={() => void markDone(t.id)}
-                      >
-                        تم الانتهاء
-                      </Button>
+                      {showReporterFollowupControls ? (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100"
+                            disabled={busy}
+                            onClick={() => void toggleWorking(t.id)}
+                          >
+                            {myWorking(t.id) ? "إيقاف المتابعة" : "جاري العمل"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="border-slate-200"
+                            disabled={busy}
+                            onClick={() => void markDone(t.id)}
+                          >
+                            تم الانتهاء
+                          </Button>
+                        </>
+                      ) : null}
                       <Link
                         href={`/dashboard/tickets?open=${t.id}`}
                         className={cn(
@@ -333,7 +346,9 @@ export function ReporterTasksPageContent() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">إدارة المهام</h1>
           <p className="mt-1 text-sm text-slate-600">
-            متابعة منظّمة للبلاغات حسب الأولوية (الأقدم أولاً) — التوقيت المرجعي: مكة المكرمة (GMT+٣).
+            {myRole === "admin"
+              ? "نظرة عامة على البلاغات والتنبيهات الزمنية (صلاحية رؤية حسب سياسة النظام)."
+              : "متابعة منظّمة للبلاغات حسب الأولوية (الأقدم أولاً) — التوقيت المرجعي: مكة المكرمة (GMT+٣)."}
           </p>
           <p className="mt-1 text-xs text-slate-500" suppressHydrationWarning>
             التوقيت الحالي: {formatSaudiNow(nowTs)}

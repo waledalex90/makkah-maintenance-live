@@ -351,14 +351,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       const { data: catRows } = await supabase.from("ticket_categories").select("id").ilike("name", `%${q}%`);
       const matchedCategoryIds = (catRows ?? []).map((r) => r.id as number);
 
-      /** لا نستخدم ticket_number.cast.text داخل .or() — PostgREST يفشل تحليل الشجرة (logic tree). */
-      const orParts = [`external_ticket_number.ilike.%${q}%`];
-      if (/^\d+$/.test(q)) {
-        const n = Number(q);
-        if (Number.isFinite(n) && Number.isSafeInteger(n)) {
-          orParts.push(`ticket_number.eq.${n}`);
-        }
-      }
+      /** بحث نصي على الرقم الداخلي عبر عمود مولَّد ticket_number_text (لا cast داخل .or()) */
+      const orParts = [`external_ticket_number.ilike.%${q}%`, `ticket_number_text.ilike.%${q}%`];
       if (matchedZoneIds.length > 0) {
         /** PostgREST: قيم uuid تحتوي على شرطات يجب أن تُقتبس وإلا يُفسَّر الشرط كعامل طرح */
         const quoted = matchedZoneIds.map((id) => `"${id}"`).join(",");

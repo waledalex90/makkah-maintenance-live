@@ -309,6 +309,15 @@ export function TicketDetailDrawer({
   const updateStatus = async () => {
     if (!ticketId || !statusDraft) return;
 
+    if (
+      statusDraft === "finished" &&
+      ticketAttachments.length === 0 &&
+      (myRole === "technician" || myRole === "supervisor" || myRole === "engineer")
+    ) {
+      toast.error("أضف مرفقاً يوضّح الإصلاح أو استخدم «تم الإصلاح» مع صورة قبل الإغلاق.");
+      return;
+    }
+
     setStatusUpdating(true);
     const { error } = await supabase
       .from("tickets")
@@ -509,6 +518,7 @@ export function TicketDetailDrawer({
     myRole === "admin" ||
     myRole === "project_manager" ||
     myRole === "projects_director" ||
+    myRole === "engineer" ||
     myRole === "supervisor" ||
     myRole === "technician" ||
     myRole === "reporter";
@@ -531,7 +541,9 @@ export function TicketDetailDrawer({
     myRole === "projects_director" ||
     (myRole === "supervisor" && ticket?.assigned_supervisor_id === myUserId);
 
-  const showTechnicianQuickActions = myRole === "technician" && ticket?.status !== "finished";
+  const showFieldQuickActions =
+    (myRole === "technician" || myRole === "supervisor" || myRole === "engineer") &&
+    ticket?.status !== "finished";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -682,7 +694,7 @@ export function TicketDetailDrawer({
                   </div>
                 ) : null}
 
-                {showTechnicianQuickActions ? (
+                {showFieldQuickActions ? (
                   <div className="mt-4 space-y-2">
                     <input
                       ref={fixedUploadInputRef}

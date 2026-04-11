@@ -27,7 +27,7 @@ const NAV_DEF: NavItem[] = [
   { href: "/dashboard/map", label: "الخريطة", icon: MapPinned, perm: "view_map" },
   { href: "/dashboard", label: "لوحة التحكم", icon: LayoutDashboard, perm: "view_dashboard" },
   { href: "/dashboard/tickets", label: "البلاغات", icon: Ticket, perm: "view_tickets" },
-  { href: "/dashboard/tasks", label: "المهام", icon: ListTodo, perm: "view_tickets", roles: ["reporter"] },
+  { href: "/dashboard/tasks", label: "المهام", icon: ListTodo, perm: "view_tickets", roles: ["reporter", "admin"] },
   { href: "/dashboard/reports", label: "التقارير", icon: BarChart3, perm: "view_reports" },
   { href: "/dashboard/admin/zones", label: "إدارة المناطق", icon: MapPinned, perm: "manage_zones" },
   { href: "/dashboard/admin/users", label: "إدارة المستخدمين", icon: Users, perm: "manage_users" },

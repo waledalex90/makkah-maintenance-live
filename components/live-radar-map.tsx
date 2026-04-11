@@ -196,6 +196,7 @@ export function LiveRadarMap({ zoneFilter }: LiveRadarMapProps) {
             url={streetsTile.url}
             maxZoom={streetsTile.maxZoom}
             maxNativeZoom={streetsTile.maxNativeZoom}
+            crossOrigin={streetsTile.crossOrigin}
           />
           <FitMapBounds points={mapPoints} />
           {visibleFleet.map((loc) => {

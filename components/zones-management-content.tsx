@@ -405,6 +405,7 @@ export function ZonesManagementContent() {
                       url={mapTiles.url}
                       maxZoom={mapTiles.maxZoom}
                       maxNativeZoom={mapTiles.maxNativeZoom}
+                      crossOrigin={mapTiles.crossOrigin}
                     />
                     <MiniMapCenterController center={miniMapCenter} />
                     <ZoneLocationPickerMap

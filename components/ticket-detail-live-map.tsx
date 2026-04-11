@@ -59,6 +59,7 @@ export function TicketDetailLiveMap({ focusPoint, staffPins, ticketLabel }: Tick
           url={streetsTile.url}
           maxZoom={streetsTile.maxZoom}
           maxNativeZoom={streetsTile.maxNativeZoom}
+          crossOrigin={streetsTile.crossOrigin}
         />
         <FocusOnPoint point={focusPoint} />
         <Marker position={focusPoint} icon={ticketDotIcon("#0f172a", ticketLabel)} />

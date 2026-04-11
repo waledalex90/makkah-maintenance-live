@@ -378,6 +378,7 @@ export function OperationsMap() {
                 url={streetsTileProps.url}
                 maxNativeZoom={streetsTileProps.maxNativeZoom}
                 maxZoom={streetsTileProps.maxZoom}
+                crossOrigin={streetsTileProps.crossOrigin}
               />
             </LayersControl.BaseLayer>
 
@@ -388,6 +389,7 @@ export function OperationsMap() {
                   url={mapTilerSatelliteTileUrl(mapTilerKey)}
                   maxNativeZoom={22}
                   maxZoom={22}
+                  crossOrigin
                 />
               </LayersControl.BaseLayer>
             ) : null}

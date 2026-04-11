@@ -22,6 +22,7 @@ import {
   statusBadgeVariant,
   statusLabelAr,
 } from "@/lib/ticket-status";
+import { TicketReceptionCaption } from "@/components/ticket-reception-caption";
 
 export type { TicketStatus } from "@/lib/ticket-status";
 
@@ -45,6 +46,11 @@ export type TicketDetailRow = {
   ticket_categories?: { name: string } | { name: string }[] | null;
   created_at: string;
   closed_at?: string | null;
+  closed_by?: string | null;
+  assigned_technician?: { full_name: string } | null;
+  assigned_supervisor?: { full_name: string } | null;
+  assigned_engineer?: { full_name: string } | null;
+  closed_by_profile?: { full_name: string } | null;
 };
 
 type StaffOption = { staff_id: string; full_name: string };
@@ -616,9 +622,12 @@ export function TicketDetailDrawer({
                       ? senderNameMap[ticket.assigned_technician_id] ?? ticket.assigned_technician_id.slice(0, 8)
                       : "غير مُكلّف"}
                   </p>
-                  <div className="flex items-center gap-2 pt-1">
-                    <span className="font-medium">الحالة:</span>
-                    <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabelAr(ticket.status)}</Badge>
+                  <div className="flex flex-col gap-1 pt-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">الحالة:</span>
+                      <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabelAr(ticket.status)}</Badge>
+                    </div>
+                    <TicketReceptionCaption ticket={ticket} />
                   </div>
                 </div>
 

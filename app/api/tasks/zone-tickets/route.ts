@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ZONE_TICKET_WITH_HANDLER_PROFILES } from "@/lib/ticket-handler-select";
 import { ticketCategoryNameMatchesSpecialty } from "@/lib/specialty-category-match";
 
 /** كل الحالات عدا finished — يبقى البلاغ ظاهراً بعد الاستلام (received) لكل من له نفس المنطقة والتخصص */
 const VISIBLE_UNTIL_CLOSED = "finished" as const;
 
-const TICKET_SELECT =
-  "id, ticket_number, external_ticket_number, location, description, status, created_at, assigned_technician_id, assigned_supervisor_id, assigned_engineer_id, zone_id, category_id, category, ticket_categories(name), zones(name)";
+const TICKET_SELECT = ZONE_TICKET_WITH_HANDLER_PROFILES;
 
 type TicketRow = {
   zone_id: string | null;
@@ -14,6 +14,11 @@ type TicketRow = {
   assigned_technician_id: string | null;
   assigned_supervisor_id: string | null;
   assigned_engineer_id: string | null;
+  closed_by?: string | null;
+  assigned_technician?: { full_name: string } | null;
+  assigned_supervisor?: { full_name: string } | null;
+  assigned_engineer?: { full_name: string } | null;
+  closed_by_profile?: { full_name: string } | null;
   zones?: { name?: string } | { name?: string }[] | null;
   ticket_categories?: { name: string } | { name: string }[] | null;
 };
@@ -112,7 +117,7 @@ export async function GET() {
       return NextResponse.json({ error: poolErr.message }, { status: 400 });
     }
 
-    const poolRows = (zonePool ?? []) as TicketRow[];
+    const poolRows = (zonePool ?? []) as unknown as TicketRow[];
     const filteredPool = poolRows.filter((row) => rowMatchesPoolFilters(row, specialty, region));
 
     /** لا نُخفِ البلاغ من المنطقة بعد التعيين — يظل ظاهراً لزملاء المنطقة/التخصص حتى finished */

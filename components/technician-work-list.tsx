@@ -7,6 +7,8 @@ import { LogoutButton } from "@/components/logout-button";
 import { supabase } from "@/lib/supabase";
 import { playWorkNotificationSound } from "@/lib/work-notification";
 import { TicketDetailDrawer, type TicketDetailRow } from "@/components/ticket-detail-drawer";
+import { TicketReceptionCaption } from "@/components/ticket-reception-caption";
+import { TICKET_DRAWER_WITH_HANDLER_PROFILES } from "@/lib/ticket-handler-select";
 import { formatSaudiDateTime } from "@/lib/saudi-time";
 import { type TicketStatus, statusLabelAr } from "@/lib/ticket-status";
 
@@ -29,6 +31,11 @@ type TechnicianTicket = {
   ticket_categories?: { name: string } | { name: string }[] | null;
   zones?: ZoneJoin;
   closed_at?: string | null;
+  closed_by?: string | null;
+  assigned_technician?: { full_name: string } | null;
+  assigned_supervisor?: { full_name: string } | null;
+  assigned_engineer?: { full_name: string } | null;
+  closed_by_profile?: { full_name: string } | null;
 };
 
 type ZoneNotificationRow = {
@@ -114,9 +121,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
   const loadDrawerTicket = async (ticketId: string) => {
     const { data, error } = await supabase
       .from("tickets")
-      .select(
-        "id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, location, description, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, category_id, category, ticket_categories(name), zones(name), created_at, closed_at",
-      )
+      .select(TICKET_DRAWER_WITH_HANDLER_PROFILES)
       .eq("id", ticketId)
       .single();
 
@@ -124,7 +129,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       toast.error("تعذر تحميل تفاصيل البلاغ.");
       return;
     }
-    const row = data as TicketDetailRow;
+    const row = data as unknown as TicketDetailRow;
     if (row.assigned_engineer_id === undefined) {
       row.assigned_engineer_id = null;
     }
@@ -163,7 +168,6 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
             if (was !== myUserId && now === myUserId) {
               playWorkNotificationSound();
               toast.success("تم تكليفك كمشرف على بلاغ جديد.");
-              void loadTickets();
             }
           } else {
             const was = oldRow.assigned_technician_id as string | undefined;
@@ -171,9 +175,9 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
             if (was !== myUserId && now === myUserId) {
               playWorkNotificationSound();
               toast.success("تم تكليفك بتنفيذ بلاغ جديد.");
-              void loadTickets();
             }
           }
+          void loadTickets();
         },
       )
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "tickets" }, () => void loadTickets())
@@ -366,6 +370,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                       <p className="text-xs text-slate-600">
                         الحالة: {statusLabelAr(ticket.status)} — وقت الإنشاء: {formatSaudiDateTime(ticket.created_at)}
                       </p>
+                      <TicketReceptionCaption ticket={ticket} className="mt-1" />
                       <p className="mt-1 text-slate-700">{ticket.title ?? ticket.location}</p>
                     </button>
                     {role === "technician" && tab === "area" && ticket.status !== "finished" ? (

@@ -11,6 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TicketCreateForm } from "@/components/ticket-create-form";
 import { TicketChatPanel } from "@/components/ticket-chat-panel";
+import { TicketReceptionCaption } from "@/components/ticket-reception-caption";
+import { TICKET_ROW_WITH_HANDLER_PROFILES } from "@/lib/ticket-handler-select";
+import { ticketReceptionExportLine } from "@/lib/ticket-reception-label";
 import {
   type TicketStatus,
   statusBadgeVariant,
@@ -60,6 +63,11 @@ type TicketRow = {
   zone_id: string | null;
   created_at: string;
   closed_at?: string | null;
+  closed_by?: string | null;
+  assigned_technician?: { full_name: string } | null;
+  assigned_supervisor?: { full_name: string } | null;
+  assigned_engineer?: { full_name: string } | null;
+  closed_by_profile?: { full_name: string } | null;
 };
 
 type TicketAttachmentRow = {
@@ -324,7 +332,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
     let query = supabase
       .from("tickets")
-      .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at, closed_at", { count: "exact" })
+      .select(TICKET_ROW_WITH_HANDLER_PROFILES, { count: "exact" })
       .order("created_at", { ascending: false })
       .range(from, to);
 
@@ -371,7 +379,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       return;
     }
 
-    const rowsRaw = (data as TicketRow[]) ?? [];
+    const rowsRaw = (data as unknown as TicketRow[]) ?? [];
     const rows = isReporterDesk ? sortReporterTickets(rowsRaw, nowTs) : rowsRaw;
     setPageTickets(rows);
     setTotalCount(count ?? 0);
@@ -405,7 +413,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     const [ticketRes, attachmentsRes, staffRes] = await Promise.all([
       supabase
         .from("tickets")
-        .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at, closed_at")
+        .select(TICKET_ROW_WITH_HANDLER_PROFILES)
         .eq("id", ticket.id)
         .single(),
       supabase
@@ -421,10 +429,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     if (ticketRes.error) {
       toast.error("تعذر تحميل تفاصيل البلاغ.");
     } else if (ticketRes.data) {
-      setSelectedTicket(ticketRes.data as TicketRow);
+      setSelectedTicket(ticketRes.data as unknown as TicketRow);
     }
     setDetailAttachments((attachmentsRes.data as TicketAttachmentRow[]) ?? []);
-    const ticketData = (ticketRes.data as TicketRow | null) ?? ticket;
+    const ticketData = (ticketRes.data as unknown as TicketRow | null) ?? ticket;
     let ticketZoneCenter: [number, number] | null = null;
     if (ticketData.zone_id) {
       const zone = zones.find((z) => z.id === ticketData.zone_id);
@@ -571,7 +579,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const openTicketById = async (ticketId: string) => {
     const { data, error } = await supabase
       .from("tickets")
-      .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at, closed_at")
+      .select(TICKET_ROW_WITH_HANDLER_PROFILES)
       .eq("id", ticketId)
       .single();
 
@@ -580,7 +588,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       return;
     }
 
-    await openTicketModal(data as TicketRow);
+    await openTicketModal(data as unknown as TicketRow);
   };
 
   useEffect(() => {
@@ -600,14 +608,15 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     if (selectedTicket) {
       const { data } = await supabase
         .from("tickets")
-        .select("id, ticket_number, external_ticket_number, reporter_name, reporter_phone, title, category_id, ticket_categories(name), location, description, latitude, longitude, status, assigned_engineer_id, assigned_supervisor_id, assigned_technician_id, zone_id, created_at, closed_at")
+        .select(TICKET_ROW_WITH_HANDLER_PROFILES)
         .eq("id", selectedTicket.id)
         .single();
 
       if (data) {
-        setSelectedTicket(data as TicketRow);
-        setModalSupervisorPick(data.assigned_supervisor_id ?? "");
-        setModalTechnicianPick(data.assigned_technician_id ?? "");
+        const row = data as unknown as TicketRow;
+        setSelectedTicket(row);
+        setModalSupervisorPick(row.assigned_supervisor_id ?? "");
+        setModalTechnicianPick(row.assigned_technician_id ?? "");
       }
     }
   };
@@ -680,7 +689,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   ].includes(role);
 
   const exportCurrentView = () => {
-    const headers = ["رقم البلاغ", "التصنيف", "المنطقة", "مقدم البلاغ", "الوصف", "الحالة", "العمر الزمني"];
+    const headers = ["رقم البلاغ", "التصنيف", "المنطقة", "مقدم البلاغ", "الوصف", "الحالة", "متابعة الاستلام", "العمر الزمني"];
     const rows = pageTickets.map((ticket) => [
       String(ticket.external_ticket_number || ticket.ticket_number || ticket.id.slice(0, 8)),
       normalizeCategoryName(ticket.ticket_categories),
@@ -688,6 +697,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       ticket.reporter_name || "-",
       (ticket.description || ticket.title || ticket.location || "-").replace(/\r?\n/g, " "),
       statusLabelAr(ticket.status),
+      ticketReceptionExportLine(ticket),
       relativeAgeLabelSaudi(ticket.created_at, nowTs),
     ]);
     const csv = [headers, ...rows]
@@ -943,12 +953,15 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                       <td className="px-3 py-2">{ticket.reporter_name || "-"}</td>
                       <td className="max-w-xs truncate px-3 py-2">{ticket.description || ticket.title || ticket.location}</td>
                       <td className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`inline-block h-2.5 w-2.5 rounded-full ${statusDotClass(ticket.status)}`}
-                          />
-                          <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabelAr(ticket.status)}</Badge>
-                          {hasUnread ? <span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> : null}
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`inline-block h-2.5 w-2.5 rounded-full ${statusDotClass(ticket.status)}`}
+                            />
+                            <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabelAr(ticket.status)}</Badge>
+                            {hasUnread ? <span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> : null}
+                          </div>
+                          <TicketReceptionCaption ticket={ticket} />
                         </div>
                       </td>
                       <td className="px-3 py-2 text-xs text-slate-600">{relativeAgeLabelSaudi(ticket.created_at, nowTs)}</td>
@@ -983,6 +996,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                       </p>
                       <Badge variant={statusBadgeVariant(ticket.status)}>{statusLabelAr(ticket.status)}</Badge>
                     </div>
+                    <TicketReceptionCaption ticket={ticket} className="mb-2" />
                     <p className="mb-2 text-sm text-slate-700">
                       {ticket.description || ticket.title || ticket.location}
                     </p>
@@ -1126,6 +1140,13 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                         <span className="font-semibold">وقت الإغلاق:</span> {formatSaudiDateTime(selectedTicket.closed_at)}
                       </div>
                     ) : null}
+                    <div className="flex flex-col gap-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">الحالة:</span>
+                        <Badge variant={statusBadgeVariant(selectedTicket.status)}>{statusLabelAr(selectedTicket.status)}</Badge>
+                      </div>
+                      <TicketReceptionCaption ticket={selectedTicket} />
+                    </div>
                   </div>
                   <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <div>

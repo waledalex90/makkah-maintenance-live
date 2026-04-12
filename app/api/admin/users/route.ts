@@ -6,6 +6,7 @@ import { upsertProfileAndZones } from "@/lib/server/provision-dashboard-user";
 import { parseUsernameOrEmailLocalPart, toAuthEmail, displayLoginIdentifier } from "@/lib/username-auth";
 import type { AppPermissionKey } from "@/lib/permissions";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
+import { defaultAccessWorkListForRole } from "@/lib/access-work-list-defaults";
 
 type ProfileRow = {
   id: string;
@@ -168,6 +169,19 @@ export async function POST(request: Request) {
   const specialty = body.specialty ?? "civil";
   const zoneIds = Array.isArray(body.zone_ids) ? body.zone_ids.filter((value) => typeof value === "string") : [];
   const role = body.role ?? "technician";
+  const allowedInviteRoles = new Set<string>([
+    "admin",
+    "projects_director",
+    "project_manager",
+    "engineer",
+    "supervisor",
+    "technician",
+    "reporter",
+    "data_entry",
+  ]);
+  if (!allowedInviteRoles.has(role)) {
+    return NextResponse.json({ error: "دور غير صالح." }, { status: 400 });
+  }
   const mode = body.mode ?? "direct_password";
 
   if (mode === "invite") {
@@ -234,7 +248,7 @@ export async function POST(request: Request) {
       zoneIds,
       permissions,
       username: usernameNormalized,
-      access_work_list: true,
+      access_work_list: defaultAccessWorkListForRole(role),
     });
     if (zoneErr) {
       await adminSupabase.auth.admin.deleteUser(newUserId);

@@ -69,7 +69,7 @@ export async function GET(request: Request) {
       "1 = تفعيل واجهة مهام الميدان (/tasks/my-work) عند تسجيل الدخول. 0 = عدم التوجيه لهذه الواجهة.",
     ],
     [
-      "إذا تُرك الخلية فارغة: يُفعَّل تلقائياً للأدوار فني (technician) أو مهندس (engineer) أو مشرف (supervisor)، ويُعطَّل لبقية الأدوار.",
+      "إذا تُرك الخلية فارغة: يُفعَّل تلقائياً للأدوار فني (technician) أو مهندس (engineer) أو مشرف (supervisor) أو إدخال بيانات (data_entry)، ويُعطَّل لبقية الأدوار.",
     ],
   ];
   const wsGuide = XLSX.utils.aoa_to_sheet(instructionsAoa);
@@ -78,7 +78,7 @@ export async function GET(request: Request) {
   if (format === "csv") {
     const csv = XLSX.utils.sheet_to_csv(ws);
     const comment =
-      "# إرشادات: العمود access_work_list — أدخل 1 للتفعيل أو 0 للإيقاف. فارغ = تلقائي حسب الدور (فني/مهندس/مشرف = 1، غيرهم = 0).\n";
+      "# إرشادات: العمود access_work_list — أدخل 1 للتفعيل أو 0 للإيقاف. فارغ = تلقائي حسب الدور (فني/مهندس/مشرف/إدخال بيانات = 1، غيرهم = 0).\n";
     const body = "\uFEFF" + comment + csv;
     return new NextResponse(body, {
       headers: {

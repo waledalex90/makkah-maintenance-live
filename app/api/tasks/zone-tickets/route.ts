@@ -52,7 +52,7 @@ function rowMatchesPoolFilters(
   return ticketCategoryNameMatchesSpecialty(categoryNameFromTicket(row), specialty);
 }
 
-/** إدخال بيانات: يرى كل البلاغات في مناطقه دون فلترة تخصص/منطقة نصية أو تعيين */
+/** إدخال بيانات: رؤية عامة (لا نطبّق فلتر تخصص/منطقة نصية على صفوف الـ API) */
 function appliesSpecialtyRegionPoolFilter(role: string): boolean {
   return role !== "data_entry";
 }
@@ -94,6 +94,36 @@ export async function GET() {
   const poolFilter = appliesSpecialtyRegionPoolFilter(role);
 
   try {
+    /** مدخل بيانات: نفس منطق مركز البلاغات — كل البلاغات النشطة والمنتهية دون قيد تعيين/منطقة */
+    if (role === "data_entry") {
+      const { data: openAll, error: openErr } = await supabase
+        .from("tickets")
+        .select(TICKET_SELECT)
+        .neq("status", VISIBLE_UNTIL_CLOSED)
+        .order("created_at", { ascending: false });
+
+      if (openErr) {
+        return NextResponse.json({ error: openErr.message }, { status: 400 });
+      }
+
+      const { data: doneAll, error: doneErr } = await supabase
+        .from("tickets")
+        .select(TICKET_SELECT)
+        .eq("status", "finished")
+        .order("closed_at", { ascending: false, nullsFirst: false })
+        .limit(200);
+
+      if (doneErr) {
+        return NextResponse.json({ error: doneErr.message }, { status: 400 });
+      }
+
+      return NextResponse.json({
+        areaTickets: (openAll ?? []) as unknown as TicketRow[],
+        myTickets: [],
+        completedTickets: (doneAll ?? []) as unknown as TicketRow[],
+      });
+    }
+
     const mineOr = `assigned_technician_id.eq.${user.id},assigned_supervisor_id.eq.${user.id},assigned_engineer_id.eq.${user.id}`;
 
     const { data: myTickets, error: myErr } = await supabase

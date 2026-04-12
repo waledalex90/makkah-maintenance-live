@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import * as XLSX from "xlsx";
 import {
   Area,
   AreaChart,
@@ -28,15 +27,14 @@ import type { TicketStatus } from "@/lib/ticket-status";
 import { statusLabelAr } from "@/lib/ticket-status";
 import {
   REPORTS_TICKET_SELECT,
-  buildExportRows,
-  categoryName,
+  buildEliteMainDetailsRows,
   computeInsights,
   dailyResponseResolutionSeries,
   distributionByZone,
   technicianPerformance,
   type ReportTicketRow,
 } from "@/lib/reports-analytics";
-import { formatSaudiDateTime } from "@/lib/saudi-time";
+import { downloadPremiumReportsExcel } from "@/lib/reports-excel-export";
 
 const CHART_ZONE = ["#38bdf8", "#818cf8", "#34d399", "#fbbf24", "#fb7185", "#94a3b8"];
 
@@ -140,22 +138,7 @@ export function ReportsAnalyticsDashboard() {
   }, []);
 
   const exportExcel = useCallback(() => {
-    const exportRows = buildExportRows(rows);
-    const sheetData = exportRows.map((r) => ({
-      "رقم البلاغ": r.ticketNumber,
-      المنطقة: r.zone,
-      الفني: r.technician,
-      "وقت الإنشاء": r.createdAt,
-      "وقت الاستلام": r.receivedAt,
-      "وقت الإغلاق": r.closedAt,
-      "عمر العطل (دقيقة)": r.faultAgeMinutes,
-      "زمن الاستجابة (دقيقة)": r.responseMinutes,
-    }));
-    const ws = XLSX.utils.json_to_sheet(sheetData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "تقرير البلاغات");
-    const name = `تقرير_البلاغات_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    XLSX.writeFile(wb, name);
+    downloadPremiumReportsExcel(rows);
   }, [rows]);
 
   const loading = ticketsQuery.isFetching;
@@ -395,7 +378,7 @@ export function ReportsAnalyticsDashboard() {
           <CardHeader>
             <CardTitle className="text-white">معاينة التصدير</CardTitle>
             <CardDescription className="text-slate-400">
-              الأعمدة: رقم البلاغ، المنطقة، الفني، الإنشاء، الاستلام، الإغلاق، عمر العطل (د)، زمن الاستجابة (د)
+              مطابقة ورقة «التفاصيل الرئيسية» + أوراق أداء الفنيين والمناطق والذروة والتكرار وأفكار تقارير إضافية في ملف Excel.
             </CardDescription>
           </CardHeader>
           <CardContent className="overflow-x-auto">
@@ -405,34 +388,41 @@ export function ReportsAnalyticsDashboard() {
                   <th className="px-2 py-2">رقم البلاغ</th>
                   <th className="px-2 py-2">المنطقة</th>
                   <th className="px-2 py-2">الفني</th>
-                  <th className="px-2 py-2">الإنشاء</th>
-                  <th className="px-2 py-2">الاستلام</th>
-                  <th className="px-2 py-2">الإغلاق</th>
-                  <th className="px-2 py-2">عمر (د)</th>
-                  <th className="px-2 py-2">استجابة (د)</th>
                   <th className="px-2 py-2">التصنيف</th>
+                  <th className="px-2 py-2">تاريخ الإنشاء</th>
+                  <th className="px-2 py-2">وقت الإنشاء</th>
+                  <th className="px-2 py-2">تاريخ الاستلام</th>
+                  <th className="px-2 py-2">وقت الاستلام</th>
+                  <th className="px-2 py-2">تاريخ الإغلاق</th>
+                  <th className="px-2 py-2">وقت الإغلاق</th>
+                  <th className="px-2 py-2">عمر العطل</th>
+                  <th className="px-2 py-2">زمن الاستجابة</th>
+                  <th className="px-2 py-2">الحالة النهائية</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.slice(0, 8).map((r) => {
-                  const ex = buildExportRows([r])[0]!;
-                  return (
-                    <tr key={r.id} className="border-b border-slate-800/80">
+                {buildEliteMainDetailsRows(rows)
+                  .slice(0, 8)
+                  .map((ex, i) => (
+                    <tr key={`${ex.ticketNumber}-${i}`} className="border-b border-slate-800/80">
                       <td className="px-2 py-2 font-mono">{ex.ticketNumber}</td>
                       <td className="px-2 py-2">{ex.zone}</td>
                       <td className="px-2 py-2">{ex.technician}</td>
-                      <td className="px-2 py-2 whitespace-nowrap">{formatSaudiDateTime(r.created_at)}</td>
-                      <td className="px-2 py-2 whitespace-nowrap">{r.received_at ? formatSaudiDateTime(r.received_at) : "—"}</td>
-                      <td className="px-2 py-2 whitespace-nowrap">{r.closed_at ? formatSaudiDateTime(r.closed_at) : "—"}</td>
-                      <td className="px-2 py-2">{ex.faultAgeMinutes || "—"}</td>
-                      <td className="px-2 py-2">{ex.responseMinutes || "—"}</td>
-                      <td className="px-2 py-2">{categoryName(r.ticket_categories)}</td>
+                      <td className="px-2 py-2">{ex.category}</td>
+                      <td className="px-2 py-2 whitespace-nowrap">{ex.createDate}</td>
+                      <td className="px-2 py-2 whitespace-nowrap">{ex.createTime}</td>
+                      <td className="px-2 py-2 whitespace-nowrap">{ex.recvDate}</td>
+                      <td className="px-2 py-2 whitespace-nowrap">{ex.recvTime}</td>
+                      <td className="px-2 py-2 whitespace-nowrap">{ex.closeDate}</td>
+                      <td className="px-2 py-2 whitespace-nowrap">{ex.closeTime}</td>
+                      <td className="px-2 py-2">{ex.faultHms}</td>
+                      <td className="px-2 py-2">{ex.responseHms}</td>
+                      <td className="px-2 py-2 font-medium text-emerald-300/90">{ex.finalStatus}</td>
                     </tr>
-                  );
-                })}
+                  ))}
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-2 py-8 text-center text-slate-500">
+                    <td colSpan={13} className="px-2 py-8 text-center text-slate-500">
                       لا توجد بيانات ضمن الفلاتر.
                     </td>
                   </tr>

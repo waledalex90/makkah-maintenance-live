@@ -879,7 +879,7 @@ export function UsersManagementContent() {
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
           نموذج الرفع يتضمّن عمود <span className="font-mono">access_work_list</span> (1 = تفعيل واجهة مهام الميدان، 0 = إيقافها). ورقة Excel
-          «إرشادات_access_work_list» وملف CSV يبدأ بتعليق يشرح العمود؛ إن تُرك فارغاً يُحدَّد تلقائياً حسب الدور.
+          «إرشادات_access_work_list» وملف CSV يبدأ بتعليق يشرح العمود؛ إن تُرك فارغاً يُفعَّل تلقائياً لفني/مهندس/مشرف/إدخال بيانات فقط.
         </p>
       </div>
 

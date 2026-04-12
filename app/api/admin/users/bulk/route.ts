@@ -7,6 +7,7 @@ import { upsertProfileAndZones } from "@/lib/server/provision-dashboard-user";
 import { parseUsernameOrEmailLocalPart, toAuthEmail } from "@/lib/username-auth";
 import { APP_PERMISSION_KEYS, type AppPermissionKey } from "@/lib/permissions";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
+import { defaultAccessWorkListForRole } from "@/lib/access-work-list-defaults";
 
 type Role =
   | "admin"
@@ -35,14 +36,48 @@ function parseBool(v: string): boolean | undefined {
   return undefined;
 }
 
-function resolveAccessWorkList(raw: string): boolean {
+function resolveAccessWorkList(raw: string, role: Role): boolean {
   const t = raw.trim();
   if (t === "") {
-    /** عمود فارغ: واجهة الفريق فقط مفعّلة كما في نموذج الإضافة */
-    return true;
+    return defaultAccessWorkListForRole(role);
   }
   const b = parseBool(t);
   return b !== false;
+}
+
+const ROLE_SLUGS = new Set<string>([
+  "admin",
+  "projects_director",
+  "project_manager",
+  "engineer",
+  "supervisor",
+  "technician",
+  "reporter",
+  "data_entry",
+]);
+
+/** يقبل slug إنجليزي أو تسمية عربية كما في واجهة الإدارة — يمنع الخلط بين «مبلّغ» و«إدخال بيانات». */
+function parseBulkRole(cell: string): Role | null {
+  const t = cell.trim();
+  if (!t) return "technician";
+  const lower = t.toLowerCase();
+  if (ROLE_SLUGS.has(lower)) return lower as Role;
+  const compact = t.replace(/\s+/g, " ").trim();
+  const ar: Array<[string, Role]> = [
+    ["مدير النظام", "admin"],
+    ["مدير المشاريع", "projects_director"],
+    ["مدير مشروع", "project_manager"],
+    ["مبلّغ بلاغ", "reporter"],
+    ["مبلغ بلاغ", "reporter"],
+    ["إدخال بيانات (عمليات)", "data_entry"],
+    ["مهندس", "engineer"],
+    ["مشرف", "supervisor"],
+    ["فني", "technician"],
+  ];
+  for (const [label, r] of ar) {
+    if (compact === label) return r;
+  }
+  return null;
 }
 
 export async function POST(request: Request) {
@@ -111,7 +146,15 @@ export async function POST(request: Request) {
     const mobile = pickCell(row, "mobile", "phone", "الجوال", "الهاتف");
     const jobTitle = pickCell(row, "job_title", "job", "المهنة", "المسمى");
     const specialty = pickCell(row, "specialty", "التخصص", "تخصص") || "civil";
-    const roleStr = (pickCell(row, "role", "الدور") || "technician") as Role;
+    const roleCell = pickCell(row, "role", "الدور");
+    const roleStr = parseBulkRole(roleCell);
+    if (!roleStr) {
+      errors.push({
+        row: rowNum,
+        message: `دور غير صالح: «${roleCell}». استخدم slug (مثل data_entry) أو التسمية العربية كما في لوحة المستخدمين.`,
+      });
+      continue;
+    }
     const zonesCell = pickCell(row, "zones", "المنطقة", "المناطق", "مناطق");
     const accessWorkListRaw = pickCell(row, "access_work_list", "access work list", "واجهة_الفريق", "واجهة الفريق");
 
@@ -188,7 +231,7 @@ export async function POST(request: Request) {
     }
 
     const permissions = mergeExplicitInvitePermissions(permPartial);
-    const access_work_list = resolveAccessWorkList(accessWorkListRaw);
+    const access_work_list = resolveAccessWorkList(accessWorkListRaw, roleStr);
 
     /** يفعّل البريد في Auth فوراً؛ إن طلب Supabase تأكيداً يدوياً عطّل Confirm email من لوحة المشروع. */
     const { data: createdUser, error: createError } = await adminSupabase.auth.admin.createUser({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Area,
@@ -17,7 +17,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Download, Filter, LayoutDashboard, Sparkles } from "lucide-react";
+import { ChevronDown, Download, Filter, LayoutDashboard, Sparkles } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -86,6 +86,17 @@ export function ReportsAnalyticsDashboard() {
   const [draft, setDraft] = useState<Filters>(defaultFilters());
   const [exportSelection, setExportSelection] = useState<ReportExportSelection>(() => defaultReportExportSelection());
   const [exportMode, setExportMode] = useState<ReportExportMode>("single_workbook");
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) setExportMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [exportMenuOpen]);
 
   const zonesQuery = useQuery({
     queryKey: ["reports-zones"],
@@ -168,8 +179,11 @@ export function ReportsAnalyticsDashboard() {
 
   const exportExcel = useCallback(() => {
     if (selectedCount === 0) return;
-    downloadPremiumReportsExcel(rows, exportSelection, exportMode);
-  }, [rows, exportSelection, exportMode, selectedCount]);
+    downloadPremiumReportsExcel(rows, exportSelection, exportMode, {
+      dateFrom: filters.dateFrom,
+      dateTo: filters.dateTo,
+    });
+  }, [rows, exportSelection, exportMode, selectedCount, filters.dateFrom, filters.dateTo]);
 
   const loading = ticketsQuery.isFetching;
   const err = ticketsQuery.error ? (ticketsQuery.error as Error).message : null;
@@ -197,45 +211,66 @@ export function ReportsAnalyticsDashboard() {
           <CardHeader className="border-b border-slate-700/60 pb-3">
             <CardTitle className="text-base text-white">تصدير التقارير</CardTitle>
             <CardDescription className="text-slate-400">
-              اختر الأوراق المطلوبة لتقليل حجم الملف، ثم طريقة التصدير (ملف واحد أو ملف لكل تقرير).
+              قائمة منسدلة متعددة الاختيار للتقارير المتاحة، ثم طريقة التصدير. ورقة «كثافة البلاغات الشهرية» تستخدم
+              فلتر التاريخ لتمييز أعمدة الجمعة في الشهر المرجعي.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-4">
-            <div className="flex flex-wrap gap-2">
+            <div ref={exportMenuRef} className="relative max-w-xl">
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                className="border-slate-600 bg-slate-950/60 text-slate-200 hover:bg-slate-800"
-                onClick={selectAllExports}
+                className="flex w-full items-center justify-between border-slate-600 bg-slate-950/80 text-slate-100 hover:bg-slate-800"
+                onClick={() => setExportMenuOpen((o) => !o)}
+                aria-expanded={exportMenuOpen}
+                aria-haspopup="listbox"
               >
-                تحديد الكل
+                <span>
+                  اختيار التقارير
+                  {selectedCount > 0 ? (
+                    <span className="ms-2 text-emerald-400">({selectedCount} مختار)</span>
+                  ) : (
+                    <span className="ms-2 text-slate-500">(لا شيء)</span>
+                  )}
+                </span>
+                <ChevronDown className={`size-4 shrink-0 transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} />
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="border-slate-600 bg-slate-950/60 text-slate-200 hover:bg-slate-800"
-                onClick={clearExports}
-              >
-                إلغاء الكل
-              </Button>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {REPORT_SHEET_IDS.map((id) => (
-                <label
-                  key={id}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800/50"
+              {exportMenuOpen ? (
+                <div
+                  className="absolute z-50 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-slate-600 bg-slate-950 py-2 shadow-xl shadow-black/40"
+                  role="listbox"
+                  aria-multiselectable
                 >
-                  <input
-                    type="checkbox"
-                    className="size-4 shrink-0 rounded border-slate-500 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
-                    checked={exportSelection[id]}
-                    onChange={() => toggleExportSheet(id)}
-                  />
-                  <span>{REPORT_SHEET_LABELS_AR[id]}</span>
-                </label>
-              ))}
+                  <div className="flex gap-2 border-b border-slate-700 px-3 pb-2">
+                    <button
+                      type="button"
+                      className="text-xs text-emerald-400 hover:underline"
+                      onClick={selectAllExports}
+                    >
+                      تحديد الكل
+                    </button>
+                    <span className="text-slate-600">|</span>
+                    <button type="button" className="text-xs text-slate-400 hover:underline" onClick={clearExports}>
+                      إلغاء الكل
+                    </button>
+                  </div>
+                  <ul className="px-1 pt-1">
+                    {REPORT_SHEET_IDS.map((id) => (
+                      <li key={id}>
+                        <label className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-200 hover:bg-slate-800/80">
+                          <input
+                            type="checkbox"
+                            className="size-4 shrink-0 rounded border-slate-500 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                            checked={exportSelection[id]}
+                            onChange={() => toggleExportSheet(id)}
+                          />
+                          <span>{REPORT_SHEET_LABELS_AR[id]}</span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
             <fieldset className="space-y-2 rounded-lg border border-slate-700/60 p-3">
               <legend className="px-1 text-xs font-medium text-slate-400">طريقة التصدير</legend>

@@ -1,15 +1,13 @@
 import * as XLSX from "xlsx-js-style";
 import {
-  buildBottlenecksSheetRows,
   buildEliteMainDetailsRows,
-  buildHeatmapZoneWeekdayRows,
-  buildPeakCompliancePack,
+  buildMonthlyTicketDensityRows,
   buildRecurringHotspotsRows,
-  buildShiftsSheetRows,
   buildSlaByCategorySheetRows,
-  buildSuggestedReportsSheetRows,
   buildTechniciansSheetRows,
   buildZonesSectorSheetRows,
+  fridayDayNumbersInMonth,
+  inferReportReferenceYearMonth,
   type ReportTicketRow,
 } from "@/lib/reports-analytics";
 
@@ -40,6 +38,11 @@ const SUBHEADER_STYLE = {
 const ZEBRA_LIGHT = { fgColor: { rgb: "F0F7FF" } };
 const ZEBRA_WHITE = { fgColor: { rgb: "FFFFFF" } };
 
+/** عمود أيام الجمعة في ورقة الشهر — خلفية مميزة مع بقاء النص أبيض للرأس */
+const FRIDAY_HEADER_FILL = { fgColor: { rgb: "B45309" } };
+const FRIDAY_CELL_LIGHT = { fgColor: { rgb: "FEF3C7" } };
+const FRIDAY_CELL_ALT = { fgColor: { rgb: "FDE68A" } };
+
 function dataStyleWithZebra(isZebra: boolean) {
   return {
     font: { bold: false, color: { rgb: "1E293B" }, sz: 10 },
@@ -50,6 +53,20 @@ function dataStyleWithZebra(isZebra: boolean) {
       bottom: { style: "thin", color: { rgb: "CBD5E1" } },
       left: { style: "thin", color: { rgb: "CBD5E1" } },
       right: { style: "thin", color: { rgb: "CBD5E1" } },
+    },
+  };
+}
+
+function fridayDataStyle(isZebra: boolean) {
+  return {
+    font: { bold: false, color: { rgb: "1E293B" }, sz: 10 },
+    fill: isZebra ? FRIDAY_CELL_LIGHT : FRIDAY_CELL_ALT,
+    alignment: { horizontal: "center", vertical: "center", wrapText: true },
+    border: {
+      top: { style: "thin", color: { rgb: "D97706" } },
+      bottom: { style: "thin", color: { rgb: "D97706" } },
+      left: { style: "thin", color: { rgb: "D97706" } },
+      right: { style: "thin", color: { rgb: "D97706" } },
     },
   };
 }
@@ -92,23 +109,47 @@ function buildStyledMatrixSheet(aoa: string[][], opts: StyleSheetOptions): XLSX.
   return ws;
 }
 
+/** ورقة كثافة الشهر: تمييز أعمدة أيام الجمعة (العمود 0 = المنطقة، 1..31 = أيام الشهر) */
+function buildStyledMonthlyDensitySheet(
+  aoa: string[][],
+  colWidths: number[],
+  fridayDayNumbers: Set<number>,
+): XLSX.WorkSheet {
+  const maxCols = Math.max(colWidths.length, ...aoa.map((r) => r.length), 1);
+  const padded = aoa.map((r) => padRow(r, maxCols));
+  const ws = XLSX.utils.aoa_to_sheet(padded);
+  ws["!cols"] = colWidths.map((wch) => ({ wch }));
+
+  const ref = ws["!ref"];
+  if (!ref) return ws;
+  const range = XLSX.utils.decode_range(ref);
+
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    const isHeader = R === 0;
+    const isZebra = R >= 1 && (R - 1) % 2 === 1;
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      const cell = ws[addr];
+      if (!cell) continue;
+      const isFridayCol = C >= 1 && C <= 31 && fridayDayNumbers.has(C);
+      if (isHeader) {
+        cell.s = isFridayCol ? { ...HEADER_STYLE, fill: FRIDAY_HEADER_FILL } : { ...HEADER_STYLE };
+      } else if (isFridayCol) {
+        cell.s = fridayDataStyle(isZebra);
+      } else {
+        cell.s = dataStyleWithZebra(isZebra);
+      }
+    }
+  }
+  return ws;
+}
+
 function applyWorkbookRtl(wb: XLSX.WorkBook) {
   wb.Workbook = wb.Workbook ?? {};
   wb.Workbook.Views = [{ RTL: true } as { RTL?: boolean }];
 }
 
-export const REPORT_SHEET_IDS = [
-  "main",
-  "technicians",
-  "zones",
-  "peak",
-  "recurring",
-  "ideas",
-  "shifts",
-  "heatmap",
-  "bottlenecks",
-  "sla",
-] as const;
+export const REPORT_SHEET_IDS = ["main", "technicians", "zones", "recurring", "monthly_density", "sla"] as const;
 
 export type ReportSheetId = (typeof REPORT_SHEET_IDS)[number];
 
@@ -118,12 +159,8 @@ export const REPORT_SHEET_LABELS_AR: Record<ReportSheetId, string> = {
   main: "التفاصيل الرئيسية",
   technicians: "أداء الفنيين",
   zones: "المناطق والقطاعات",
-  peak: "الذروة والالتزام",
   recurring: "أعطال متكررة",
-  ideas: "أفكار تقارير",
-  shifts: "المناوبات",
-  heatmap: "خريطة الحرارة",
-  bottlenecks: "الاختناقات",
+  monthly_density: "كثافة البلاغات الشهرية",
   sla: "الالتزام حسب التصنيف",
 };
 
@@ -132,12 +169,8 @@ export function defaultReportExportSelection(): ReportExportSelection {
     main: true,
     technicians: true,
     zones: true,
-    peak: true,
-    recurring: true,
-    ideas: false,
-    shifts: true,
-    heatmap: true,
-    bottlenecks: true,
+    recurring: false,
+    monthly_density: true,
     sla: true,
   };
 }
@@ -146,27 +179,30 @@ export function selectedSheetIds(sel: ReportExportSelection): ReportSheetId[] {
   return REPORT_SHEET_IDS.filter((id) => sel[id]);
 }
 
-function heatmapColWidths(colCount: number): number[] {
-  const zone = 18;
-  const day = 11;
-  const rest = Math.max(0, colCount - 1);
-  return [zone, ...Array(rest).fill(day)];
+function monthlyDensityColWidths(): number[] {
+  return [20, ...Array(31).fill(6)];
 }
 
 const REPORT_FILE_SLUG: Record<ReportSheetId, string> = {
   main: "details",
   technicians: "technicians",
   zones: "zones",
-  peak: "peak_compliance",
   recurring: "recurring",
-  ideas: "ideas",
-  shifts: "shifts",
-  heatmap: "heatmap",
-  bottlenecks: "bottlenecks",
+  monthly_density: "monthly_density",
   sla: "sla_by_category",
 };
 
-function appendSheetsForSelection(wb: XLSX.WorkBook, rows: ReportTicketRow[], sel: ReportExportSelection): void {
+export type ReportExportContext = {
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+function appendSheetsForSelection(
+  wb: XLSX.WorkBook,
+  rows: ReportTicketRow[],
+  sel: ReportExportSelection,
+  ctx: ReportExportContext,
+): void {
   if (sel.main) {
     const mainHeaders = [
       "رقم البلاغ",
@@ -235,21 +271,6 @@ function appendSheetsForSelection(wb: XLSX.WorkBook, rows: ReportTicketRow[], se
     );
   }
 
-  if (sel.peak) {
-    const peak = buildPeakCompliancePack(rows);
-    const peakAoa = [...peak.hourly, ...peak.complianceBlock];
-    const titleRowIndex = peak.hourly.length + 1;
-    const subPeak = new Set<number>([titleRowIndex]);
-    XLSX.utils.book_append_sheet(
-      wb,
-      buildStyledMatrixSheet(peakAoa, {
-        colWidths: [26, 22],
-        subheaderRows: subPeak,
-      }),
-      REPORT_SHEET_LABELS_AR.peak,
-    );
-  }
-
   if (sel.recurring) {
     let recurAoa = buildRecurringHotspotsRows(rows);
     if (recurAoa.length <= 1) {
@@ -265,36 +286,14 @@ function appendSheetsForSelection(wb: XLSX.WorkBook, rows: ReportTicketRow[], se
     );
   }
 
-  if (sel.ideas) {
-    const ideasAoa = buildSuggestedReportsSheetRows();
+  if (sel.monthly_density) {
+    const aoa = buildMonthlyTicketDensityRows(rows);
+    const { year, month } = inferReportReferenceYearMonth(ctx.dateFrom, ctx.dateTo, rows);
+    const fridays = fridayDayNumbersInMonth(year, month);
     XLSX.utils.book_append_sheet(
       wb,
-      buildStyledMatrixSheet(ideasAoa, { colWidths: [92] }),
-      REPORT_SHEET_LABELS_AR.ideas,
-    );
-  }
-
-  if (sel.shifts) {
-    const aoa = buildShiftsSheetRows(rows);
-    XLSX.utils.book_append_sheet(
-      wb,
-      buildStyledMatrixSheet(aoa, { colWidths: [34, 16, 28] }),
-      REPORT_SHEET_LABELS_AR.shifts,
-    );
-  }
-
-  if (sel.heatmap) {
-    const aoa = buildHeatmapZoneWeekdayRows(rows);
-    const cw = heatmapColWidths(aoa[0]?.length ?? 8);
-    XLSX.utils.book_append_sheet(wb, buildStyledMatrixSheet(aoa, { colWidths: cw }), REPORT_SHEET_LABELS_AR.heatmap);
-  }
-
-  if (sel.bottlenecks) {
-    const aoa = buildBottlenecksSheetRows(rows);
-    XLSX.utils.book_append_sheet(
-      wb,
-      buildStyledMatrixSheet(aoa, { colWidths: [40, 16, 26] }),
-      REPORT_SHEET_LABELS_AR.bottlenecks,
+      buildStyledMonthlyDensitySheet(aoa, monthlyDensityColWidths(), fridays),
+      REPORT_SHEET_LABELS_AR.monthly_density,
     );
   }
 
@@ -315,6 +314,7 @@ export function downloadPremiumReportsExcel(
   rows: ReportTicketRow[],
   selection: ReportExportSelection = defaultReportExportSelection(),
   mode: ReportExportMode = "single_workbook",
+  ctx: ReportExportContext = {},
 ): void {
   const ids = selectedSheetIds(selection);
   if (ids.length === 0) return;
@@ -324,7 +324,7 @@ export function downloadPremiumReportsExcel(
   if (mode === "single_workbook") {
     const wb = XLSX.utils.book_new();
     applyWorkbookRtl(wb);
-    appendSheetsForSelection(wb, rows, selection);
+    appendSheetsForSelection(wb, rows, selection, ctx);
     const name = `حزمة_تقارير_${date}.xlsx`;
     XLSX.writeFile(wb, name, { cellStyles: true });
     return;
@@ -336,7 +336,7 @@ export function downloadPremiumReportsExcel(
     window.setTimeout(() => {
       const wb = XLSX.utils.book_new();
       applyWorkbookRtl(wb);
-      appendSheetsForSelection(wb, rows, partial);
+      appendSheetsForSelection(wb, rows, partial, ctx);
       XLSX.writeFile(wb, `report_${REPORT_FILE_SLUG[id]}_${date}.xlsx`, { cellStyles: true });
     }, idx * 250);
   });

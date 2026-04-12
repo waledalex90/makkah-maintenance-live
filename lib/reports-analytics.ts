@@ -100,17 +100,25 @@ export function riyadhDateKey(iso: string): string {
   return new Date(iso).toLocaleDateString("en-CA", { timeZone: MECCA_TZ });
 }
 
-/** ساعة اليوم 0–23 بتوقيت مكة (للذروة) */
-export function riyadhHourOfDay(iso: string): number {
+/** مكوّنات التاريخ الميلادي بتوقيت مكة */
+export function riyadhCalendarComponents(iso: string): { y: number; m: number; d: number } {
   const d = new Date(iso);
-  const p = new Intl.DateTimeFormat("en-GB", {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
     timeZone: MECCA_TZ,
-    hour: "numeric",
-    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).formatToParts(d);
-  const h = p.find((x) => x.type === "hour")?.value;
-  const n = h != null ? parseInt(h, 10) : 0;
-  return Number.isFinite(n) ? n : 0;
+  return {
+    y: parseInt(fmt.find((p) => p.type === "year")?.value ?? "0", 10),
+    m: parseInt(fmt.find((p) => p.type === "month")?.value ?? "1", 10),
+    d: parseInt(fmt.find((p) => p.type === "day")?.value ?? "1", 10),
+  };
+}
+
+/** يوم الشهر 1–31 حسب تقويم مكة */
+export function riyadhDayOfMonth(iso: string): number {
+  return riyadhCalendarComponents(iso).d;
 }
 
 /** 0 = الأحد … 6 = السبت — بتوقيت مكة */
@@ -129,7 +137,53 @@ export function riyadhWeekdayIndex(iso: string): number {
   return map[wd] ?? 0;
 }
 
-export const HEATMAP_WEEKDAYS_AR = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"] as const;
+/**
+ * سنة/شهر مرجعي لعناوين الجمعة في ورقة كثافة الشهر:
+ * يفضّل «من تاريخ» ثم «إلى تاريخ» ثم أقدم بلاغ في النطاق ثم اليوم بتوقيت مكة.
+ */
+export function inferReportReferenceYearMonth(
+  dateFrom?: string,
+  dateTo?: string,
+  rows: ReportTicketRow[] = [],
+): { year: number; month: number } {
+  const parseYmd = (s?: string) => {
+    if (!s?.trim()) return null;
+    const [y, m] = s.trim().split("-").map(Number);
+    if (!y || !m || m < 1 || m > 12) return null;
+    return { year: y, month: m };
+  };
+  const from = parseYmd(dateFrom);
+  if (from) return from;
+  const to = parseYmd(dateTo);
+  if (to) return to;
+  if (rows.length) {
+    let minIso = rows[0]!.created_at;
+    let minT = new Date(minIso).getTime();
+    for (const r of rows) {
+      const t = new Date(r.created_at).getTime();
+      if (Number.isFinite(t) && t < minT) {
+        minT = t;
+        minIso = r.created_at;
+      }
+    }
+    const { y, m } = riyadhCalendarComponents(minIso);
+    if (y) return { year: y, month: m };
+  }
+  const { y, m } = riyadhCalendarComponents(new Date().toISOString());
+  return { year: y || new Date().getFullYear(), month: m || 1 };
+}
+
+/** أرقام الأعمدة 1..31 التي تقع فيها جمعة في الشهر المحدد (توقيت مكة) — لاستخدامها في تنسيق Excel */
+export function fridayDayNumbersInMonth(year: number, month: number): Set<number> {
+  const out = new Set<number>();
+  for (let day = 1; day <= 31; day++) {
+    const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T12:00:00+03:00`;
+    const cal = riyadhCalendarComponents(iso);
+    if (cal.y !== year || cal.m !== month || cal.d !== day) continue;
+    if (riyadhWeekdayIndex(iso) === 5) out.add(day);
+  }
+  return out;
+}
 
 export type ZoneCount = { name: string; count: number };
 export function distributionByZone(rows: ReportTicketRow[]): ZoneCount[] {
@@ -431,56 +485,6 @@ export function buildZonesSectorSheetRows(rows: ReportTicketRow[]): string[][] {
   return [header, ...body];
 }
 
-export type PeakCompliancePack = {
-  hourly: string[][];
-  complianceBlock: string[][];
-};
-
-/** ذروة حسب الساعة + كتلة الالتزام */
-export function buildPeakCompliancePack(rows: ReportTicketRow[], nowMs: number = Date.now()): PeakCompliancePack {
-  const hourCounts = new Array<number>(24).fill(0);
-  for (const r of rows) {
-    const h = riyadhHourOfDay(r.created_at);
-    if (h >= 0 && h < 24) hourCounts[h] += 1;
-  }
-  const hourlyHeader = ["ساعة اليوم (مكة)", "عدد البلاغات المسجلة"];
-  const hourlyBody = hourCounts.map((c, h) => [String(h), String(c)]);
-  const hourly = [hourlyHeader, ...hourlyBody];
-
-  let fastFinished = 0;
-  let slowFinished = 0;
-  for (const r of rows) {
-    if (r.status !== "finished" || !r.closed_at?.trim()) continue;
-    const m = minutesBetween(r.created_at, r.closed_at);
-    if (m == null) continue;
-    if (m < REPORTS_FAST_CLOSE_SLA_MINUTES) fastFinished += 1;
-    else slowFinished += 1;
-  }
-  const denomFinished = fastFinished + slowFinished;
-  const pct =
-    denomFinished > 0 ? `${Math.round((fastFinished / denomFinished) * 1000) / 10}%` : "—";
-
-  const openDelayed = rows.filter((r) => {
-    if (r.status === "finished") return false;
-    const m = minutesBetween(r.created_at, new Date(nowMs).toISOString());
-    return m != null && m >= REPORTS_FAST_CLOSE_SLA_MINUTES;
-  }).length;
-
-  const complianceBlock = [
-    ["", ""],
-    [
-      "مؤشر الالتزام",
-      `منجزة من الإنشاء→الإغلاق في أقل من ${REPORTS_FAST_CLOSE_SLA_MINUTES} دقيقة مقابل الأطول + المفتوحة المتأخرة`,
-    ],
-    ["بلاغات منجزة سريعة (< SLA)", String(fastFinished)],
-    ["بلاغات منجزة بطيئة (≥ SLA)", String(slowFinished)],
-    ["نسبة الالتزام بين المنجزات (سريع / كل منجز)", pct],
-    ["مفتوحة أو قيد التنفيذ لعمر ≥ SLA (دقائق)", String(openDelayed)],
-  ];
-
-  return { hourly, complianceBlock };
-}
-
 /** مناطق + يوم مكة + تصنيف تكرّر فيه بلاغان أو أكثر */
 export function buildRecurringHotspotsRows(rows: ReportTicketRow[]): string[][] {
   const keyToTickets = new Map<string, { zone: string; day: string; cat: string; nums: string[] }>();
@@ -501,65 +505,30 @@ export function buildRecurringHotspotsRows(rows: ReportTicketRow[]): string[][] 
   return [header, ...body];
 }
 
-/** مقارنة متوسط زمن الاستجابة (إنشاء→استلام) بين المناوبة الصباحية والمسائية — حسب ساعة إنشاء البلاغ بتوقيت مكة */
-export function buildShiftsSheetRows(rows: ReportTicketRow[]): string[][] {
-  const morning: number[] = [];
-  const evening: number[] = [];
-  for (const r of rows) {
-    if (!r.received_at?.trim()) continue;
-    const resp = secondsBetween(r.created_at, r.received_at);
-    if (resp == null) continue;
-    const h = riyadhHourOfDay(r.created_at);
-    const isMorning = h >= 6 && h < 18;
-    (isMorning ? morning : evening).push(resp);
-  }
-  return [
-    ["الفترة (توقيت مكة)", "عدد العينات", "متوسط زمن الاستجابة (HH:mm:ss)"],
-    ["صباحي (06:00 – 18:00)", String(morning.length), avgSecondsOrDash(morning)],
-    ["مسائي (18:00 – 06:00)", String(evening.length), avgSecondsOrDash(evening)],
-  ];
-}
-
-/** كثافة البلاغات: المنطقة × يوم الأسبوع (تاريخ الإنشاء بتوقيت مكة) */
-export function buildHeatmapZoneWeekdayRows(rows: ReportTicketRow[]): string[][] {
+/**
+ * كثافة البلاغات الشهرية: صفوف = المناطق، أعمدة = أيام الشهر 1–31.
+ * العدّ حسب تاريخ الإنشاء بتوقيت مكة ضمن البلاغات الممرّرة (الفلتر يطبّق على الاستعلام).
+ */
+export function buildMonthlyTicketDensityRows(rows: ReportTicketRow[]): string[][] {
+  const dayHeaders = Array.from({ length: 31 }, (_, i) => String(i + 1));
+  const header = ["المنطقة", ...dayHeaders];
   const byZone = new Map<string, number[]>();
   for (const r of rows) {
     const z = zoneName(r.zones);
-    const wd = riyadhWeekdayIndex(r.created_at);
-    const arr = byZone.get(z) ?? [0, 0, 0, 0, 0, 0, 0];
-    arr[wd] += 1;
+    const dom = riyadhDayOfMonth(r.created_at);
+    if (dom < 1 || dom > 31) continue;
+    const arr = byZone.get(z) ?? Array.from({ length: 31 }, () => 0);
+    arr[dom - 1] += 1;
     byZone.set(z, arr);
   }
-  const header = ["المنطقة", ...HEATMAP_WEEKDAYS_AR];
   const zones = [...byZone.keys()].sort((a, b) => {
     const sa = byZone.get(a)!.reduce((x, y) => x + y, 0);
     const sb = byZone.get(b)!.reduce((x, y) => x + y, 0);
     return sb - sa;
   });
   const body = zones.map((z) => [z, ...byZone.get(z)!.map(String)]);
-  if (body.length === 0) return [header, ["—", ...Array(7).fill("0")]];
+  if (body.length === 0) return [header, ["—", ...Array(31).fill("0")]];
   return [header, ...body];
-}
-
-/** مقارنة متوسط الفجوة: الإنشاء→الاستلام مقابل الاستلام→الإغلاق */
-export function buildBottlenecksSheetRows(rows: ReportTicketRow[]): string[][] {
-  const pickup: number[] = [];
-  const repair: number[] = [];
-  for (const r of rows) {
-    if (r.received_at?.trim()) {
-      const s = secondsBetween(r.created_at, r.received_at);
-      if (s != null) pickup.push(s);
-    }
-    if (r.status === "finished" && r.closed_at?.trim()) {
-      const s = secondsBetween(r.received_at ?? r.created_at, r.closed_at);
-      if (s != null) repair.push(s);
-    }
-  }
-  return [
-    ["مرحلة العمل", "عدد العينات", "متوسط المدة (HH:mm:ss)"],
-    ["الإنشاء → الاستلام (زمن الاستجابة)", String(pickup.length), avgSecondsOrDash(pickup)],
-    ["الاستلام → الإغلاق (زمن التنفيذ)", String(repair.length), avgSecondsOrDash(repair)],
-  ];
 }
 
 /** نسبة البلاغات المنجزة ضمن SLA (من الإنشاء حتى الإغلاق) لكل تصنيف */
@@ -591,19 +560,6 @@ export function buildSlaByCategorySheetRows(rows: ReportTicketRow[]): string[][]
     });
   if (body.length === 0) return [header, ["—", "0", "0", "—"]];
   return [header, ...body];
-}
-
-/** أفكار تقارير إضافية (ورقة نصية) */
-export function buildSuggestedReportsSheetRows(): string[][] {
-  return [
-    ["اقتراحات تقارير تحليلية إضافية (للتطوير المستقبلي)"],
-    [],
-    ["• معدل الإغلاق حسب التصنيف + اتجاه أسبوعي (Trend)."],
-    ["• بلاغات أعيد فتحها أو تغيّرت حالتها أكثر من مرة (جودة البيانات)."],
-    ["• توزيع البلاغات حسب الفريق (مشرف/مهندس/فني) مقابل الحمل الفعلي."],
-    ["• مؤشرات SLA مخصصة لكل منطقة (الأوراق الحالية: ذروة عامة + SLA لكل تصنيف)."],
-    ["• تصدير PDF تلقائي أسبوعي للإدارة العليا."],
-  ];
 }
 
 /** @deprecated للمعاينة القديمة — يُفضّل buildEliteMainDetailsRows */

@@ -113,6 +113,24 @@ export function riyadhHourOfDay(iso: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** 0 = الأحد … 6 = السبت — بتوقيت مكة */
+export function riyadhWeekdayIndex(iso: string): number {
+  const d = new Date(iso);
+  const wd = new Intl.DateTimeFormat("en-US", { timeZone: MECCA_TZ, weekday: "long" }).format(d);
+  const map: Record<string, number> = {
+    Sunday: 0,
+    Monday: 1,
+    Tuesday: 2,
+    Wednesday: 3,
+    Thursday: 4,
+    Friday: 5,
+    Saturday: 6,
+  };
+  return map[wd] ?? 0;
+}
+
+export const HEATMAP_WEEKDAYS_AR = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"] as const;
+
 export type ZoneCount = { name: string; count: number };
 export function distributionByZone(rows: ReportTicketRow[]): ZoneCount[] {
   const map = new Map<string, number>();
@@ -263,7 +281,7 @@ export function formatReportDateTimeMecca(iso: string | null | undefined): strin
   return `${formatDateDashedMecca(iso)} | ${formatTime12Mecca(iso)}`;
 }
 
-/** مدة بصيغة «X س : Y د : Z ث» من حدَي زمنيين */
+/** مدة بصيغة HH:mm:ss (إجمالي الساعات قد يتجاوز ٢٤) من حدَي زمنيين — توقيت الحساب من الطوابع الفعلية */
 export function formatDurationHMSBetween(
   startIso: string | null | undefined,
   endIso: string | null | undefined,
@@ -273,18 +291,22 @@ export function formatDurationHMSBetween(
   return formatSecondsAsHMS(sec);
 }
 
+/** تنسيق مدة رقمية مختصرة HH:mm:ss (للتقارير والتصدير) */
 export function formatSecondsAsHMS(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec2 = s % 60;
-  return `${h} س : ${m} د : ${sec2} ث`;
+  const hh = String(h).padStart(2, "0");
+  const mm = String(m).padStart(2, "0");
+  const ss = String(sec2).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
 }
 
 function avgSecondsOrDash(values: number[]): string {
   if (values.length === 0) return "—";
   const avg = values.reduce((a, b) => a + b, 0) / values.length;
-  return formatSecondsAsHMS(avg);
+  return formatSecondsAsHMS(Math.round(avg));
 }
 
 /** مكتمل / قيد التنفيذ / متأخر / انتظار */
@@ -479,18 +501,107 @@ export function buildRecurringHotspotsRows(rows: ReportTicketRow[]): string[][] 
   return [header, ...body];
 }
 
+/** مقارنة متوسط زمن الاستجابة (إنشاء→استلام) بين المناوبة الصباحية والمسائية — حسب ساعة إنشاء البلاغ بتوقيت مكة */
+export function buildShiftsSheetRows(rows: ReportTicketRow[]): string[][] {
+  const morning: number[] = [];
+  const evening: number[] = [];
+  for (const r of rows) {
+    if (!r.received_at?.trim()) continue;
+    const resp = secondsBetween(r.created_at, r.received_at);
+    if (resp == null) continue;
+    const h = riyadhHourOfDay(r.created_at);
+    const isMorning = h >= 6 && h < 18;
+    (isMorning ? morning : evening).push(resp);
+  }
+  return [
+    ["الفترة (توقيت مكة)", "عدد العينات", "متوسط زمن الاستجابة (HH:mm:ss)"],
+    ["صباحي (06:00 – 18:00)", String(morning.length), avgSecondsOrDash(morning)],
+    ["مسائي (18:00 – 06:00)", String(evening.length), avgSecondsOrDash(evening)],
+  ];
+}
+
+/** كثافة البلاغات: المنطقة × يوم الأسبوع (تاريخ الإنشاء بتوقيت مكة) */
+export function buildHeatmapZoneWeekdayRows(rows: ReportTicketRow[]): string[][] {
+  const byZone = new Map<string, number[]>();
+  for (const r of rows) {
+    const z = zoneName(r.zones);
+    const wd = riyadhWeekdayIndex(r.created_at);
+    const arr = byZone.get(z) ?? [0, 0, 0, 0, 0, 0, 0];
+    arr[wd] += 1;
+    byZone.set(z, arr);
+  }
+  const header = ["المنطقة", ...HEATMAP_WEEKDAYS_AR];
+  const zones = [...byZone.keys()].sort((a, b) => {
+    const sa = byZone.get(a)!.reduce((x, y) => x + y, 0);
+    const sb = byZone.get(b)!.reduce((x, y) => x + y, 0);
+    return sb - sa;
+  });
+  const body = zones.map((z) => [z, ...byZone.get(z)!.map(String)]);
+  if (body.length === 0) return [header, ["—", ...Array(7).fill("0")]];
+  return [header, ...body];
+}
+
+/** مقارنة متوسط الفجوة: الإنشاء→الاستلام مقابل الاستلام→الإغلاق */
+export function buildBottlenecksSheetRows(rows: ReportTicketRow[]): string[][] {
+  const pickup: number[] = [];
+  const repair: number[] = [];
+  for (const r of rows) {
+    if (r.received_at?.trim()) {
+      const s = secondsBetween(r.created_at, r.received_at);
+      if (s != null) pickup.push(s);
+    }
+    if (r.status === "finished" && r.closed_at?.trim()) {
+      const s = secondsBetween(r.received_at ?? r.created_at, r.closed_at);
+      if (s != null) repair.push(s);
+    }
+  }
+  return [
+    ["مرحلة العمل", "عدد العينات", "متوسط المدة (HH:mm:ss)"],
+    ["الإنشاء → الاستلام (زمن الاستجابة)", String(pickup.length), avgSecondsOrDash(pickup)],
+    ["الاستلام → الإغلاق (زمن التنفيذ)", String(repair.length), avgSecondsOrDash(repair)],
+  ];
+}
+
+/** نسبة البلاغات المنجزة ضمن SLA (من الإنشاء حتى الإغلاق) لكل تصنيف */
+export function buildSlaByCategorySheetRows(rows: ReportTicketRow[]): string[][] {
+  type Acc = { finished: number; withinSla: number };
+  const byCat = new Map<string, Acc>();
+  for (const r of rows) {
+    const cat = categoryName(r.ticket_categories);
+    const cur = byCat.get(cat) ?? { finished: 0, withinSla: 0 };
+    if (r.status === "finished" && r.closed_at?.trim()) {
+      cur.finished += 1;
+      const m = minutesBetween(r.created_at, r.closed_at);
+      if (m != null && m <= REPORTS_FAST_CLOSE_SLA_MINUTES) cur.withinSla += 1;
+    }
+    byCat.set(cat, cur);
+  }
+  const header = [
+    "التصنيف",
+    "بلاغات منجزة",
+    `ضمن SLA (≤ ${REPORTS_FAST_CLOSE_SLA_MINUTES} د من الإنشاء→الإغلاق)`,
+    "نسبة الالتزام",
+  ];
+  const body = [...byCat.entries()]
+    .filter(([, a]) => a.finished > 0)
+    .sort((a, b) => b[1].finished - a[1].finished)
+    .map(([cat, a]) => {
+      const pct = Math.round((a.withinSla / a.finished) * 1000) / 10;
+      return [cat, String(a.finished), String(a.withinSla), `${pct}%`];
+    });
+  if (body.length === 0) return [header, ["—", "0", "0", "—"]];
+  return [header, ...body];
+}
+
 /** أفكار تقارير إضافية (ورقة نصية) */
 export function buildSuggestedReportsSheetRows(): string[][] {
   return [
     ["اقتراحات تقارير تحليلية إضافية (للتطوير المستقبلي)"],
     [],
     ["• معدل الإغلاق حسب التصنيف + اتجاه أسبوعي (Trend)."],
-    ["• مقارنة زمن الاستجابة بين مناوبات العمل (صباحي / مسائي)."],
-    ["• خريطة حرارة: المنطقة × يوم الأسبوع لكثافة البلاغات."],
     ["• بلاغات أعيد فتحها أو تغيّرت حالتها أكثر من مرة (جودة البيانات)."],
-    ["• متوسط زمن «الاستلام → الإغلاق» مقابل «الإنشاء → الاستلام» (اختناقات)."],
     ["• توزيع البلاغات حسب الفريق (مشرف/مهندس/فني) مقابل الحمل الفعلي."],
-    ["• مؤشرات SLA مخصصة لكل منطقة أو لكل تصنيف حريق/كهرباء."],
+    ["• مؤشرات SLA مخصصة لكل منطقة (الأوراق الحالية: ذروة عامة + SLA لكل تصنيف)."],
     ["• تصدير PDF تلقائي أسبوعي للإدارة العليا."],
   ];
 }

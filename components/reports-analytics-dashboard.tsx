@@ -34,7 +34,16 @@ import {
   technicianPerformance,
   type ReportTicketRow,
 } from "@/lib/reports-analytics";
-import { downloadPremiumReportsExcel } from "@/lib/reports-excel-export";
+import {
+  REPORT_SHEET_IDS,
+  REPORT_SHEET_LABELS_AR,
+  defaultReportExportSelection,
+  downloadPremiumReportsExcel,
+  selectedSheetIds,
+  type ReportExportMode,
+  type ReportExportSelection,
+  type ReportSheetId,
+} from "@/lib/reports-excel-export";
 
 const CHART_ZONE = ["#38bdf8", "#818cf8", "#34d399", "#fbbf24", "#fb7185", "#94a3b8"];
 
@@ -75,6 +84,8 @@ function buildTicketsQuery(f: Filters) {
 export function ReportsAnalyticsDashboard() {
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [draft, setDraft] = useState<Filters>(defaultFilters());
+  const [exportSelection, setExportSelection] = useState<ReportExportSelection>(() => defaultReportExportSelection());
+  const [exportMode, setExportMode] = useState<ReportExportMode>("single_workbook");
 
   const zonesQuery = useQuery({
     queryKey: ["reports-zones"],
@@ -137,9 +148,28 @@ export function ReportsAnalyticsDashboard() {
     setFilters(d);
   }, []);
 
+  const selectedCount = useMemo(() => selectedSheetIds(exportSelection).length, [exportSelection]);
+
+  const toggleExportSheet = useCallback((id: ReportSheetId) => {
+    setExportSelection((s) => ({ ...s, [id]: !s[id] }));
+  }, []);
+
+  const selectAllExports = useCallback(() => {
+    setExportSelection(
+      REPORT_SHEET_IDS.reduce((acc, id) => ({ ...acc, [id]: true }), {} as ReportExportSelection),
+    );
+  }, []);
+
+  const clearExports = useCallback(() => {
+    setExportSelection(
+      REPORT_SHEET_IDS.reduce((acc, id) => ({ ...acc, [id]: false }), {} as ReportExportSelection),
+    );
+  }, []);
+
   const exportExcel = useCallback(() => {
-    downloadPremiumReportsExcel(rows);
-  }, [rows]);
+    if (selectedCount === 0) return;
+    downloadPremiumReportsExcel(rows, exportSelection, exportMode);
+  }, [rows, exportSelection, exportMode, selectedCount]);
 
   const loading = ticketsQuery.isFetching;
   const err = ticketsQuery.error ? (ticketsQuery.error as Error).message : null;
@@ -158,22 +188,90 @@ export function ReportsAnalyticsDashboard() {
               لوحة تحكم التقارير
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-400">
-              مؤشرات الأداء، توزيع الأعطال، وزمن الاستجابة والإصلاح — مع فلاتر وتصدير Excel شامل.
+              مؤشرات الأداء، توزيع الأعطال، وزمن الاستجابة والإصلاح — مع فلاتر وتصدير Excel (مدد بصيغة HH:mm:ss).
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+        </header>
+
+        <Card className="border-slate-700/80 bg-slate-900/70 shadow-lg shadow-black/20 backdrop-blur">
+          <CardHeader className="border-b border-slate-700/60 pb-3">
+            <CardTitle className="text-base text-white">تصدير التقارير</CardTitle>
+            <CardDescription className="text-slate-400">
+              اختر الأوراق المطلوبة لتقليل حجم الملف، ثم طريقة التصدير (ملف واحد أو ملف لكل تقرير).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-4">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-slate-600 bg-slate-950/60 text-slate-200 hover:bg-slate-800"
+                onClick={selectAllExports}
+              >
+                تحديد الكل
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-slate-600 bg-slate-950/60 text-slate-200 hover:bg-slate-800"
+                onClick={clearExports}
+              >
+                إلغاء الكل
+              </Button>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {REPORT_SHEET_IDS.map((id) => (
+                <label
+                  key={id}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800/50"
+                >
+                  <input
+                    type="checkbox"
+                    className="size-4 shrink-0 rounded border-slate-500 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                    checked={exportSelection[id]}
+                    onChange={() => toggleExportSheet(id)}
+                  />
+                  <span>{REPORT_SHEET_LABELS_AR[id]}</span>
+                </label>
+              ))}
+            </div>
+            <fieldset className="space-y-2 rounded-lg border border-slate-700/60 p-3">
+              <legend className="px-1 text-xs font-medium text-slate-400">طريقة التصدير</legend>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-200">
+                <input
+                  type="radio"
+                  name="report-export-mode"
+                  className="size-4 border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                  checked={exportMode === "single_workbook"}
+                  onChange={() => setExportMode("single_workbook")}
+                />
+                ملف Excel واحد يضم الأوراق المختارة فقط (RTL وتنسيق احترافي)
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-200">
+                <input
+                  type="radio"
+                  name="report-export-mode"
+                  className="size-4 border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                  checked={exportMode === "separate_files"}
+                  onChange={() => setExportMode("separate_files")}
+                />
+                ملف منفصل لكل تقرير مختار (عدة تنزيلات متتابعة)
+              </label>
+            </fieldset>
             <Button
               type="button"
               variant="outline"
-              className="border-slate-600 bg-slate-800/80 text-slate-100 hover:bg-slate-700"
+              className="border-emerald-600/50 bg-emerald-950/30 text-emerald-100 hover:bg-emerald-900/40"
               onClick={() => exportExcel()}
-              disabled={rows.length === 0}
+              disabled={rows.length === 0 || selectedCount === 0}
             >
               <Download className="ms-2 h-4 w-4" aria-hidden />
-              تصدير Excel
+              تصدير ({selectedCount} {selectedCount === 1 ? "تقرير" : "تقارير"})
             </Button>
-          </div>
-        </header>
+          </CardContent>
+        </Card>
 
         <Card className="border-slate-700/80 bg-slate-900/70 shadow-xl shadow-black/20 backdrop-blur">
           <CardHeader className="border-b border-slate-700/60 pb-4">
@@ -378,7 +476,7 @@ export function ReportsAnalyticsDashboard() {
           <CardHeader>
             <CardTitle className="text-white">معاينة التصدير</CardTitle>
             <CardDescription className="text-slate-400">
-              مطابقة ورقة «التفاصيل الرئيسية» + أوراق أداء الفنيين والمناطق والذروة والتكرار وأفكار تقارير إضافية في ملف Excel.
+              معاينة ورقة التفاصيل الرئيسية؛ أعمدة المدد بصيغة HH:mm:ss. التصدير الفعلي يتبع اختيارك من البطاقة أعلاه.
             </CardDescription>
           </CardHeader>
           <CardContent className="overflow-x-auto">
@@ -395,8 +493,8 @@ export function ReportsAnalyticsDashboard() {
                   <th className="px-2 py-2">وقت الاستلام</th>
                   <th className="px-2 py-2">تاريخ الإغلاق</th>
                   <th className="px-2 py-2">وقت الإغلاق</th>
-                  <th className="px-2 py-2">عمر العطل</th>
-                  <th className="px-2 py-2">زمن الاستجابة</th>
+                  <th className="px-2 py-2">عمر العطل (HH:mm:ss)</th>
+                  <th className="px-2 py-2">زمن الاستجابة (HH:mm:ss)</th>
                   <th className="px-2 py-2">الحالة النهائية</th>
                 </tr>
               </thead>

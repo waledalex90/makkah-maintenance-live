@@ -22,7 +22,7 @@ import {
   type ZoneJoin,
 } from "@/lib/zone-tickets-query";
 import { TICKET_DRAWER_WITH_HANDLER_PROFILES } from "@/lib/ticket-handler-select";
-import { formatRelativeSmartAr, formatSaudiDateTime, getAgeMinutes } from "@/lib/saudi-time";
+import { formatRelativeSmartAr, formatSaudiDateTime } from "@/lib/saudi-time";
 import { statusLabelAr } from "@/lib/ticket-status";
 import { readWorkTicketChatReadMap, setWorkTicketChatReadAt } from "@/lib/work-ticket-chat-read";
 
@@ -33,7 +33,7 @@ type ZoneNotificationRow = {
   body: string;
 };
 
-type WorkTab = "urgent" | "follow" | "done";
+type WorkTab = "area" | "mine";
 
 function normalizeCategoryName(category: TechnicianTicket["ticket_categories"]): string {
   if (!category) return "";
@@ -45,21 +45,6 @@ function normalizeZoneName(zones: ZoneJoin | undefined): string {
   if (!zones) return "-";
   if (Array.isArray(zones)) return zones[0]?.name ?? "-";
   return zones.name ?? "-";
-}
-
-function hasAssignee(t: TechnicianTicket): boolean {
-  return Boolean(t.assigned_technician_id || t.assigned_supervisor_id || t.assigned_engineer_id);
-}
-
-function filterUrgent(list: TechnicianTicket[], nowMs: number): TechnicianTicket[] {
-  return list.filter((t) => t.status === "not_received" && getAgeMinutes(t.created_at, nowMs) > 2);
-}
-
-/** «متابعة»: حالة استلام (مقابلة assigned قديماً) + تعيين + عمر أقل من ٢٠ دقيقة من الإنشاء */
-function filterFollowUp(list: TechnicianTicket[], nowMs: number): TechnicianTicket[] {
-  return list.filter(
-    (t) => t.status === "received" && hasAssignee(t) && getAgeMinutes(t.created_at, nowMs) < 20,
-  );
 }
 
 type TechnicianWorkListProps = {
@@ -83,11 +68,10 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
 
   const areaTickets = zoneQuery.data?.areaTickets ?? [];
   const myTickets = zoneQuery.data?.myTickets ?? [];
-  const completedTickets = zoneQuery.data?.completedTickets ?? [];
   const myUserId = zoneQuery.data?.myUserId ?? null;
   const canViewMap = zoneQuery.data?.canViewMap ?? false;
 
-  const [tab, setTab] = useState<WorkTab>("urgent");
+  const [tab, setTab] = useState<WorkTab>("area");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTicket, setDrawerTicket] = useState<TicketDetailRow | null>(null);
   const [drawerZoneName, setDrawerZoneName] = useState("-");
@@ -113,11 +97,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
     combinedOpenIdsRef.current = new Set(mergedOpen.map((t) => t.id));
   }, [mergedOpen]);
 
-  const visibleTickets = useMemo(() => {
-    if (tab === "done") return completedTickets;
-    if (tab === "urgent") return filterUrgent(mergedOpen, nowTick);
-    return filterFollowUp(mergedOpen, nowTick);
-  }, [tab, mergedOpen, completedTickets, nowTick]);
+  const visibleTickets = tab === "mine" ? myTickets : areaTickets;
 
   const openTicketIdsSorted = useMemo(() => mergedOpen.map((t) => t.id).sort().join("|"), [mergedOpen]);
 
@@ -351,11 +331,11 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       });
       const payload = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !payload.ok) {
-        toast.error(payload.error ?? "تعذر قبول البلاغ.");
+        toast.error(payload.error ?? "تعذر قبول المهمة.");
         return;
       }
       void pushLiveLocationOnce();
-      toast.success("تم قبول البلاغ وتحويله لك.");
+      toast.success("تم استلام المهمة — ستجدها في «مهامي».");
       await queryClient.invalidateQueries({ queryKey: ZONE_TICKETS_QUERY_KEY });
     } finally {
       setPendingClaimId(null);
@@ -433,9 +413,8 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
         <CardHeader className="space-y-3 pb-2">
           <CardTitle>مهام العمل</CardTitle>
           <div className="flex gap-2">
-            {tabBtn("urgent", "عاجل")}
-            {tabBtn("follow", "متابعة")}
-            {tabBtn("done", "مكتملة")}
+            {tabBtn("area", "بلاغات المنطقة")}
+            {tabBtn("mine", "مهامي")}
           </div>
         </CardHeader>
         <CardContent>
@@ -443,11 +422,9 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
             <p className="text-sm text-slate-500">جاري التحميل...</p>
           ) : visibleTickets.length === 0 ? (
             <p className="text-sm text-slate-500">
-              {tab === "urgent"
-                ? "لا توجد بلاغات عاجلة مطابقة (جديدة + مرّ عليها أكثر من دقيقتين)."
-                : tab === "follow"
-                  ? "لا توجد بلاغات في نافذة المتابعة القصيرة."
-                  : "لا توجد بلاغات منتهية ضمن نطاقك."}
+              {tab === "area"
+                ? "لا توجد بلاغات مطابقة لمنطقتك وتخصصك في قائمة المنطقة."
+                : "لا توجد مهام موجهة إليك حالياً — بعد قبول مهمة من «بلاغات المنطقة» تظهر هنا."}
             </p>
           ) : (
             <div className="space-y-2">
@@ -490,7 +467,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                       <TicketReceptionCaption ticket={ticket} className="mt-1" />
                       <p className="mt-1 text-slate-700">{ticket.title ?? ticket.location}</p>
                     </button>
-                    {tab !== "done" && role === "technician" && ticket.status !== "finished" ? (
+                    {role === "technician" && tab === "area" && ticket.status !== "finished" ? (
                       !ticket.assigned_technician_id ? (
                         <button
                           type="button"
@@ -498,27 +475,16 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                           className="mt-2 min-h-11 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                           onClick={() => void claimTicket(ticket.id)}
                         >
-                          {pendingClaimId === ticket.id ? "جاري التأكيد..." : "قبول البلاغ"}
+                          {pendingClaimId === ticket.id ? "جاري التأكيد..." : "قبول المهمة"}
                         </button>
                       ) : ticket.assigned_technician_id === myUserId ? (
-                        ticket.status === "received" ? (
-                          <button
-                            type="button"
-                            disabled={pendingAcceptId === ticket.id || Boolean(pendingClaimId)}
-                            className="mt-2 min-h-11 rounded-md bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
-                            onClick={() => void acceptTicket(ticket.id)}
-                          >
-                            {pendingAcceptId === ticket.id ? "جاري التأكيد..." : "تأكيد التنفيذ الميداني"}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled
-                            className="mt-2 min-h-11 cursor-not-allowed rounded-md border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-500"
-                          >
-                            تم الاستلام / قيد المباشرة
-                          </button>
-                        )
+                        <button
+                          type="button"
+                          disabled
+                          className="mt-2 min-h-11 cursor-not-allowed rounded-md border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600"
+                        >
+                          تم الاستلام
+                        </button>
                       ) : (
                         <button
                           type="button"
@@ -528,6 +494,19 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
                           مُعيَّن لفني آخر
                         </button>
                       )
+                    ) : null}
+                    {role === "technician" &&
+                    tab === "mine" &&
+                    ticket.assigned_technician_id === myUserId &&
+                    ticket.status === "received" ? (
+                      <button
+                        type="button"
+                        disabled={pendingAcceptId === ticket.id || Boolean(pendingClaimId)}
+                        className="mt-2 min-h-11 rounded-md bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => void acceptTicket(ticket.id)}
+                      >
+                        {pendingAcceptId === ticket.id ? "جاري التأكيد..." : "تأكيد التنفيذ الميداني"}
+                      </button>
                     ) : null}
                   </div>
                 );

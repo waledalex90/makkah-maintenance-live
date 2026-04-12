@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Briefcase, MapPin, Smartphone } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -47,12 +46,7 @@ function RegionsSummary({ zones }: { zones: Array<{ id: string; name: string }> 
   );
 }
 
-type UserIdentityHeaderProps = {
-  /** مسار صفحة تعديل البيانات (الميدان: /tasks/settings، لوحة الإدارة: /dashboard/settings) */
-  settingsHref?: string;
-};
-
-export function UserIdentityHeader({ settingsHref = "/tasks/settings" }: UserIdentityHeaderProps) {
+export function UserIdentityHeader() {
   const q = useQuery({
     queryKey: ["identity-header-profile"],
     queryFn: async () => {
@@ -93,45 +87,37 @@ export function UserIdentityHeader({ settingsHref = "/tasks/settings" }: UserIde
 
   return (
     <section className="mb-4 rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50/90 px-4 py-3 shadow-sm dark:border-slate-800 dark:from-slate-950 dark:to-slate-900/80">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-2 text-right">
-          <div>
-            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">هوية المستخدم</p>
-            <p className="truncate text-lg font-bold text-slate-900 dark:text-slate-50">{row.full_name}</p>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              <Briefcase className="ms-1 inline size-3.5 align-[-2px] opacity-70" aria-hidden />
-              {row.job_title?.trim() ? row.job_title : "—"}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-              <Smartphone className="size-3.5 shrink-0 opacity-70" aria-hidden />
-              <span dir="ltr" className="truncate">
-                {row.mobile || "—"}
-              </span>
-            </span>
-            <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-              <MapPin className="size-3.5 shrink-0 opacity-70" aria-hidden />
-              <span className="min-w-0">
-                <RegionsSummary zones={row.zones} />
-              </span>
-            </span>
-            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/60 dark:text-emerald-100">
-              التصنيف: {specialtyLabel}
-            </span>
-            {row.region?.trim() ? (
-              <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                نطاق: {row.region}
-              </span>
-            ) : null}
-          </div>
+      <div className="min-w-0 space-y-2 text-right">
+        <div>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">هوية المستخدم</p>
+          <p className="truncate text-lg font-bold text-slate-900 dark:text-slate-50">{row.full_name}</p>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            <Briefcase className="ms-1 inline size-3.5 align-[-2px] opacity-70" aria-hidden />
+            {row.job_title?.trim() ? row.job_title : "—"}
+          </p>
         </div>
-        <Link
-          href={settingsHref}
-          className="shrink-0 self-start rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-        >
-          تعديل البروفايل
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+            <Smartphone className="size-3.5 shrink-0 opacity-70" aria-hidden />
+            <span dir="ltr" className="truncate">
+              {row.mobile || "—"}
+            </span>
+          </span>
+          <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+            <MapPin className="size-3.5 shrink-0 opacity-70" aria-hidden />
+            <span className="min-w-0">
+              <RegionsSummary zones={row.zones} />
+            </span>
+          </span>
+          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/60 dark:text-emerald-100">
+            التصنيف: {specialtyLabel}
+          </span>
+          {row.region?.trim() ? (
+            <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+              نطاق: {row.region}
+            </span>
+          ) : null}
+        </div>
       </div>
     </section>
   );

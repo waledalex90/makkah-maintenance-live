@@ -51,12 +51,16 @@ function formatCountAr(n: number, one: string, many: string): string {
 }
 
 /**
- * عمر نسبي بصيغة واضحة (أيام + ساعات + دقائق) بدل عرض «دقائق» فقط عند الأعمار الطويلة.
+ * عمر نسبي: أقل من ساعة → دقائق فقط؛ من ساعة فأكثر → (أيام و ساعات و دقائق) بدون جمع الدقائق في رقم كبير.
  */
 export function formatRelativeSmartAr(iso: string, nowMs: number = Date.now()): string {
   const deltaMs = getAgeMs(iso, nowMs);
   if (deltaMs < 45_000) return "الآن";
   const totalMin = Math.floor(deltaMs / 60_000);
+  if (totalMin < 60) {
+    if (totalMin <= 1) return "منذ دقيقة تقريباً";
+    return `منذ ${totalMin} دقيقة`;
+  }
   const days = Math.floor(totalMin / (24 * 60));
   const hours = Math.floor((totalMin % (24 * 60)) / 60);
   const minutes = totalMin % 60;
@@ -94,21 +98,9 @@ export function formatSaudiTime(isoOrMs: string | number): string {
   }
 }
 
-/** نص عمر نسبي + الطابع الزمني بمكة (يشمل الثواني في الجزء الزمني) */
+/** نص عمر نسبي (نفس منطق formatRelativeSmartAr) + الطابع الزمني الكامل بمكة */
 export function relativeAgeLabelSaudi(createdAt: string, nowMs: number): string {
-  const deltaMs = getAgeMs(createdAt, nowMs);
-  const minutes = Math.floor(deltaMs / 60_000);
-  let rel: string;
-  if (minutes < 1) rel = "الآن";
-  else if (minutes < 60) rel = `منذ ${minutes} دقيقة`;
-  else if (minutes < 24 * 60) {
-    const hours = Math.floor(minutes / 60);
-    rel = `منذ ${hours} ساعة`;
-  } else {
-    const days = Math.floor(minutes / (24 * 60));
-    rel = `منذ ${days} يومًا`;
-  }
-  return `${rel} · ${formatSaudiDateTime(createdAt)}`;
+  return `${formatRelativeSmartAr(createdAt, nowMs)} · ${formatSaudiDateTime(createdAt)}`;
 }
 
 /** عد تنازلي حتى حد زمني (بالدقائق) من لحظة الإنشاء — يعرض الدقائق والثواني المتبقية */

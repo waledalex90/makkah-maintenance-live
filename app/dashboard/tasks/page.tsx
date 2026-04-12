@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { ReporterTasksPageContent } from "@/components/reporter-tasks-page-content";
+import { OfficialReporterTasksContent } from "@/components/official-reporter-tasks-content";
 
 export default async function DashboardTasksPage() {
   const supabase = await createSupabaseServerClient();
@@ -18,5 +18,5 @@ export default async function DashboardTasksPage() {
     redirect("/dashboard");
   }
 
-  return <ReporterTasksPageContent />;
+  return <OfficialReporterTasksContent />;
 }

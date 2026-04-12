@@ -715,7 +715,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
   return (
     <div className="relative space-y-6 bg-white text-slate-900" dir="rtl" lang="ar" style={{ colorScheme: "light" }}>
-      {!tableOnly ? <UserIdentityHeader settingsHref="/dashboard/settings" /> : null}
+      {!tableOnly ? <UserIdentityHeader /> : null}
 
       <div className="flex justify-end">
         <Button

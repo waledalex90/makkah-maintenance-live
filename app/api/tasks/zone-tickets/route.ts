@@ -9,11 +9,14 @@ const VISIBLE_UNTIL_CLOSED = "finished" as const;
 const TICKET_SELECT = ZONE_TICKET_WITH_HANDLER_PROFILES;
 
 type TicketRow = {
+  id: string;
+  created_at: string;
   zone_id: string | null;
   category_id: number | null;
   assigned_technician_id: string | null;
   assigned_supervisor_id: string | null;
   assigned_engineer_id: string | null;
+  closed_at?: string | null;
   closed_by?: string | null;
   assigned_technician?: { full_name: string } | null;
   assigned_supervisor?: { full_name: string } | null;
@@ -84,13 +87,13 @@ export async function GET() {
   const region = (me.region as string | null)?.trim() || null;
 
   try {
+    const mineOr = `assigned_technician_id.eq.${user.id},assigned_supervisor_id.eq.${user.id},assigned_engineer_id.eq.${user.id}`;
+
     const { data: myTickets, error: myErr } = await supabase
       .from("tickets")
       .select(TICKET_SELECT)
       .neq("status", VISIBLE_UNTIL_CLOSED)
-      .or(
-        `assigned_technician_id.eq.${user.id},assigned_supervisor_id.eq.${user.id},assigned_engineer_id.eq.${user.id}`,
-      )
+      .or(mineOr)
       .order("created_at", { ascending: false });
 
     if (myErr) {
@@ -108,7 +111,24 @@ export async function GET() {
 
     const zoneIds = (zoneLinks ?? []).map((row) => row.zone_id as string);
     if (zoneIds.length === 0) {
-      return NextResponse.json({ areaTickets: [], myTickets: myTickets ?? [] });
+      const { data: doneMineOnly, error: doneMineOnlyErr } = await supabase
+        .from("tickets")
+        .select(TICKET_SELECT)
+        .eq("status", "finished")
+        .or(mineOr)
+        .order("closed_at", { ascending: false, nullsFirst: false })
+        .limit(120);
+      if (doneMineOnlyErr) {
+        return NextResponse.json({ error: doneMineOnlyErr.message }, { status: 400 });
+      }
+      const completedOnlyMine = ((doneMineOnly ?? []) as unknown as TicketRow[]).filter((row) =>
+        rowMatchesPoolFilters(row, specialty, region),
+      );
+      return NextResponse.json({
+        areaTickets: [],
+        myTickets: myTickets ?? [],
+        completedTickets: completedOnlyMine,
+      });
     }
 
     const { data: zonePool, error: poolErr } = await supabase
@@ -128,9 +148,49 @@ export async function GET() {
     /** لا نُخفِ البلاغ من المنطقة بعد التعيين — يظل ظاهراً لزملاء المنطقة/التخصص حتى finished */
     const areaTickets = filteredPool;
 
+    const { data: doneMine, error: doneMineErr } = await supabase
+      .from("tickets")
+      .select(TICKET_SELECT)
+      .eq("status", "finished")
+      .or(mineOr)
+      .order("closed_at", { ascending: false, nullsFirst: false })
+      .limit(120);
+
+    if (doneMineErr) {
+      return NextResponse.json({ error: doneMineErr.message }, { status: 400 });
+    }
+
+    let doneArea: TicketRow[] = [];
+    if (zoneIds.length > 0) {
+      const { data: da, error: daErr } = await supabase
+        .from("tickets")
+        .select(TICKET_SELECT)
+        .eq("status", "finished")
+        .in("zone_id", zoneIds)
+        .order("closed_at", { ascending: false, nullsFirst: false })
+        .limit(120);
+      if (daErr) {
+        return NextResponse.json({ error: daErr.message }, { status: 400 });
+      }
+      doneArea = (da ?? []) as unknown as TicketRow[];
+    }
+
+    const doneMineRows = (doneMine ?? []) as unknown as TicketRow[];
+    const mergedDone = new Map<string, TicketRow>();
+    for (const r of [...doneMineRows, ...doneArea]) {
+      if (!rowMatchesPoolFilters(r, specialty, region)) continue;
+      mergedDone.set(r.id, r);
+    }
+    const completedTickets = [...mergedDone.values()].sort((a, b) => {
+      const ta = new Date((a as { closed_at?: string | null }).closed_at ?? a.created_at).getTime();
+      const tb = new Date((b as { closed_at?: string | null }).closed_at ?? b.created_at).getTime();
+      return tb - ta;
+    });
+
     return NextResponse.json({
       areaTickets,
       myTickets: myTickets ?? [],
+      completedTickets,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";

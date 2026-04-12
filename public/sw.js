@@ -38,7 +38,15 @@ self.addEventListener("message", (event) => {
   }
   if (event.data?.type === "SHOW_NOTIFICATION") {
     const title = event.data.title || "تنبيه جديد";
-    const options = event.data.options || {};
+    const base = event.data.options || {};
+    const options = {
+      ...base,
+      icon: base.icon || "/icons/icon-192.png",
+      badge: base.badge || "/icons/icon-192.png",
+      vibrate: base.vibrate || [180, 80, 180],
+      silent: false,
+      requireInteraction: base.requireInteraction !== false,
+    };
     void self.registration.showNotification(title, options);
   }
 });
@@ -63,6 +71,10 @@ self.addEventListener("push", (event) => {
       tag: `ticket-${ticketId || Date.now()}`,
       renotify: true,
       requireInteraction: true,
+      silent: false,
+      vibrate: [200, 100, 200],
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
       data: { url, ticketId },
     }),
   );

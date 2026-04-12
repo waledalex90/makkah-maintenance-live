@@ -17,6 +17,11 @@ export type AppPermissionKey = (typeof APP_PERMISSION_KEYS)[number];
 
 export type AppPermissions = Partial<Record<AppPermissionKey, boolean>>;
 
+/** حالة افتراضية لنموذج «مستخدم جديد»: كل صلاحيات الواجهة معطّلة حتى يفعّلها المدير يدوياً. */
+export function defaultInvitePermissionToggles(): Record<AppPermissionKey, boolean> {
+  return Object.fromEntries(APP_PERMISSION_KEYS.map((k) => [k, false])) as Record<AppPermissionKey, boolean>;
+}
+
 const ALL_TRUE: Record<AppPermissionKey, boolean> = {
   view_dashboard: true,
   view_tickets: true,

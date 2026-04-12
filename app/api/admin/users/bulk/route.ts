@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireManageUsers } from "@/lib/auth-guards";
-import { mergeInvitePermissions } from "@/lib/dashboard-user-permissions";
+import { mergeExplicitInvitePermissions } from "@/lib/dashboard-user-permissions";
 import { upsertProfileAndZones } from "@/lib/server/provision-dashboard-user";
 import { parseUsernameOrEmailLocalPart, toAuthEmail } from "@/lib/username-auth";
 import { APP_PERMISSION_KEYS, type AppPermissionKey } from "@/lib/permissions";
@@ -34,18 +34,14 @@ function parseBool(v: string): boolean | undefined {
   return undefined;
 }
 
-/** فني / مهندس / مشرف (مراقب) → واجهة المهام افتراضياً */
-function defaultAccessWorkListForRole(role: Role): boolean {
-  return role === "technician" || role === "engineer" || role === "supervisor";
-}
-
-function resolveAccessWorkList(raw: string, role: Role): boolean {
+function resolveAccessWorkList(raw: string): boolean {
   const t = raw.trim();
   if (t === "") {
-    return defaultAccessWorkListForRole(role);
+    /** عمود فارغ: واجهة الفريق فقط مفعّلة كما في نموذج الإضافة */
+    return true;
   }
   const b = parseBool(t);
-  return b === undefined ? defaultAccessWorkListForRole(role) : b;
+  return b !== false;
 }
 
 export async function POST(request: Request) {
@@ -190,8 +186,8 @@ export async function POST(request: Request) {
       continue;
     }
 
-    const permissions = mergeInvitePermissions(roleStr, permPartial);
-    const access_work_list = resolveAccessWorkList(accessWorkListRaw, roleStr);
+    const permissions = mergeExplicitInvitePermissions(permPartial);
+    const access_work_list = resolveAccessWorkList(accessWorkListRaw);
 
     /** يفعّل البريد في Auth فوراً؛ إن طلب Supabase تأكيداً يدوياً عطّل Confirm email من لوحة المشروع. */
     const { data: createdUser, error: createError } = await adminSupabase.auth.admin.createUser({

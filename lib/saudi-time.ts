@@ -42,6 +42,31 @@ export function getAgeMinutes(createdAtIso: string, nowMs: number): number {
   return Math.floor(getAgeMs(createdAtIso, nowMs) / 60_000);
 }
 
+const AR_UNITS = { day: "يوم", days: "أيام", hour: "ساعة", hours: "ساعات", minute: "دقيقة", minutes: "دقائق" };
+
+function formatCountAr(n: number, one: string, many: string): string {
+  if (n <= 0) return "";
+  if (n === 1) return `1 ${one}`;
+  return `${n} ${many}`;
+}
+
+/**
+ * عمر نسبي بصيغة واضحة (أيام + ساعات + دقائق) بدل عرض «دقائق» فقط عند الأعمار الطويلة.
+ */
+export function formatRelativeSmartAr(iso: string, nowMs: number = Date.now()): string {
+  const deltaMs = getAgeMs(iso, nowMs);
+  if (deltaMs < 45_000) return "الآن";
+  const totalMin = Math.floor(deltaMs / 60_000);
+  const days = Math.floor(totalMin / (24 * 60));
+  const hours = Math.floor((totalMin % (24 * 60)) / 60);
+  const minutes = totalMin % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(formatCountAr(days, AR_UNITS.day, AR_UNITS.days));
+  if (hours > 0) parts.push(formatCountAr(hours, AR_UNITS.hour, AR_UNITS.hours));
+  if (minutes > 0 || parts.length === 0) parts.push(formatCountAr(minutes, AR_UNITS.minute, AR_UNITS.minutes));
+  return `منذ ${parts.join(" و")}`;
+}
+
 /** عرض تاريخ ووقت بتوقيت مكة — يشمل الثواني */
 export function formatSaudiDateTime(iso: string): string {
   try {

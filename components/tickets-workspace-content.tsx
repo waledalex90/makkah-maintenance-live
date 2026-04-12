@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -71,6 +72,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
   const [zoneId, setZoneId] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [ticketTablePage, setTicketTablePage] = useState(1);
+  const [listRefreshing, setListRefreshing] = useState(false);
 
   const { data: metaData } = useQuery({
     queryKey: ["tickets-workspace-meta"],
@@ -236,6 +238,18 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     await queryClient.invalidateQueries({ queryKey: ["tickets-workspace"] });
   };
 
+  const refreshTicketsData = async () => {
+    if (listRefreshing) return;
+    setListRefreshing(true);
+    try {
+      await queryClient.invalidateQueries({ queryKey: ["tickets-workspace"] });
+      await queryClient.invalidateQueries({ queryKey: ["tickets-workspace-meta"] });
+      toast.success("تم التحديث.");
+    } finally {
+      setListRefreshing(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white text-slate-900" dir="rtl" lang="ar" style={{ colorScheme: "light" }}>
       <header className="mb-6 flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
@@ -243,14 +257,26 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">إنشاء بلاغ جديد</h1>
           <p className="mt-1 text-sm text-slate-600">نموذج بلاغ مع التوجيه والمتابعة — وضع عرض فاتح للوضوح.</p>
         </div>
-        <Button
-          type="button"
-          className="h-11 min-w-[160px] shrink-0 bg-slate-900 text-base text-white hover:bg-slate-800"
-          onClick={() => void createTicket()}
-          disabled={creating}
-        >
-          {creating ? "جاري الإنشاء..." : "إرسال البلاغ"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11 w-11 shrink-0 p-0"
+            disabled={listRefreshing}
+            onClick={() => void refreshTicketsData()}
+            aria-label="تحديث الجدول"
+          >
+            <RefreshCw className={`size-4 ${listRefreshing ? "animate-spin" : ""}`} />
+          </Button>
+          <Button
+            type="button"
+            className="h-11 min-w-[160px] shrink-0 bg-slate-900 text-base text-white hover:bg-slate-800"
+            onClick={() => void createTicket()}
+            disabled={creating}
+          >
+            {creating ? "جاري الإنشاء..." : "إرسال البلاغ"}
+          </Button>
+        </div>
       </header>
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type TouchEventHandler } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import {
@@ -20,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TicketCreateForm } from "@/components/ticket-create-form";
 import { TicketChatPanel } from "@/components/ticket-chat-panel";
 import { TicketReceptionCaption } from "@/components/ticket-reception-caption";
+import { UserIdentityHeader } from "@/components/user-identity-header";
 import { TICKET_ROW_WITH_HANDLER_PROFILES } from "@/lib/ticket-handler-select";
 import { ticketReceptionExportLine } from "@/lib/ticket-reception-label";
 import {
@@ -246,9 +248,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [latestChatMap, setLatestChatMap] = useState<Record<string, string>>({});
   const [lastReadMap, setLastReadMap] = useState<Record<string, string>>({});
   const [nowTs, setNowTs] = useState(() => Date.now());
-  const [pullStartY, setPullStartY] = useState<number | null>(null);
-  const [pullDistance, setPullDistance] = useState(0);
-  const [pullRefreshing, setPullRefreshing] = useState(false);
+  const [headerRefreshing, setHeaderRefreshing] = useState(false);
   const openedTicketQueryRef = useRef<string | null>(null);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const [ticketDeleteDialogOpen, setTicketDeleteDialogOpen] = useState(false);
@@ -292,25 +292,25 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     queryFn: async () => {
       const thresholdIso = new Date(nowTs - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString();
       const bf = baseFilters;
-      const totalQ = applyTicketDashboardFilters(supabase.from("tickets").select("*", { count: "exact", head: true }), bf);
+      const totalQ = applyTicketDashboardFilters(supabase.from("tickets").select("id", { count: "exact", head: true }), bf);
       const receivedQ = applyTicketDashboardFilters(
-        supabase.from("tickets").select("*", { count: "exact", head: true }).eq("status", "received"),
+        supabase.from("tickets").select("id", { count: "exact", head: true }).eq("status", "received"),
         bf,
       );
       const finishedQ = applyTicketDashboardFilters(
-        supabase.from("tickets").select("*", { count: "exact", head: true }).eq("status", "finished"),
+        supabase.from("tickets").select("id", { count: "exact", head: true }).eq("status", "finished"),
         bf,
       );
       const lateQ = applyTicketDashboardFilters(
         supabase
           .from("tickets")
-          .select("*", { count: "exact", head: true })
+          .select("id", { count: "exact", head: true })
           .eq("status", "not_received")
           .lte("created_at", thresholdIso),
         bf,
       );
       const notReceivedQ = applyTicketDashboardFilters(
-        supabase.from("tickets").select("*", { count: "exact", head: true }).eq("status", "not_received"),
+        supabase.from("tickets").select("id", { count: "exact", head: true }).eq("status", "not_received"),
         bf,
       );
 
@@ -699,50 +699,35 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     toast.success("تم تصدير البلاغات المعروضة بنجاح.");
   };
 
-  const refreshByPull = async () => {
-    if (pullRefreshing) return;
-    setPullRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
-    await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
-    setPullRefreshing(false);
-    toast.success("تم تحديث البيانات.");
-  };
-
-  const handleTouchStart: TouchEventHandler<HTMLDivElement> = (event) => {
-    if (window.scrollY > 0) return;
-    setPullStartY(event.touches[0]?.clientY ?? null);
-  };
-
-  const handleTouchMove: TouchEventHandler<HTMLDivElement> = (event) => {
-    if (pullStartY === null || pullRefreshing) return;
-    const currentY = event.touches[0]?.clientY ?? pullStartY;
-    const delta = Math.max(0, currentY - pullStartY);
-    setPullDistance(Math.min(100, delta));
-  };
-
-  const handleTouchEnd: TouchEventHandler<HTMLDivElement> = () => {
-    const shouldRefresh = pullDistance >= 70;
-    setPullStartY(null);
-    setPullDistance(0);
-    if (shouldRefresh) {
-      void refreshByPull();
+  const refreshDashboardQueries = async () => {
+    if (headerRefreshing) return;
+    setHeaderRefreshing(true);
+    try {
+      await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard-zones"] });
+      await queryClient.invalidateQueries({ queryKey: ["ticket-categories-list"] });
+      toast.success("تم تحديث البيانات.");
+    } finally {
+      setHeaderRefreshing(false);
     }
   };
 
   return (
-    <div
-      className="relative space-y-6 bg-white text-slate-900"
-      dir="rtl"
-      lang="ar"
-      style={{ colorScheme: "light" }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
-      <div className="sticky top-2 z-20 flex justify-center">
-        <div className="rounded-full bg-white/90 px-3 py-1 text-xs text-slate-600 shadow-sm">
-          {pullRefreshing ? "جاري التحديث..." : pullDistance > 35 ? "افلت للتحديث" : "اسحب للتحديث"}
-        </div>
+    <div className="relative space-y-6 bg-white text-slate-900" dir="rtl" lang="ar" style={{ colorScheme: "light" }}>
+      {!tableOnly ? <UserIdentityHeader settingsHref="/dashboard/settings" /> : null}
+
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10 w-10 shrink-0 p-0"
+          disabled={headerRefreshing}
+          onClick={() => void refreshDashboardQueries()}
+          aria-label="تحديث اللوحة"
+        >
+          <RefreshCw className={`size-4 ${headerRefreshing ? "animate-spin" : ""}`} />
+        </Button>
       </div>
 
       <header className="flex flex-col gap-3 border-b border-slate-200 bg-white pb-5 sm:flex-row sm:items-center sm:justify-between">

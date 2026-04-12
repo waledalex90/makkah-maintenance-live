@@ -8,7 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { APP_PERMISSION_KEYS, effectivePermissions, type AppPermissionKey } from "@/lib/permissions";
+import {
+  APP_PERMISSION_KEYS,
+  defaultInvitePermissionToggles,
+  effectivePermissions,
+  type AppPermissionKey,
+} from "@/lib/permissions";
 import { displayLoginIdentifier, parseUsernameOrEmailLocalPart } from "@/lib/username-auth";
 import {
   isProtectedSuperAdminEmail,
@@ -230,7 +235,7 @@ export function UsersManagementContent() {
 
   const [invitePassword, setInvitePassword] = useState("");
   const [invitePermToggles, setInvitePermToggles] = useState<Record<AppPermissionKey, boolean>>(() =>
-    effectivePermissions("technician", undefined),
+    defaultInvitePermissionToggles(),
   );
   const [bulkUploading, setBulkUploading] = useState(false);
   const [templateDownloading, setTemplateDownloading] = useState<"xlsx" | "csv" | null>(null);
@@ -480,7 +485,7 @@ export function UsersManagementContent() {
     setInviteRole("technician");
     setInviteErrors({});
     setInvitePassword("");
-    setInvitePermToggles(effectivePermissions("technician", undefined));
+    setInvitePermToggles(defaultInvitePermissionToggles());
   };
 
   const validateInvite = () => {
@@ -619,7 +624,7 @@ export function UsersManagementContent() {
 
   useEffect(() => {
     if (!isInviteModalOpen) return;
-    setInvitePermToggles(effectivePermissions(inviteRole, undefined));
+    setInvitePermToggles(defaultInvitePermissionToggles());
   }, [inviteRole, isInviteModalOpen]);
 
   const selectedZones = zones.filter((zone) => inviteZoneIds.includes(zone.id));
@@ -635,7 +640,7 @@ export function UsersManagementContent() {
 
   const openInviteModal = async () => {
     setIsInviteModalOpen(true);
-    setInvitePermToggles(effectivePermissions("technician", undefined));
+    setInvitePermToggles(defaultInvitePermissionToggles());
     if (zones.length > 0) return;
     await refetch();
   };

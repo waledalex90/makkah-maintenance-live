@@ -21,6 +21,7 @@ export type TechnicianTicket = {
   category?: string | null;
   ticket_categories?: { name: string } | { name: string }[] | null;
   zones?: ZoneJoin;
+  /** وقت الإغلاق (تبويب المكتملة) */
   closed_at?: string | null;
   closed_by?: string | null;
   assigned_technician?: { full_name: string } | null;
@@ -38,6 +39,8 @@ export const ZONE_TICKETS_MINE_KEY = ["zone-tickets", "mine"] as const;
 export type ZoneTicketsWorkspacePayload = {
   areaTickets: TechnicianTicket[];
   myTickets: TechnicianTicket[];
+  /** بلاغات منتهية (منطقة + مهامي) لعرض تبويب «مكتملة» */
+  completedTickets: TechnicianTicket[];
   myUserId: string;
   canViewMap: boolean;
 };
@@ -68,6 +71,7 @@ export async function fetchZoneTicketsWorkspace(): Promise<ZoneTicketsWorkspaceP
   const payload = (await res.json()) as {
     areaTickets?: TechnicianTicket[];
     myTickets?: TechnicianTicket[];
+    completedTickets?: TechnicianTicket[];
     tickets?: TechnicianTicket[];
     error?: string;
   };
@@ -87,9 +91,12 @@ export async function fetchZoneTicketsWorkspace(): Promise<ZoneTicketsWorkspaceP
     myTickets = payload.myTickets ?? [];
   }
 
+  const completedTickets = payload.completedTickets ?? [];
+
   return {
     areaTickets,
     myTickets,
+    completedTickets,
     myUserId: user.id,
     canViewMap,
   };

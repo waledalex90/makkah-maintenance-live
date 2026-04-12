@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireManageUsers } from "@/lib/auth-guards";
-import { mergeInvitePermissions } from "@/lib/dashboard-user-permissions";
+import { mergeExplicitInvitePermissions, mergeInvitePermissions } from "@/lib/dashboard-user-permissions";
 import { upsertProfileAndZones } from "@/lib/server/provision-dashboard-user";
 import { parseUsernameOrEmailLocalPart, toAuthEmail, displayLoginIdentifier } from "@/lib/username-auth";
 import type { AppPermissionKey } from "@/lib/permissions";
@@ -198,7 +198,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "لا يُسمح بإنشاء حساب يطابق المدير المحمي." }, { status: 400 });
   }
 
-  const permissions = mergeInvitePermissions(role, body.permissions);
+  const permissions =
+    role === "admin" && body.permissions === undefined
+      ? mergeInvitePermissions("admin", undefined)
+      : mergeExplicitInvitePermissions(body.permissions);
 
   try {
     const adminSupabase = createSupabaseAdminClient();
@@ -229,6 +232,7 @@ export async function POST(request: Request) {
       zoneIds,
       permissions,
       username: usernameNormalized,
+      access_work_list: true,
     });
     if (zoneErr) {
       await adminSupabase.auth.admin.deleteUser(newUserId);

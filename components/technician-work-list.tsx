@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LogoutButton } from "@/components/logout-button";
 import { supabase } from "@/lib/supabase";
+import { notifyNewChatMessage } from "@/lib/chat-push-notification";
+import { isTicketSystemDocChatMessage } from "@/lib/ticket-task-doc-message";
 import { playWorkNotificationSound } from "@/lib/work-notification";
 import { TicketDetailDrawer, type TicketDetailRow } from "@/components/ticket-detail-drawer";
 import { TicketReceptionCaption } from "@/components/ticket-reception-caption";
@@ -258,24 +260,18 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "ticket_messages" },
         (payload) => {
-          const row = payload.new as { ticket_id?: string; sender_id?: string };
-          if (!row.ticket_id || !row.sender_id) return;
+          const row = payload.new as { id?: number; ticket_id?: string; sender_id?: string; content?: string };
+          if (!row.ticket_id || !row.sender_id || row.id == null) return;
           if (row.sender_id === myUserId) return;
           if (!combinedOpenIdsRef.current.has(row.ticket_id)) return;
-          playWorkNotificationSound();
-          toast.message("رسالة جديدة في أحد بلاغاتك");
-          if ("Notification" in window && Notification.permission === "granted" && "serviceWorker" in navigator) {
-            void navigator.serviceWorker.ready.then((registration) => {
-              registration.active?.postMessage({
-                type: "SHOW_NOTIFICATION",
-                title: "رسالة دردشة",
-                options: {
-                  body: "رسالة جديدة على بلاغ في قائمة عملك.",
-                  data: { url: "/tasks/my-work", ticketId: row.ticket_id },
-                },
-              });
-            });
-          }
+          if (isTicketSystemDocChatMessage(row.content ?? "")) return;
+          void notifyNewChatMessage({
+            messageId: row.id,
+            senderId: row.sender_id,
+            content: row.content ?? "",
+            ticketId: row.ticket_id,
+            navigateUrl: "/tasks/my-work",
+          });
           void queryClient.invalidateQueries({ queryKey: [...WORK_UNREAD_QUERY_PREFIX] });
         },
       )
@@ -284,13 +280,6 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
       void supabase.removeChannel(channel);
     };
   }, [myUserId, queryClient]);
-
-  useEffect(() => {
-    if (!("Notification" in window)) return;
-    if (Notification.permission === "default") {
-      void Notification.requestPermission();
-    }
-  }, []);
 
   const combinedTickets = useMemo(() => {
     const map = new Map<string, TechnicianTicket>();

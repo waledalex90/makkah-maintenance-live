@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
@@ -16,6 +17,8 @@ export function AccountSettingsContent() {
   const [mobile, setMobile] = useState("");
   const [alertsEnabled, setAlertsEnabled] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [profileRole, setProfileRole] = useState<string | null>(null);
+  const [testNotifyPending, setTestNotifyPending] = useState(false);
 
   useEffect(() => {
     const savedAlerts = window.localStorage.getItem(ALERT_SOUND_STORAGE_KEY);
@@ -48,7 +51,7 @@ export function AccountSettingsContent() {
         return;
       }
 
-      const { data, error } = await supabase.from("profiles").select("full_name, mobile").eq("id", user.id).single();
+      const { data, error } = await supabase.from("profiles").select("full_name, mobile, role").eq("id", user.id).single();
 
       if (error) {
         toast.error(error.message);
@@ -58,6 +61,7 @@ export function AccountSettingsContent() {
 
       setFullName(data?.full_name ?? "");
       setMobile(data?.mobile ?? "");
+      setProfileRole((data?.role as string | undefined) ?? null);
       setLoadingProfile(false);
     };
 
@@ -93,6 +97,35 @@ export function AccountSettingsContent() {
     }
 
     toast.success("تم تحديث الملف الشخصي بنجاح.");
+  };
+
+  const scheduleDelayedTestNotification = () => {
+    if (!("serviceWorker" in navigator)) {
+      toast.error("متصفحك لا يدعم Service Worker لهذا الاختبار.");
+      return;
+    }
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") {
+      toast.error("فعّل إشعارات المتصفح من شريط العنوان ثم أعد المحاولة.");
+      return;
+    }
+    setTestNotifyPending(true);
+    toast.info("سيصل تنبيه تجريبي خلال ١٠ ثوانٍ — يمكنك إغلاق الشاشة أو التطبيق للاختبار.");
+    window.setTimeout(() => {
+      void navigator.serviceWorker.ready.then((reg) => {
+        const tag = `admin-test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        reg.active?.postMessage({
+          type: "SHOW_NOTIFICATION",
+          title: "اختبار التنبيه اللحظي",
+          options: {
+            body: "تنبيه وهمي بعد ١٠ ثوانٍ للتحقق من الوصول.",
+            tag,
+            renotify: true,
+            data: { url: "/dashboard/settings" },
+          },
+        });
+      });
+      setTestNotifyPending(false);
+    }, 10_000);
   };
 
   return (
@@ -168,6 +201,28 @@ export function AccountSettingsContent() {
           </div>
         </CardContent>
       </Card>
+
+      {profileRole === "admin" ? (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardHeader>
+            <CardTitle className="text-amber-950">أدوات المدير</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-amber-900/90">
+              اختبار وصول إشعار النظام بعد إغلاق التبويب أو التطبيق (يعتمد على المتصفح ونظام التشغيل).
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="border-amber-400 bg-white text-amber-950 hover:bg-amber-100"
+              disabled={testNotifyPending || loadingProfile}
+              onClick={() => scheduleDelayedTestNotification()}
+            >
+              {testNotifyPending ? "تم جدولة الاختبار..." : "اختبار التنبيه اللحظي"}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

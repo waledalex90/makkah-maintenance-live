@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
-import { FieldStaffPermissionsOnboarding } from "@/components/field-staff-permissions-onboarding";
 import { LiveLocationTracker } from "@/components/live-location-tracker";
 import { DashboardBottomNav } from "@/components/dashboard-bottom-nav";
 import { PageTransition } from "@/components/page-transition";
@@ -38,7 +37,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
-      {role === "engineer" ? <FieldStaffPermissionsOnboarding role={role} /> : null}
       <LiveLocationTracker />
       <DashboardSidebar fullName={fullName} role={role} permissions={permissions} />
       <main className="flex-1 p-4 pb-24 md:p-6 md:pb-6">

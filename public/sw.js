@@ -1,5 +1,10 @@
-const CACHE_NAME = "makkah-ops-v2";
-const APP_SHELL = ["/", "/dashboard", "/dashboard/tickets", "/manifest.webmanifest"];
+/**
+ * Service Worker — إشعارات وتخزين مؤقت.
+ * ملاحظة: إغلاق المتصفح بالكامل (Hard Close) يوقف التنفيذ على معظم الأنظمة؛
+ * الإشعارات الفورية تعمل عند إعادة الفتح أو مع إبقاء المتصفح في الخلفية.
+ */
+const CACHE_NAME = "makkah-ops-v3";
+const APP_SHELL = ["/", "/dashboard", "/dashboard/tickets", "/tasks/my-work", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -39,11 +44,17 @@ self.addEventListener("message", (event) => {
   if (event.data?.type === "SHOW_NOTIFICATION") {
     const title = event.data.title || "تنبيه جديد";
     const base = event.data.options || {};
+    const uniqueTag =
+      typeof base.tag === "string" && base.tag.length > 0
+        ? base.tag
+        : `makkah-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const options = {
       ...base,
+      tag: uniqueTag,
+      renotify: true,
       icon: base.icon || "/icons/icon-192.png",
       badge: base.badge || "/icons/icon-192.png",
-      vibrate: base.vibrate || [180, 80, 180],
+      vibrate: base.vibrate || [200, 100, 200, 100, 200],
       silent: false,
       requireInteraction: base.requireInteraction !== false,
     };
@@ -63,16 +74,20 @@ self.addEventListener("push", (event) => {
   const title = data.title || "بلاغ جديد";
   const body = data.body || "يوجد بلاغ جديد في منطقتك.";
   const ticketId = data.ticketId || data.ticket_id || "";
-  const url = data.url || (ticketId ? `/dashboard/tickets?ticketId=${ticketId}` : "/dashboard/tickets");
+  const url = data.url || (ticketId ? `/dashboard/tickets?open=${ticketId}` : "/dashboard/tickets");
+  const pushTag =
+    typeof data.tag === "string" && data.tag.length > 0
+      ? data.tag
+      : `push-${ticketId || "gen"}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
-      tag: `ticket-${ticketId || Date.now()}`,
+      tag: pushTag,
       renotify: true,
       requireInteraction: true,
       silent: false,
-      vibrate: [200, 100, 200],
+      vibrate: [200, 100, 200, 100, 200],
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
       data: { url, ticketId },

@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { notifyNewChatMessage } from "@/lib/chat-push-notification";
 import { formatSaudiTime } from "@/lib/saudi-time";
 import { isTicketSystemDocChatMessage } from "@/lib/ticket-task-doc-message";
 import { cn } from "@/lib/utils";
@@ -33,6 +35,11 @@ type TicketChatPanelProps = {
 };
 
 export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTicketRead }: TicketChatPanelProps) {
+  const pathname = usePathname() ?? "";
+  const chatNavigateUrl = pathname.startsWith("/dashboard")
+    ? `/dashboard/tickets?open=${ticketId}`
+    : "/tasks/my-work";
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [senderNameMap, setSenderNameMap] = useState<Record<string, string>>({});
   const [senderRoleMap, setSenderRoleMap] = useState<Record<string, string>>({});
@@ -131,7 +138,24 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "ticket_messages", filter: `ticket_id=eq.${ticketId}` },
-        () => void loadMessages(),
+        (payload) => {
+          const row = payload.new as ChatMessage;
+          void (async () => {
+            const {
+              data: { user },
+            } = await supabase.auth.getUser();
+            if (user && row.sender_id !== user.id && !isTicketSystemDocChatMessage(row.content)) {
+              void notifyNewChatMessage({
+                messageId: row.id,
+                senderId: row.sender_id,
+                content: row.content,
+                ticketId,
+                navigateUrl: chatNavigateUrl,
+              });
+            }
+          })();
+          void loadMessages();
+        },
       )
       .on(
         "postgres_changes",
@@ -143,7 +167,7 @@ export function TicketChatPanel({ ticketId, canPost, onTicketUpdated, onMarkTick
       void supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resubscribe on ticketId only; loadMessages closes over ticketId
-  }, [ticketId, onTicketUpdated]);
+  }, [ticketId, onTicketUpdated, chatNavigateUrl]);
 
   const sendMessage = async () => {
     if (!canPost) return;

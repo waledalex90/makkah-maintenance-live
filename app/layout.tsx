@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import { AppToaster } from "@/components/app-toaster";
+import { FieldSetupWizardGate } from "@/components/field-setup-wizard-gate";
 import { PwaRegister } from "@/components/pwa-register";
 import { QueryClientProviderWrapper } from "@/components/query-client-provider";
 
@@ -21,6 +23,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <QueryClientProviderWrapper>
           <PwaRegister />
+          <Suspense fallback={null}>
+            <FieldSetupWizardGate />
+          </Suspense>
           {children}
           <AppToaster />
         </QueryClientProviderWrapper>

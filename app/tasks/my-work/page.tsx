@@ -28,15 +28,19 @@ export default async function MyWorkPage() {
   const allowedByRole =
     profile.role === "technician" ||
     profile.role === "supervisor" ||
-    profile.role === "engineer";
+    profile.role === "engineer" ||
+    profile.role === "data_entry";
   const allowed = Boolean(profile.access_work_list || allowedByRole);
 
   if (!allowed) {
     redirect("/dashboard");
   }
 
-  const listRole: "technician" | "supervisor" | "engineer" =
-    profile.role === "technician" || profile.role === "supervisor" || profile.role === "engineer"
+  const listRole: "technician" | "supervisor" | "engineer" | "data_entry" =
+    profile.role === "technician" ||
+    profile.role === "supervisor" ||
+    profile.role === "engineer" ||
+    profile.role === "data_entry"
       ? profile.role
       : "technician";
 

@@ -50,8 +50,12 @@ function normalizeZoneName(zones: ZoneJoin | undefined): string {
 }
 
 type TechnicianWorkListProps = {
-  role: "technician" | "supervisor" | "engineer";
+  role: "technician" | "supervisor" | "engineer" | "data_entry";
 };
+
+function ticketUnassignedForTechnician(t: TechnicianTicket): boolean {
+  return !t.assigned_technician_id;
+}
 
 const WORK_UNREAD_QUERY_PREFIX = ["work-field-unread"] as const;
 
@@ -99,7 +103,16 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
     combinedOpenIdsRef.current = new Set(mergedOpen.map((t) => t.id));
   }, [mergedOpen]);
 
-  const visibleTickets = tab === "mine" ? myTickets : areaTickets;
+  const visibleTickets = useMemo(() => {
+    const base = tab === "mine" ? myTickets : areaTickets;
+    if (tab !== "area" || role !== "data_entry") return base;
+    return [...base].sort((a, b) => {
+      const ua = ticketUnassignedForTechnician(a) ? 0 : 1;
+      const ub = ticketUnassignedForTechnician(b) ? 0 : 1;
+      if (ua !== ub) return ua - ub;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [tab, myTickets, areaTickets, role]);
 
   const openTicketIdsSorted = useMemo(() => mergedOpen.map((t) => t.id).sort().join("|"), [mergedOpen]);
 
@@ -193,6 +206,10 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
         (payload) => {
           const oldRow = payload.old as Record<string, unknown>;
           const newRow = payload.new as Record<string, unknown>;
+          if (role === "data_entry") {
+            void queryClient.invalidateQueries({ queryKey: ZONE_TICKETS_QUERY_KEY });
+            return;
+          }
           if (role === "supervisor") {
             const was = oldRow.assigned_supervisor_id as string | undefined;
             const now = newRow.assigned_supervisor_id as string | undefined;
@@ -402,7 +419,7 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
         <CardHeader className="space-y-3 pb-2">
           <CardTitle>مهام العمل</CardTitle>
           <div className="flex gap-2">
-            {tabBtn("area", "بلاغات المنطقة")}
+            {tabBtn("area", role === "data_entry" ? "بلاغات المنطقة (غير مسندة أولاً)" : "بلاغات المنطقة")}
             {tabBtn("mine", "مهامي")}
           </div>
         </CardHeader>
@@ -412,7 +429,9 @@ export function TechnicianWorkList({ role }: TechnicianWorkListProps) {
           ) : visibleTickets.length === 0 ? (
             <p className="text-sm text-slate-500">
               {tab === "area"
-                ? "لا توجد بلاغات مطابقة لمنطقتك وتخصصك في قائمة المنطقة."
+                ? role === "data_entry"
+                  ? "لا توجد بلاغات في المناطق المربوطة بحسابك."
+                  : "لا توجد بلاغات مطابقة لمنطقتك وتخصصك في قائمة المنطقة."
                 : "لا توجد مهام موجهة إليك حالياً — بعد قبول مهمة من «بلاغات المنطقة» تظهر هنا."}
             </p>
           ) : (

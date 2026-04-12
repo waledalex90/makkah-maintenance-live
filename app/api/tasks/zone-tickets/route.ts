@@ -52,6 +52,11 @@ function rowMatchesPoolFilters(
   return ticketCategoryNameMatchesSpecialty(categoryNameFromTicket(row), specialty);
 }
 
+/** إدخال بيانات: يرى كل البلاغات في مناطقه دون فلترة تخصص/منطقة نصية أو تعيين */
+function appliesSpecialtyRegionPoolFilter(role: string): boolean {
+  return role !== "data_entry";
+}
+
 export async function GET() {
   const supabase = await createSupabaseServerClient();
   const {
@@ -78,13 +83,15 @@ export async function GET() {
     Boolean(me.access_work_list) ||
     role === "technician" ||
     role === "supervisor" ||
-    role === "engineer";
+    role === "engineer" ||
+    role === "data_entry";
   if (!allowed) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const specialty = (me.specialty as string | null) ?? null;
   const region = (me.region as string | null)?.trim() || null;
+  const poolFilter = appliesSpecialtyRegionPoolFilter(role);
 
   try {
     const mineOr = `assigned_technician_id.eq.${user.id},assigned_supervisor_id.eq.${user.id},assigned_engineer_id.eq.${user.id}`;
@@ -122,7 +129,7 @@ export async function GET() {
         return NextResponse.json({ error: doneMineOnlyErr.message }, { status: 400 });
       }
       const completedOnlyMine = ((doneMineOnly ?? []) as unknown as TicketRow[]).filter((row) =>
-        rowMatchesPoolFilters(row, specialty, region),
+        poolFilter ? rowMatchesPoolFilters(row, specialty, region) : true,
       );
       return NextResponse.json({
         areaTickets: [],
@@ -143,7 +150,9 @@ export async function GET() {
     }
 
     const poolRows = (zonePool ?? []) as unknown as TicketRow[];
-    const filteredPool = poolRows.filter((row) => rowMatchesPoolFilters(row, specialty, region));
+    const filteredPool = poolFilter
+      ? poolRows.filter((row) => rowMatchesPoolFilters(row, specialty, region))
+      : poolRows;
 
     /** لا نُخفِ البلاغ من المنطقة بعد التعيين — يظل ظاهراً لزملاء المنطقة/التخصص حتى finished */
     const areaTickets = filteredPool;
@@ -178,7 +187,7 @@ export async function GET() {
     const doneMineRows = (doneMine ?? []) as unknown as TicketRow[];
     const mergedDone = new Map<string, TicketRow>();
     for (const r of [...doneMineRows, ...doneArea]) {
-      if (!rowMatchesPoolFilters(r, specialty, region)) continue;
+      if (poolFilter && !rowMatchesPoolFilters(r, specialty, region)) continue;
       mergedDone.set(r.id, r);
     }
     const completedTickets = [...mergedDone.values()].sort((a, b) => {

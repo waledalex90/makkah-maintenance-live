@@ -15,7 +15,8 @@ type Role =
   | "engineer"
   | "supervisor"
   | "technician"
-  | "reporter";
+  | "reporter"
+  | "data_entry";
 
 function pickCell(row: Record<string, unknown>, ...keys: string[]): string {
   for (const k of keys) {

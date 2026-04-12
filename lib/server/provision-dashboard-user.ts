@@ -9,7 +9,8 @@ type Role =
   | "engineer"
   | "supervisor"
   | "technician"
-  | "reporter";
+  | "reporter"
+  | "data_entry";
 
 export async function upsertProfileAndZones(
   adminSupabase: AdminClient,

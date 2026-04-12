@@ -27,7 +27,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect("/login?notice=missing_profile");
   }
 
-  if (profile.access_work_list || profile.role === "technician" || profile.role === "supervisor") {
+  if (
+    profile.access_work_list ||
+    profile.role === "technician" ||
+    profile.role === "supervisor" ||
+    profile.role === "data_entry"
+  ) {
     redirect("/tasks/my-work");
   }
 

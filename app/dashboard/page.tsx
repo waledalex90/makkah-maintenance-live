@@ -27,7 +27,7 @@ export default async function DashboardHomePage() {
     redirect("/tasks/my-work");
   }
 
-  if (profile.role === "technician" || profile.role === "supervisor") {
+  if (profile.role === "technician" || profile.role === "supervisor" || profile.role === "data_entry") {
     redirect("/tasks/my-work");
   }
 

@@ -153,7 +153,8 @@ type UserRole =
   | "engineer"
   | "supervisor"
   | "technician"
-  | "reporter";
+  | "reporter"
+  | "data_entry";
 
 type UserRow = {
   id: string;
@@ -185,7 +186,8 @@ const ROLE_OPTIONS: Array<{ value: UserRole; label: string }> = [
   { value: "admin", label: "مدير النظام" },
   { value: "projects_director", label: "مدير المشاريع" },
   { value: "project_manager", label: "مدير مشروع" },
-  { value: "reporter", label: "مدخل بيانات" },
+  { value: "reporter", label: "مبلّغ بلاغ" },
+  { value: "data_entry", label: "إدخال بيانات (عمليات)" },
   { value: "engineer", label: "مهندس" },
   { value: "supervisor", label: "مشرف" },
   { value: "technician", label: "فني" },

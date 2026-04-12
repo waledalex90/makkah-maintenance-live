@@ -16,7 +16,8 @@ type PatchBody = {
     | "engineer"
     | "supervisor"
     | "technician"
-    | "reporter";
+    | "reporter"
+    | "data_entry";
   region?: string | null;
   specialty?: "fire" | "electricity" | "ac" | "civil" | "kitchens" | null;
   /** واجهة مهام الميدان */

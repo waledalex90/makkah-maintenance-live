@@ -24,7 +24,8 @@ type ProfileRow = {
     | "engineer"
     | "supervisor"
     | "technician"
-    | "reporter";
+    | "reporter"
+    | "data_entry";
 };
 
 const PROFILE_SELECT =
@@ -149,7 +150,8 @@ type InvitePayload = {
     | "engineer"
     | "supervisor"
     | "technician"
-    | "reporter";
+    | "reporter"
+    | "data_entry";
   permissions?: Partial<Record<AppPermissionKey, boolean>>;
 };
 

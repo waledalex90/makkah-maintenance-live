@@ -58,7 +58,7 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone();
     if (profile.access_work_list) {
       url.pathname = "/tasks/my-work";
-    } else if (profile.role === "technician" || profile.role === "supervisor") {
+    } else if (profile.role === "technician" || profile.role === "supervisor" || profile.role === "data_entry") {
       url.pathname = "/tasks/my-work";
     } else if (profile.role === "reporter" || profile.role === "engineer") {
       url.pathname = "/dashboard/tickets";
@@ -75,7 +75,12 @@ export async function updateSession(request: NextRequest) {
       .eq("id", user.id)
       .maybeSingle();
 
-    if (profile?.access_work_list || profile?.role === "technician" || profile?.role === "supervisor") {
+    if (
+      profile?.access_work_list ||
+      profile?.role === "technician" ||
+      profile?.role === "supervisor" ||
+      profile?.role === "data_entry"
+    ) {
       const url = request.nextUrl.clone();
       url.pathname = "/tasks/my-work";
       return NextResponse.redirect(url);

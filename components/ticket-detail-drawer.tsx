@@ -507,6 +507,7 @@ export function TicketDetailDrawer({
     myRole === "engineer" ||
     myRole === "supervisor" ||
     myRole === "technician" ||
+    myRole === "data_entry" ||
     myRole === "reporter";
   const allowedStatusOptions = myRole === "reporter" ? (["finished"] as TicketStatus[]) : TICKET_STATUS_VALUES;
 
@@ -514,6 +515,7 @@ export function TicketDetailDrawer({
     myRole === "technician" ||
     myRole === "supervisor" ||
     myRole === "engineer" ||
+    myRole === "data_entry" ||
     myRole === "admin" ||
     myRole === "project_manager" ||
     myRole === "projects_director";

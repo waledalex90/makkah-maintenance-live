@@ -11,7 +11,8 @@ type RolePayload = {
     | "engineer"
     | "supervisor"
     | "technician"
-    | "reporter";
+    | "reporter"
+    | "data_entry";
 };
 
 export async function PATCH(request: Request, context: { params: Promise<{ userId: string }> }) {

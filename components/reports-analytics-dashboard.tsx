@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Download, Filter, LayoutDashboard, Sparkles, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, Download, Filter, LayoutDashboard, Sparkles } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +22,7 @@ import {
   formatTime12Mecca,
   riyadhDateKey,
   technicianLabel,
+  exportFinalStatusLabel,
   distributionByZone,
   technicianPerformance,
   zoneName,
@@ -65,22 +65,24 @@ type Filters = {
 };
 
 type CustomReportField =
+  | "reporter_name"
   | "ticket_number"
   | "zone"
   | "category"
-  | "status"
-  | "created_at"
-  | "assigned_to"
-  | "response_hms";
+  | "technician"
+  | "received_time"
+  | "repair_time"
+  | "final_status";
 
 const CUSTOM_REPORT_FIELD_LABELS: Record<CustomReportField, string> = {
+  reporter_name: "اسم المبلغ",
   ticket_number: "رقم البلاغ",
   zone: "المنطقة",
   category: "التصنيف",
-  status: "الحالة",
-  created_at: "تاريخ الإنشاء",
-  assigned_to: "المكلّف",
-  response_hms: "زمن الاستجابة",
+  technician: "الفني المسؤول",
+  received_time: "وقت الاستلام",
+  repair_time: "وقت الإصلاح",
+  final_status: "الحالة النهائية",
 };
 
 const REPORT_TEMPLATE_STORAGE_KEY = "reports-custom-templates-v1";
@@ -89,8 +91,11 @@ type SavedReportTemplate = {
   id: string;
   name: string;
   fields: CustomReportField[];
+  dateFrom: string;
+  dateTo: string;
   status: TicketStatus | "all";
   zoneId: string;
+  technicianId: string;
 };
 
 const SYSTEM_REPORT_PRESETS: Array<{
@@ -152,15 +157,20 @@ export function ReportsAnalyticsDashboard() {
   const [exportMode, setExportMode] = useState<ReportExportMode>("single_workbook");
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [customFields, setCustomFields] = useState<CustomReportField[]>([
+    "reporter_name",
     "ticket_number",
     "zone",
     "category",
-    "status",
-    "created_at",
+    "technician",
+    "received_time",
+    "repair_time",
+    "final_status",
   ]);
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo] = useState("");
   const [customStatus, setCustomStatus] = useState<TicketStatus | "all">("all");
   const [customZoneId, setCustomZoneId] = useState<string>("all");
-  const [customReportModalOpen, setCustomReportModalOpen] = useState(false);
+  const [customTechnicianId, setCustomTechnicianId] = useState<string>("all");
   const [templateName, setTemplateName] = useState("");
   const [savedTemplates, setSavedTemplates] = useState<SavedReportTemplate[]>([]);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -173,15 +183,6 @@ export function ReportsAnalyticsDashboard() {
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [exportMenuOpen]);
-
-  useEffect(() => {
-    if (!customReportModalOpen) return;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [customReportModalOpen]);
 
   useEffect(() => {
     try {
@@ -290,13 +291,24 @@ export function ReportsAnalyticsDashboard() {
   const previewRows = useMemo(() => buildEliteMainDetailsRows(rows).slice(0, 8), [rows]);
   const customPreviewRows = useMemo(() => {
     return rows.filter((row) => {
-      const zoneId = String((row as Record<string, unknown>).zone_id ?? "all");
-      const status = String((row as Record<string, unknown>).status ?? "");
+      const zoneId = String((row as unknown as Record<string, unknown>).zone_id ?? "all");
+      const status = String((row as unknown as Record<string, unknown>).status ?? "");
+      const techId =
+        row.assigned_technician_id ?? row.assigned_engineer_id ?? row.assigned_supervisor_id ?? "all";
+      if (customDateFrom) {
+        const fromMs = new Date(`${customDateFrom}T00:00:00.000+03:00`).getTime();
+        if (new Date(row.created_at).getTime() < fromMs) return false;
+      }
+      if (customDateTo) {
+        const toMs = new Date(`${customDateTo}T23:59:59.999+03:00`).getTime();
+        if (new Date(row.created_at).getTime() > toMs) return false;
+      }
       if (customZoneId !== "all" && zoneId !== customZoneId) return false;
       if (customStatus !== "all" && status !== customStatus) return false;
+      if (customTechnicianId !== "all" && techId !== customTechnicianId) return false;
       return true;
     });
-  }, [rows, customZoneId, customStatus]);
+  }, [rows, customDateFrom, customDateTo, customZoneId, customStatus, customTechnicianId]);
 
   const toggleCustomField = (field: CustomReportField) => {
     setCustomFields((prev) => {
@@ -308,6 +320,17 @@ export function ReportsAnalyticsDashboard() {
     });
   };
 
+  const moveCustomField = (index: number, direction: -1 | 1) => {
+    setCustomFields((prev) => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+      const copy = [...prev];
+      const [item] = copy.splice(index, 1);
+      copy.splice(nextIndex, 0, item);
+      return copy;
+    });
+  };
+
   const applySystemPreset = (sheets: ReportSheetId[]) => {
     const next = REPORT_SHEET_IDS.reduce((acc, id) => ({ ...acc, [id]: sheets.includes(id) }), {} as ReportExportSelection);
     setExportSelection(next);
@@ -316,20 +339,22 @@ export function ReportsAnalyticsDashboard() {
   const cellValueForField = (row: ReportTicketRow, field: CustomReportField): string => {
     const raw = row as unknown as Record<string, unknown>;
     switch (field) {
+      case "reporter_name":
+        return String(raw.reporter_name ?? "—");
       case "ticket_number":
         return String(raw.external_ticket_number ?? raw.ticket_number ?? raw.id ?? "-");
       case "zone":
         return zoneName(row.zones);
       case "category":
         return categoryName(row.ticket_categories);
-      case "status":
-        return statusLabelAr((row.status ?? "not_received") as TicketStatus);
-      case "created_at":
-        return `${formatDateDashedMecca(row.created_at)} ${formatTime12Mecca(row.created_at)}`;
-      case "assigned_to":
+      case "technician":
         return technicianLabel(row);
-      case "response_hms":
-        return formatDurationHMSBetween(row.created_at, row.received_at);
+      case "received_time":
+        return row.received_at ? formatTime12Mecca(row.received_at) : "انتظار";
+      case "repair_time":
+        return row.closed_at ? formatTime12Mecca(row.closed_at) : "انتظار";
+      case "final_status":
+        return exportFinalStatusLabel(row);
       default:
         return "-";
     }
@@ -338,7 +363,15 @@ export function ReportsAnalyticsDashboard() {
   const exportCustomPreviewExcel = useCallback(() => {
     const headers = customFields.map((f) => CUSTOM_REPORT_FIELD_LABELS[f]);
     const body = customPreviewRows.map((row) => customFields.map((field) => cellValueForField(row, field)));
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...body]);
+    const ws = XLSX.utils.aoa_to_sheet([["غرفة عمليات الحج - مكة"], headers, ...body]);
+    ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(headers.length - 1, 0) } }];
+    const logoCell = ws["A1"];
+    if (logoCell) {
+      logoCell.s = {
+        font: { bold: true, sz: 13, color: { rgb: "065F46" } },
+        alignment: { horizontal: "center", vertical: "center" },
+      };
+    }
     ws["!cols"] = headers.map(() => ({ wch: 22 }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "تقرير مخصص");
@@ -352,17 +385,23 @@ export function ReportsAnalyticsDashboard() {
       id: `${Date.now()}`,
       name,
       fields: customFields,
+      dateFrom: customDateFrom,
+      dateTo: customDateTo,
       status: customStatus,
       zoneId: customZoneId,
+      technicianId: customTechnicianId,
     };
     setSavedTemplates((prev) => [tpl, ...prev].slice(0, 20));
     setTemplateName("");
-  }, [templateName, customFields, customStatus, customZoneId]);
+  }, [templateName, customFields, customDateFrom, customDateTo, customStatus, customZoneId, customTechnicianId]);
 
   const applyTemplate = useCallback((tpl: SavedReportTemplate) => {
-    setCustomFields(tpl.fields.length > 0 ? tpl.fields : ["ticket_number"]);
+    setCustomFields(tpl.fields.length > 0 ? tpl.fields : ["reporter_name"]);
+    setCustomDateFrom(tpl.dateFrom ?? "");
+    setCustomDateTo(tpl.dateTo ?? "");
     setCustomStatus(tpl.status);
     setCustomZoneId(tpl.zoneId);
+    setCustomTechnicianId(tpl.technicianId ?? "all");
   }, []);
 
   const exportScopedRows = useCallback(
@@ -440,29 +479,117 @@ export function ReportsAnalyticsDashboard() {
             </CardHeader>
             <CardContent className="space-y-4 text-right">
               <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700">
-                معاينة سريعة: {customPreviewRows.length} صف مطابق | حقول مختارة: {customFields.length}
+                معاينة فورية: {customPreviewRows.length} صف | ترتيب الأعمدة: {customFields.length}
               </div>
-              <Button
-                type="button"
-                className="w-full bg-emerald-700 text-white hover:bg-emerald-800"
-                onClick={() => setCustomReportModalOpen(true)}
-              >
-                إنشاء تقرير جديد
-              </Button>
+
+              <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+                <p className="text-sm font-semibold text-slate-800">اختيار الأعمدة وترتيبها</p>
+                {Object.entries(CUSTOM_REPORT_FIELD_LABELS).map(([key, label]) => {
+                  const field = key as CustomReportField;
+                  const idx = customFields.indexOf(field);
+                  const selected = idx >= 0;
+                  return (
+                    <div key={field} className="flex items-center gap-2 rounded-lg border border-slate-100 px-2 py-1.5">
+                      <input
+                        type="checkbox"
+                        className="size-4 rounded border-slate-300 text-emerald-600"
+                        checked={selected}
+                        onChange={() => toggleCustomField(field)}
+                      />
+                      <span className="flex-1 text-sm text-slate-700">{label}</span>
+                      {selected ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            className="rounded-md border border-slate-200 p-1 text-slate-600 hover:bg-slate-50"
+                            onClick={() => moveCustomField(idx, -1)}
+                            aria-label="تحريك لأعلى"
+                          >
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-md border border-slate-200 p-1 text-slate-600 hover:bg-slate-50"
+                            onClick={() => moveCustomField(idx, 1)}
+                            aria-label="تحريك لأسفل"
+                          >
+                            <ArrowDown className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <Label className="mb-1 block">من تاريخ</Label>
+                  <Input type="date" value={customDateFrom} onChange={(e) => setCustomDateFrom(e.target.value)} />
+                </div>
+                <div>
+                  <Label className="mb-1 block">إلى تاريخ</Label>
+                  <Input type="date" value={customDateTo} onChange={(e) => setCustomDateTo(e.target.value)} />
+                </div>
+                <div>
+                  <Label className="mb-1 block">المنطقة</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+                    value={customZoneId}
+                    onChange={(e) => setCustomZoneId(e.target.value)}
+                  >
+                    <option value="all">كل المناطق</option>
+                    {(zonesQuery.data ?? []).map((z) => (
+                      <option key={z.id} value={z.id}>
+                        {z.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label className="mb-1 block">حالة البلاغ</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+                    value={customStatus}
+                    onChange={(e) => setCustomStatus(e.target.value as TicketStatus | "all")}
+                  >
+                    <option value="all">كل الحالات</option>
+                    <option value="not_received">{statusLabelAr("not_received")}</option>
+                    <option value="received">{statusLabelAr("received")}</option>
+                    <option value="finished">{statusLabelAr("finished")}</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <Label className="mb-1 block">الفني المسؤول</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+                    value={customTechnicianId}
+                    onChange={(e) => setCustomTechnicianId(e.target.value)}
+                  >
+                    <option value="all">الكل</option>
+                    {(techniciansQuery.data ?? []).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <div className="flex gap-2">
                   <Input
                     value={templateName}
                     onChange={(e) => setTemplateName(e.target.value)}
-                    placeholder="اسم قالب التقرير"
+                    placeholder="حفظ كنموذج: تقرير أداء الفنيين الأسبوعي"
                   />
                   <Button type="button" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={saveCurrentTemplate}>
-                    حفظ القالب
+                    حفظ كنموذج
                   </Button>
                 </div>
                 {savedTemplates.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
-                    {savedTemplates.slice(0, 6).map((tpl) => (
+                    {savedTemplates.slice(0, 8).map((tpl) => (
                       <button
                         key={tpl.id}
                         type="button"
@@ -758,115 +885,6 @@ export function ReportsAnalyticsDashboard() {
         />
       </div>
 
-      <AnimatePresence>
-        {customReportModalOpen ? (
-          <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-3 sm:p-4"
-            onClick={() => setCustomReportModalOpen(false)}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <motion.div
-              className="w-[95%] max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-8 shadow-2xl text-slate-900"
-              dir="rtl"
-              lang="ar"
-              onClick={(e) => e.stopPropagation()}
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 8 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-            >
-              <div className="mb-5 flex items-start justify-between gap-2">
-                <div>
-                  <h3 className="text-right text-xl font-semibold">Create New Report</h3>
-                  <p className="mt-1 text-right text-sm font-medium text-slate-500">
-                    صمّم التقرير باختيار الحقول والفلاتر، ثم استخدمه في المعاينة والتصدير.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="rounded-md border border-slate-200 p-2 text-slate-500 hover:bg-slate-100"
-                  onClick={() => setCustomReportModalOpen(false)}
-                  aria-label="إغلاق"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="space-y-5">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {Object.entries(CUSTOM_REPORT_FIELD_LABELS).map(([key, label]) => {
-                    const field = key as CustomReportField;
-                    return (
-                      <label
-                        key={field}
-                        className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-right"
-                      >
-                        <input
-                          type="checkbox"
-                          className="size-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-700"
-                          checked={customFields.includes(field)}
-                          onChange={() => toggleCustomField(field)}
-                        />
-                        <span className="w-full text-right">{label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <Label className="mb-1 block text-right font-semibold text-slate-700">فلتر الحالة</Label>
-                    <select
-                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                      value={customStatus}
-                      onChange={(e) => setCustomStatus(e.target.value as TicketStatus | "all")}
-                    >
-                      <option value="all">كل الحالات</option>
-                      <option value="not_received">{statusLabelAr("not_received")}</option>
-                      <option value="received">{statusLabelAr("received")}</option>
-                      <option value="finished">{statusLabelAr("finished")}</option>
-                    </select>
-                  </div>
-                  <div>
-                    <Label className="mb-1 block text-right font-semibold text-slate-700">فلتر المنطقة</Label>
-                    <select
-                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                      value={customZoneId}
-                      onChange={(e) => setCustomZoneId(e.target.value)}
-                    >
-                      <option value="all">كل المناطق</option>
-                      {(zonesQuery.data ?? []).map((z) => (
-                        <option key={z.id} value={z.id}>
-                          {z.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-right text-xs font-semibold text-slate-600">
-                  صفوف المعاينة المطابقة: {customPreviewRows.length}
-                </div>
-                <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-                  <Input
-                    value={templateName}
-                    onChange={(e) => setTemplateName(e.target.value)}
-                    placeholder="اسم قالب التقرير المتكرر"
-                  />
-                  <Button type="button" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={saveCurrentTemplate}>
-                    حفظ القالب
-                  </Button>
-                  <Button type="button" variant="outline" className="border-slate-300" onClick={exportCustomPreviewExcel}>
-                    تصدير الآن
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
     </div>
   );
 }

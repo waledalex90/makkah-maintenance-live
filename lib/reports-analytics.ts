@@ -14,6 +14,7 @@ export type ProfileJoin = { full_name: string } | { full_name: string }[] | null
 
 export type ReportTicketRow = {
   id: string;
+  reporter_name?: string | null;
   ticket_number?: number | null;
   external_ticket_number?: string | null;
   status: TicketStatus;
@@ -33,7 +34,7 @@ export type ReportTicketRow = {
 };
 
 export const REPORTS_TICKET_SELECT =
-  "id, ticket_number, external_ticket_number, status, created_at, received_at, closed_at, zone_id, category_id, assigned_technician_id, assigned_engineer_id, assigned_supervisor_id, " +
+  "id, reporter_name, ticket_number, external_ticket_number, status, created_at, received_at, closed_at, zone_id, category_id, assigned_technician_id, assigned_engineer_id, assigned_supervisor_id, " +
   "zones(name), ticket_categories(name), " +
   "assigned_technician:profiles!assigned_technician_id(full_name), " +
   "assigned_engineer:profiles!assigned_engineer_id(full_name), " +

@@ -764,12 +764,12 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       <section className="grid min-w-[980px] grid-cols-5 gap-6">
         <button
           type="button"
-          className="text-right"
+          className="w-full text-right"
           onClick={() => patchDashboard({ sf: "all", tst: "all" })}
         >
           <Card
             className={
-              statFilter === "all" && statusFilter === "all" ? "ring-2 ring-sky-500" : ""
+              statFilter === "all" && statusFilter === "all" ? "h-full ring-2 ring-sky-500" : "h-full"
             }
           >
             <CardHeader className="p-3 pb-1">
@@ -782,12 +782,12 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </button>
         <button
           type="button"
-          className="text-right"
+          className="w-full text-right"
           onClick={() => patchDashboard({ sf: "all", tst: "not_received" })}
         >
           <Card
             className={
-              statFilter === "all" && statusFilter === "not_received" ? "ring-2 ring-sky-400" : ""
+              statFilter === "all" && statusFilter === "not_received" ? "h-full ring-2 ring-sky-400" : "h-full"
             }
           >
             <CardHeader className="p-3 pb-1">
@@ -801,10 +801,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </button>
         <button
           type="button"
-          className="text-right"
+          className="w-full text-right"
           onClick={() => patchDashboard({ sf: "late_pickup", tst: "all" })}
         >
-          <Card className={statFilter === "late_pickup" ? "ring-2 ring-amber-400" : ""}>
+          <Card className={statFilter === "late_pickup" ? "h-full ring-2 ring-amber-400" : "h-full"}>
             <CardHeader className="p-3 pb-1">
               <CardTitle className="text-sm md:text-base">متأخرة الاستلام</CardTitle>
               <p className="text-[10px] font-normal text-slate-500">&gt; دقيقتين</p>
@@ -816,10 +816,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </button>
         <button
           type="button"
-          className="text-right"
+          className="w-full text-right"
           onClick={() => patchDashboard({ sf: "received", tst: "received" })}
         >
-          <Card className={statFilter === "received" ? "ring-2 ring-amber-400" : ""}>
+          <Card className={statFilter === "received" ? "h-full ring-2 ring-amber-400" : "h-full"}>
             <CardHeader className="p-3 pb-1">
               <CardTitle className="text-sm md:text-base">قيد التنفيذ</CardTitle>
             </CardHeader>
@@ -830,10 +830,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </button>
         <button
           type="button"
-          className="text-right"
+          className="w-full text-right"
           onClick={() => patchDashboard({ sf: "finished", tst: "finished" })}
         >
-          <Card className={statFilter === "finished" ? "ring-2 ring-emerald-500" : ""}>
+          <Card className={statFilter === "finished" ? "h-full ring-2 ring-emerald-500" : "h-full"}>
             <CardHeader className="p-3 pb-1">
               <CardTitle className="text-sm md:text-base">مكتملة</CardTitle>
             </CardHeader>

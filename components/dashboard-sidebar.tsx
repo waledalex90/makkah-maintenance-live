@@ -31,7 +31,7 @@ const NAV_DEF: NavItem[] = [
   { href: "/dashboard", label: "لوحة التحكم", icon: LayoutDashboard, perm: "view_dashboard" },
   { href: "/dashboard/tickets", label: "البلاغات", icon: Ticket, perm: "view_tickets" },
   { href: "/dashboard/tasks", label: "المهام", icon: ListTodo, perm: "view_tickets", roles: ["reporter", "admin"] },
-  { href: "/dashboard/reports", label: "تقارير حية", icon: BarChart3, perm: "view_reports" },
+  { href: "/dashboard/reports", label: "تقارير", icon: BarChart3, perm: "view_reports" },
   { href: "/dashboard/admin/zones", label: "إدارة المناطق", icon: MapPinned, perm: "manage_zones" },
   { href: "/dashboard/admin/users", label: "إدارة الفريق والصلاحيات", icon: Users, perm: "manage_users" },
   { href: "/dashboard/settings", label: "الإعدادات", icon: Settings, perm: "view_settings" },
@@ -145,7 +145,7 @@ export function DashboardSidebar({
 
       <aside
         className={cn(
-          "hidden h-dvh shrink-0 flex-col border-r border-slate-200 bg-slate-50 p-4 transition-[width] duration-300 ease-in-out will-change-[width] md:flex",
+          "hidden h-dvh shrink-0 flex-col border-l border-slate-200 bg-slate-50 p-4 transition-[width] duration-300 ease-in-out will-change-[width] md:flex",
           collapsed ? "w-20" : "w-72",
         )}
         dir="rtl"

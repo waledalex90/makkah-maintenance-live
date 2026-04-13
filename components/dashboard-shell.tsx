@@ -61,7 +61,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }, [mobileSidebarOpen]);
 
   return (
-    <div className="flex min-h-dvh bg-[#f5f5ef] dark:bg-slate-950">
+    <div className="flex min-h-dvh bg-[#f5f5ef] dark:bg-slate-950 md:flex-row-reverse">
       <LiveLocationTracker />
       {me?.ok ? (
         <DashboardSidebar

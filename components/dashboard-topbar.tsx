@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Menu, PanelRightClose, PanelRightOpen } from "lucide-react";
-import { LogoutIconButton } from "@/components/logout-icon-button";
 
 type DashboardTopbarProps = {
   fullName: string;
@@ -37,7 +36,7 @@ export function DashboardTopbar({
   );
 
   return (
-    <header className="sticky top-0 z-[8050] mb-3 h-16 border border-slate-200 bg-slate-50/95 px-3 shadow-2xl backdrop-blur md:mb-4 md:h-20 md:px-4">
+    <header className="relative mb-3 h-16 border border-slate-200 bg-slate-50 px-3 shadow-2xl md:mb-4 md:h-20 md:px-4" dir="rtl" lang="ar">
       <div className="flex h-full items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2 md:gap-3">
           <button
@@ -63,6 +62,7 @@ export function DashboardTopbar({
         </div>
 
         <div className="hidden items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 md:flex">
+          <span className="text-sm leading-none" aria-hidden="true">🕋</span>
           <span className="text-xs font-semibold text-emerald-600">Live Makkah</span>
           <span className="text-xs text-slate-400">|</span>
           <span className="font-mono text-sm font-semibold text-slate-900">{makkahTime}</span>
@@ -71,10 +71,10 @@ export function DashboardTopbar({
         </div>
 
         <div className="flex items-center gap-2">
+          <span className="text-sm leading-none md:hidden" aria-hidden="true">🕋</span>
           <div className="rounded-xl border border-slate-200 px-2 py-1 font-mono text-xs text-slate-900 md:hidden">
             {makkahTime}
           </div>
-          <LogoutIconButton />
         </div>
       </div>
       <div className="md:hidden">
@@ -82,7 +82,6 @@ export function DashboardTopbar({
           Live Makkah Status - Temp 34C
         </div>
       </div>
-      <div className="pointer-events-none absolute bottom-0 left-0 h-[2px] w-full bg-gradient-to-r from-emerald-600 via-amber-500 to-emerald-600" />
     </header>
   );
 }

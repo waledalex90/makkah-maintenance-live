@@ -747,15 +747,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       <header className="flex flex-col gap-3 border-b border-slate-200 bg-white pb-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">{tableOnly ? "مركز البلاغات" : "لوحة التحكم"}</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {tableOnly
-              ? role === "reporter"
-                ? "متابعة البلاغات — التوقيت يُحسب بتوقيت مكة المكرمة. لإدارة المهام والتنبيهات الزمنية استخدم تبويب «المهام»."
-                : "متابعة البلاغات — التوقيت يُحسب بتوقيت مكة المكرمة"
-              : "مؤشرات البلاغات وإنشاء بلاغ جديد"}
-          </p>
           <p className="mt-1 text-xs text-slate-500" suppressHydrationWarning>
-            التوقيت الحالي (مكة): {formatSaudiNow(nowTs)}
+            {formatSaudiNow(nowTs)}
           </p>
         </div>
         <Button
@@ -767,7 +760,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </Button>
       </header>
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="overflow-x-auto">
+      <section className="grid min-w-[980px] grid-cols-5 gap-6">
         <button
           type="button"
           className="text-right"
@@ -849,6 +843,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           </Card>
         </button>
       </section>
+      </div>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between">

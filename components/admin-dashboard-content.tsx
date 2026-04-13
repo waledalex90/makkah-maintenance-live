@@ -728,7 +728,12 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   };
 
   return (
-    <div className="relative space-y-6 bg-white text-slate-900" dir="rtl" lang="ar" style={{ colorScheme: "light" }}>
+    <div
+      className="relative space-y-6 overflow-x-auto bg-white text-slate-900 [scrollbar-width:thin]"
+      dir="rtl"
+      lang="ar"
+      style={{ colorScheme: "light" }}
+    >
       {!tableOnly ? <UserIdentityHeader /> : null}
 
       <div className="flex justify-end">
@@ -760,11 +765,11 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </Button>
       </header>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-visible pb-4 [scrollbar-width:thin]">
       <section className="grid min-w-[980px] grid-cols-5 gap-6">
         <button
           type="button"
-          className="w-full text-right"
+          className="min-w-[200px] w-full text-right"
           onClick={() => patchDashboard({ sf: "all", tst: "all" })}
         >
           <Card
@@ -782,7 +787,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </button>
         <button
           type="button"
-          className="w-full text-right"
+          className="min-w-[200px] w-full text-right"
           onClick={() => patchDashboard({ sf: "all", tst: "not_received" })}
         >
           <Card
@@ -801,7 +806,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </button>
         <button
           type="button"
-          className="w-full text-right"
+          className="min-w-[200px] w-full text-right"
           onClick={() => patchDashboard({ sf: "late_pickup", tst: "all" })}
         >
           <Card className={statFilter === "late_pickup" ? "h-full ring-2 ring-amber-400" : "h-full"}>
@@ -816,7 +821,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </button>
         <button
           type="button"
-          className="w-full text-right"
+          className="min-w-[200px] w-full text-right"
           onClick={() => patchDashboard({ sf: "received", tst: "received" })}
         >
           <Card className={statFilter === "received" ? "h-full ring-2 ring-amber-400" : "h-full"}>
@@ -830,7 +835,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </button>
         <button
           type="button"
-          className="w-full text-right"
+          className="min-w-[200px] w-full text-right"
           onClick={() => patchDashboard({ sf: "finished", tst: "finished" })}
         >
           <Card className={statFilter === "finished" ? "h-full ring-2 ring-emerald-500" : "h-full"}>

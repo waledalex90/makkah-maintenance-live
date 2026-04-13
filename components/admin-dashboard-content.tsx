@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -256,6 +257,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [ticketDeleteDialogOpen, setTicketDeleteDialogOpen] = useState(false);
   const [ticketDeleting, setTicketDeleting] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const detailDragControls = useDragControls();
 
   const isSuperAdminSession = isProtectedSuperAdminEmail(sessionEmail);
@@ -286,6 +288,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     sync();
     media.addEventListener("change", sync);
     return () => media.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    setMounted(true);
   }, []);
 
   const zonesQuery = useQuery({
@@ -1114,66 +1120,70 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         </div>
       </section>
 
-      {createModalOpen ? (
-        <div
-          className="fixed inset-0 z-[999] flex items-end justify-center overflow-hidden bg-slate-900/45 p-0 backdrop-blur-[3px] md:items-center md:p-4"
-          onClick={() => setCreateModalOpen(false)}
-        >
-          <div
-            className="h-[100dvh] w-full overflow-y-auto overscroll-contain scroll-smooth rounded-none border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:p-5"
-            style={{ colorScheme: "light" }}
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">إنشاء بلاغ جديد</h3>
-              <button
-                type="button"
-                className="min-h-10 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold"
-                onClick={() => setCreateModalOpen(false)}
-              >
-                إغلاق
-              </button>
-            </div>
-            <TicketCreateForm
-              role={role}
-              onCancel={() => setCreateModalOpen(false)}
-              onCreated={async () => {
-                await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
-                await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
-                toast.success("تم حفظ البلاغ وتحديث الجدول.");
-              }}
-            />
-          </div>
-        </div>
-      ) : null}
-
-      {detailModalOpen ? (
-        <div
-          className="fixed inset-0 z-[999] flex items-end justify-center overflow-hidden bg-slate-900/50 p-0 md:items-center md:p-4"
-          onClick={() => setDetailModalOpen(false)}
-        >
-          <motion.div
-            className="h-[100dvh] w-full overflow-y-auto overscroll-contain scroll-smooth rounded-none border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:p-5"
-            style={{ colorScheme: "light" }}
-            role="dialog"
-            aria-modal="true"
-            drag={isDesktopViewport}
-            dragControls={detailDragControls}
-            dragListener={false}
-            dragMomentum={false}
-            dragElastic={0.06}
-            dragConstraints={{ top: -240, bottom: 240, left: -360, right: 360 }}
-            onClick={(e) => e.stopPropagation()}
-          >
+      {mounted && createModalOpen
+        ? createPortal(
             <div
-              className="mb-3 hidden cursor-grab items-center justify-center rounded-lg border border-slate-200 bg-slate-50 py-1.5 active:cursor-grabbing md:flex"
-              onPointerDown={(e) => detailDragControls.start(e)}
-              aria-label="مقبض سحب نافذة التفاصيل"
+              className="fixed inset-0 z-[999] flex items-end justify-center overflow-hidden bg-slate-900/45 p-0 backdrop-blur-[3px] md:items-center md:p-4"
+              onClick={() => setCreateModalOpen(false)}
             >
-              <GripHorizontal className="h-4 w-4 text-slate-500" />
-            </div>
+              <div
+                className="h-[92dvh] w-full overflow-y-auto overscroll-contain scroll-smooth rounded-t-2xl border border-slate-200 bg-white p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] text-slate-900 shadow-2xl md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:p-5"
+                style={{ colorScheme: "light" }}
+                role="dialog"
+                aria-modal="true"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">إنشاء بلاغ جديد</h3>
+                  <button
+                    type="button"
+                    className="min-h-10 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold"
+                    onClick={() => setCreateModalOpen(false)}
+                  >
+                    إغلاق
+                  </button>
+                </div>
+                <TicketCreateForm
+                  role={role}
+                  onCancel={() => setCreateModalOpen(false)}
+                  onCreated={async () => {
+                    await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
+                    await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
+                    toast.success("تم حفظ البلاغ وتحديث الجدول.");
+                  }}
+                />
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {mounted && detailModalOpen
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[999] flex items-end justify-center overflow-hidden bg-slate-900/50 p-0 md:items-center md:p-4"
+              onClick={() => setDetailModalOpen(false)}
+            >
+              <motion.div
+                className="h-[92dvh] w-full overflow-y-auto overscroll-contain scroll-smooth rounded-t-2xl border border-slate-200 bg-white p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] text-slate-900 shadow-2xl md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:p-5"
+                style={{ colorScheme: "light" }}
+                role="dialog"
+                aria-modal="true"
+                drag={isDesktopViewport}
+                dragControls={detailDragControls}
+                dragListener={false}
+                dragMomentum={false}
+                dragElastic={0.06}
+                dragConstraints={{ top: -240, bottom: 240, left: -360, right: 360 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div
+                  className="mb-3 hidden cursor-grab items-center justify-center rounded-lg border border-slate-200 bg-slate-50 py-1.5 active:cursor-grabbing md:flex"
+                  onPointerDown={(e) => detailDragControls.start(e)}
+                  aria-label="مقبض سحب نافذة التفاصيل"
+                >
+                  <GripHorizontal className="h-4 w-4 text-slate-500" />
+                </div>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-lg font-semibold">تفاصيل البلاغ</h3>
               <div className="flex flex-wrap items-center gap-2">
@@ -1306,48 +1316,53 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                 </div>
               </div>
             )}
-          </motion.div>
-        </div>
-      ) : null}
+              </motion.div>
+            </div>,
+            document.body,
+          )
+        : null}
 
-      {ticketDeleteDialogOpen && selectedTicket ? (
-        <div
-          className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 p-4"
-          onClick={() => (ticketDeleting ? undefined : setTicketDeleteDialogOpen(false))}
-        >
-          <div
-            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h4 className="text-lg font-semibold text-slate-900">تأكيد حذف البلاغ</h4>
-            <p className="mt-2 text-sm text-slate-600">
-              سيتم حذف البلاغ رقم{" "}
-              <span className="font-mono font-semibold">
-                {selectedTicket.external_ticket_number || selectedTicket.ticket_number || selectedTicket.id.slice(0, 8)}
-              </span>{" "}
-              نهائياً من النظام. لا يمكن التراجع عن هذا الإجراء.
-            </p>
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-md border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                disabled={ticketDeleting}
-                onClick={() => setTicketDeleteDialogOpen(false)}
+      {mounted && ticketDeleteDialogOpen && selectedTicket
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 p-4"
+              onClick={() => (ticketDeleting ? undefined : setTicketDeleteDialogOpen(false))}
+            >
+              <div
+                className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
               >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
-                disabled={ticketDeleting}
-                onClick={() => void confirmDeleteTicket()}
-              >
-                {ticketDeleting ? "جاري الحذف…" : "نعم، احذف نهائياً"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+                <h4 className="text-lg font-semibold text-slate-900">تأكيد حذف البلاغ</h4>
+                <p className="mt-2 text-sm text-slate-600">
+                  سيتم حذف البلاغ رقم{" "}
+                  <span className="font-mono font-semibold">
+                    {selectedTicket.external_ticket_number || selectedTicket.ticket_number || selectedTicket.id.slice(0, 8)}
+                  </span>{" "}
+                  نهائياً من النظام. لا يمكن التراجع عن هذا الإجراء.
+                </p>
+                <div className="mt-5 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    disabled={ticketDeleting}
+                    onClick={() => setTicketDeleteDialogOpen(false)}
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                    disabled={ticketDeleting}
+                    onClick={() => void confirmDeleteTicket()}
+                  >
+                    {ticketDeleting ? "جاري الحذف…" : "نعم، احذف نهائياً"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

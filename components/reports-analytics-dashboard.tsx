@@ -484,12 +484,12 @@ export function ReportsAnalyticsDashboard() {
                 اختر الحقول والفلاتر التشغيلية لبناء تقرير مخصص قبل التصدير.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3 text-right">
+            <CardContent className="space-y-2.5 text-right">
               <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700">
                 معاينة فورية: {customPreviewRows.length} صف | ترتيب الأعمدة: {customFields.length}
               </div>
 
-              <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+              <div className="space-y-2 rounded-xl border border-slate-200 p-2.5">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-slate-800">اختيار الأعمدة</p>
                   <span className="text-[11px] text-slate-500">الترتيب حسب اختيارك</span>
@@ -537,9 +537,9 @@ export function ReportsAnalyticsDashboard() {
                     </div>
                   ) : null}
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex overflow-x-auto gap-1.5 whitespace-nowrap pb-1 [scrollbar-width:thin]">
                   {customFields.map((field, idx) => (
-                    <span key={field} className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-700">
+                    <span key={field} className="shrink-0 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-700">
                       {idx + 1}. {CUSTOM_REPORT_FIELD_LABELS[field]}
                     </span>
                   ))}
@@ -600,24 +600,25 @@ export function ReportsAnalyticsDashboard() {
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <div className="flex gap-2">
                   <Input
+                    className="h-9 border-slate-200 bg-white"
                     value={templateName}
                     onChange={(e) => setTemplateName(e.target.value)}
                     placeholder="حفظ كنموذج: تقرير أداء الفنيين الأسبوعي"
                   />
-                  <Button type="button" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={saveCurrentTemplate}>
+                  <Button type="button" className="h-9 bg-emerald-600 text-white hover:bg-emerald-700" onClick={saveCurrentTemplate}>
                     حفظ كنموذج
                   </Button>
                 </div>
                 {savedTemplates.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex gap-2 overflow-x-auto whitespace-nowrap pb-1 [scrollbar-width:thin]">
                     {savedTemplates.slice(0, 8).map((tpl) => (
                       <button
                         key={tpl.id}
                         type="button"
-                        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs hover:bg-slate-50"
+                        className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs hover:bg-slate-50"
                         onClick={() => applyTemplate(tpl)}
                       >
                         {tpl.name}
@@ -705,15 +706,14 @@ export function ReportsAnalyticsDashboard() {
                   <ul className="px-1 pt-1">
                     {REPORT_SHEET_IDS.map((id) => (
                       <li key={id}>
-                        <label className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
-                          <input
-                            type="checkbox"
-                            className="size-4 shrink-0 rounded border-slate-300 bg-white text-emerald-600 focus:ring-emerald-500"
-                            checked={exportSelection[id]}
-                            onChange={() => toggleExportSheet(id)}
-                          />
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between rounded-md border border-slate-100 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                          onClick={() => toggleExportSheet(id)}
+                        >
                           <span>{REPORT_SHEET_LABELS_AR[id]}</span>
-                        </label>
+                          {exportSelection[id] ? <Check className="h-4 w-4 text-emerald-600" /> : null}
+                        </button>
                       </li>
                     ))}
                   </ul>

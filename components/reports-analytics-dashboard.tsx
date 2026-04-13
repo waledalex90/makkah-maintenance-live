@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Download, Filter, LayoutDashboard, Sparkles } from "lucide-react";
+import { ChevronDown, Download, Filter, LayoutDashboard, Sparkles, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -141,6 +142,7 @@ export function ReportsAnalyticsDashboard() {
   ]);
   const [customStatus, setCustomStatus] = useState<TicketStatus | "all">("all");
   const [customZoneId, setCustomZoneId] = useState<string>("all");
+  const [customReportModalOpen, setCustomReportModalOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -151,6 +153,15 @@ export function ReportsAnalyticsDashboard() {
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [exportMenuOpen]);
+
+  useEffect(() => {
+    if (!customReportModalOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [customReportModalOpen]);
 
   const zonesQuery = useQuery({
     queryKey: ["reports-zones"],
@@ -322,58 +333,17 @@ export function ReportsAnalyticsDashboard() {
                 اختر الحقول والفلاتر التشغيلية لبناء تقرير مخصص قبل التصدير.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-2 sm:grid-cols-2">
-                {Object.entries(CUSTOM_REPORT_FIELD_LABELS).map(([key, label]) => {
-                  const field = key as CustomReportField;
-                  return (
-                    <label key={field} className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
-                      <input
-                        type="checkbox"
-                        className="size-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-700"
-                        checked={customFields.includes(field)}
-                        onChange={() => toggleCustomField(field)}
-                      />
-                      <span>{label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label className="mb-1 block text-slate-700">فلتر الحالة</Label>
-                  <select
-                    className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                    value={customStatus}
-                    onChange={(e) => setCustomStatus(e.target.value as TicketStatus | "all")}
-                  >
-                    <option value="all">كل الحالات</option>
-                    <option value="not_received">{statusLabelAr("not_received")}</option>
-                    <option value="received">{statusLabelAr("received")}</option>
-                    <option value="finished">{statusLabelAr("finished")}</option>
-                  </select>
-                </div>
-                <div>
-                  <Label className="mb-1 block text-slate-700">فلتر المنطقة</Label>
-                  <select
-                    className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                    value={customZoneId}
-                    onChange={(e) => setCustomZoneId(e.target.value)}
-                  >
-                    <option value="all">كل المناطق</option>
-                    {(zonesQuery.data ?? []).map((z) => (
-                      <option key={z.id} value={z.id}>
-                        {z.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <CardContent className="space-y-4 text-right">
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700">
                 معاينة سريعة: {customPreviewRows.length} صف مطابق | حقول مختارة: {customFields.length}
               </div>
+              <Button
+                type="button"
+                className="w-full bg-emerald-700 text-white hover:bg-emerald-800"
+                onClick={() => setCustomReportModalOpen(true)}
+              >
+                Create New Report
+              </Button>
             </CardContent>
           </Card>
 
@@ -640,6 +610,103 @@ export function ReportsAnalyticsDashboard() {
           rowsCount={rows.length}
         />
       </div>
+
+      <AnimatePresence>
+        {customReportModalOpen ? (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-3 sm:p-4"
+            onClick={() => setCustomReportModalOpen(false)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="w-[95%] max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-8 shadow-2xl text-slate-900"
+              dir="rtl"
+              lang="ar"
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+            >
+              <div className="mb-5 flex items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-right text-xl font-semibold">Create New Report</h3>
+                  <p className="mt-1 text-right text-sm font-medium text-slate-500">
+                    صمّم التقرير باختيار الحقول والفلاتر، ثم استخدمه في المعاينة والتصدير.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-md border border-slate-200 p-2 text-slate-500 hover:bg-slate-100"
+                  onClick={() => setCustomReportModalOpen(false)}
+                  aria-label="إغلاق"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {Object.entries(CUSTOM_REPORT_FIELD_LABELS).map(([key, label]) => {
+                    const field = key as CustomReportField;
+                    return (
+                      <label
+                        key={field}
+                        className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-right"
+                      >
+                        <input
+                          type="checkbox"
+                          className="size-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-700"
+                          checked={customFields.includes(field)}
+                          onChange={() => toggleCustomField(field)}
+                        />
+                        <span className="w-full text-right">{label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="mb-1 block text-right font-semibold text-slate-700">فلتر الحالة</Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900"
+                      value={customStatus}
+                      onChange={(e) => setCustomStatus(e.target.value as TicketStatus | "all")}
+                    >
+                      <option value="all">كل الحالات</option>
+                      <option value="not_received">{statusLabelAr("not_received")}</option>
+                      <option value="received">{statusLabelAr("received")}</option>
+                      <option value="finished">{statusLabelAr("finished")}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="mb-1 block text-right font-semibold text-slate-700">فلتر المنطقة</Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900"
+                      value={customZoneId}
+                      onChange={(e) => setCustomZoneId(e.target.value)}
+                    >
+                      <option value="all">كل المناطق</option>
+                      {(zonesQuery.data ?? []).map((z) => (
+                        <option key={z.id} value={z.id}>
+                          {z.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-right text-xs font-semibold text-slate-600">
+                  صفوف المعاينة المطابقة: {customPreviewRows.length}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1104,19 +1104,21 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
       {createModalOpen ? (
         <div
-          className="fixed inset-0 z-40 flex items-end justify-center overflow-y-auto bg-slate-900/45 p-0 backdrop-blur-[3px] md:items-center md:p-4"
+          className="fixed inset-0 z-[100] flex items-end justify-center overflow-hidden bg-slate-900/45 p-2 backdrop-blur-[3px] md:items-center md:p-4"
           onClick={() => setCreateModalOpen(false)}
         >
           <div
-            className="h-[100dvh] w-full overflow-y-auto overscroll-contain scroll-smooth rounded-none border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl md:h-auto md:max-h-[88dvh] md:max-w-3xl md:rounded-2xl md:p-5"
+            className="h-[calc(100dvh-1rem)] w-full overflow-y-auto overscroll-contain scroll-smooth rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl md:h-auto md:max-h-[85dvh] md:max-w-2xl md:p-5"
             style={{ colorScheme: "light" }}
+            role="dialog"
+            aria-modal="true"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">إنشاء بلاغ جديد</h3>
               <button
                 type="button"
-                className="rounded-md border border-slate-200 px-3 py-1 text-sm"
+                className="min-h-10 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold"
                 onClick={() => setCreateModalOpen(false)}
               >
                 إغلاق
@@ -1137,12 +1139,14 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
       {detailModalOpen ? (
         <div
-          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-2 pt-4 md:p-4 md:pt-8"
+          className="fixed inset-0 z-[100] flex items-end justify-center overflow-hidden bg-slate-900/50 p-2 md:items-center md:p-4"
           onClick={() => setDetailModalOpen(false)}
         >
           <div
-            className="my-2 w-full max-w-4xl overflow-y-auto overscroll-contain scroll-smooth rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl md:my-4"
-            style={{ colorScheme: "light", maxHeight: "calc(100dvh - 3rem)" }}
+            className="h-[calc(100dvh-1rem)] w-full overflow-y-auto overscroll-contain scroll-smooth rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl md:h-auto md:max-h-[85dvh] md:max-w-2xl md:p-5"
+            style={{ colorScheme: "light" }}
+            role="dialog"
+            aria-modal="true"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -1159,7 +1163,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                 ) : null}
                 <button
                   type="button"
-                  className="rounded-md border border-slate-200 px-3 py-1 text-sm"
+                  className="min-h-10 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold"
                   onClick={() => setDetailModalOpen(false)}
                 >
                   إغلاق
@@ -1283,7 +1287,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
       {ticketDeleteDialogOpen && selectedTicket ? (
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 p-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/60 p-4"
           onClick={() => (ticketDeleting ? undefined : setTicketDeleteDialogOpen(false))}
         >
           <div

@@ -251,12 +251,12 @@ export function TicketCreateForm({ role: _role, onCreated, onCancel }: TicketCre
 
       <TicketMediaDropzone files={attachments} onFilesChange={setAttachments} disabled={creating} />
 
-      <div className="flex items-center justify-end gap-2 pt-2">
-        <Button variant="outline" onClick={onCancel} disabled={creating} className="border-slate-300 bg-white text-slate-800">
+      <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-end gap-2 border-t border-slate-200 bg-white/95 px-1 pb-1 pt-3 backdrop-blur-sm">
+        <Button variant="outline" onClick={onCancel} disabled={creating} className="min-h-11 border-slate-300 bg-white px-4 text-slate-800">
           إلغاء
         </Button>
-        <Button onClick={() => void createTicket()} disabled={creating} className="bg-slate-900 text-white hover:bg-slate-800">
-          {creating ? "جاري الإنشاء..." : "حفظ البلاغ"}
+        <Button onClick={() => void createTicket()} disabled={creating} className="min-h-11 bg-emerald-600 px-5 text-white hover:bg-emerald-700">
+          {creating ? "جاري الإرسال..." : "إرسال البلاغ"}
         </Button>
       </div>
     </div>

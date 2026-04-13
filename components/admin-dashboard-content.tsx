@@ -21,7 +21,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TicketCreateForm } from "@/components/ticket-create-form";
 import { TicketChatPanel } from "@/components/ticket-chat-panel";
 import { TicketReceptionCaption } from "@/components/ticket-reception-caption";
-import { UserIdentityHeader } from "@/components/user-identity-header";
 import { StorageMediaPreview } from "@/components/storage-media-preview";
 import { TICKET_ROW_WITH_HANDLER_PROFILES } from "@/lib/ticket-handler-select";
 import { ticketReceptionExportLine } from "@/lib/ticket-reception-label";
@@ -35,7 +34,6 @@ import { arabicErrorMessage } from "@/lib/arabic-errors";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 import {
   formatSaudiDateTime,
-  formatSaudiNow,
   getAgeMinutes,
   relativeAgeLabelSaudi,
 } from "@/lib/saudi-time";
@@ -734,14 +732,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       lang="ar"
       style={{ colorScheme: "light" }}
     >
-      <header className="space-y-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <p className="text-xs font-medium text-slate-500" suppressHydrationWarning>
-            {formatSaudiNow(nowTs)}
-          </p>
-          {!tableOnly ? <UserIdentityHeader compact /> : null}
-        </div>
-        <div className="h-px w-full bg-slate-200" />
+      <header className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl font-bold text-slate-900">{tableOnly ? "مركز البلاغات" : "لوحة التحكم"}</h1>
           <div className="flex items-center justify-end gap-2">

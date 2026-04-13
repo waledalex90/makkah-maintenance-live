@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import {
@@ -244,6 +246,8 @@ type UsersManagementContentProps = {
 
 export function UsersManagementContent({ initialView = "users" }: UsersManagementContentProps) {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeView, setActiveView] = useState<"users" | "roles">(initialView);
   const [roleTemplates, setRoleTemplates] = useState<RolePermissionTemplate[]>(makeDefaultRoleTemplates);
   const [newTemplateName, setNewTemplateName] = useState("");
@@ -374,6 +378,20 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
   useEffect(() => {
     setActiveView(initialView);
   }, [initialView]);
+  useEffect(() => {
+    const viewParam = searchParams.get("view");
+    if (viewParam === "users" || viewParam === "roles") {
+      setActiveView(viewParam);
+    }
+  }, [searchParams]);
+
+  const handleViewChange = (nextValue: string) => {
+    if (nextValue !== "users" && nextValue !== "roles") return;
+    setActiveView(nextValue);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", nextValue);
+    router.replace(`/dashboard/admin/users?${params.toString()}`, { scroll: false });
+  };
 
   const roleTemplateMap = useMemo(() => new Map(roleTemplates.map((t) => [t.id, t])), [roleTemplates]);
   const roleEditorTemplate = roleEditorTemplateId ? roleTemplateMap.get(roleEditorTemplateId) ?? null : null;
@@ -944,7 +962,8 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
     <section className="w-full min-w-0 max-w-full rounded-xl border border-slate-200 bg-slate-100 p-4 shadow-sm" dir="rtl" lang="ar">
       <div className="mb-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold text-slate-900">إدارة الفرق الميدانية</h1>
+        <h1 className="text-xl font-semibold text-slate-900">إدارة الفريق والصلاحيات</h1>
+        {activeView === "users" ? (
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -988,36 +1007,19 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
             إنشاء مستخدم
           </button>
         </div>
+        ) : null}
         </div>
-        <div className="mt-3 inline-flex rounded-xl border border-slate-200 bg-white p-1">
-          <button
-            type="button"
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-semibold transition duration-300 ease-in-out",
-              activeView === "users" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100",
-            )}
-            onClick={() => setActiveView("users")}
-          >
-            إدارة الفرق الميدانية
-          </button>
-          <button
-            type="button"
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-semibold transition duration-300 ease-in-out",
-              activeView === "roles" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100",
-            )}
-            onClick={() => setActiveView("roles")}
-          >
-            الأدوار والصلاحيات
-          </button>
-        </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-          نموذج الرفع يتضمّن عمود <span className="font-mono">access_work_list</span> (1 = تفعيل واجهة مهام الميدان، 0 = إيقافها). ورقة Excel
-          «إرشادات_access_work_list» وملف CSV يبدأ بتعليق يشرح العمود؛ إن تُرك فارغاً يُفعَّل تلقائياً لفني/مهندس/مشرف/إدخال بيانات فقط.
-        </p>
-      </div>
+        <Tabs value={activeView} onValueChange={handleViewChange} className="mt-3">
+          <TabsList>
+            <TabsTrigger value="users">إدارة الفريق الميداني</TabsTrigger>
+            <TabsTrigger value="roles">الأدوار والصلاحيات</TabsTrigger>
+          </TabsList>
 
-      {activeView === "users" ? (
+      <TabsContent value="users" className="mt-4">
+      <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
+        نموذج الرفع يتضمّن عمود <span className="font-mono">access_work_list</span> (1 = تفعيل واجهة مهام الميدان، 0 = إيقافها). ورقة Excel
+        «إرشادات_access_work_list» وملف CSV يبدأ بتعليق يشرح العمود؛ إن تُرك فارغاً يُفعَّل تلقائياً لفني/مهندس/مشرف/إدخال بيانات فقط.
+      </p>
       <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
         <label className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">بحث بالاسم</label>
         <Input
@@ -1030,9 +1032,9 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
           {filteredUsers.length} مستخدم معروض من أصل {users.length}
         </p>
       </div>
-      ) : null}
+      </TabsContent>
 
-      {activeView === "roles" ? (
+      <TabsContent value="roles" className="mt-4">
       <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -1103,7 +1105,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
           ))}
         </div>
       </div>
-      ) : null}
+      </TabsContent>
 
       {activeView === "users" && (isLoading && !usersQueryData ? (
         <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800">
@@ -1367,6 +1369,8 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
         </div>
         </>
       ))}
+      </Tabs>
+      </div>
 
       {roleEditorTemplate ? (
         <div className="pointer-events-none fixed inset-0 z-50 flex">

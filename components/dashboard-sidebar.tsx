@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { BarChart3, LayoutDashboard, ListTodo, MapPinned, Settings, Ticket, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "@/components/logout-button";
@@ -22,7 +22,6 @@ type NavItem = {
   label: string;
   icon: typeof MapPinned;
   perm: AppPermissionKey;
-  queryView?: "users" | "roles";
   /** إن وُجدت، يُعرض الرابط فقط لهذه الأدوار */
   roles?: string[];
 };
@@ -34,8 +33,7 @@ const NAV_DEF: NavItem[] = [
   { href: "/dashboard/tasks", label: "المهام", icon: ListTodo, perm: "view_tickets", roles: ["reporter", "admin"] },
   { href: "/dashboard/reports", label: "تقارير حية", icon: BarChart3, perm: "view_reports" },
   { href: "/dashboard/admin/zones", label: "إدارة المناطق", icon: MapPinned, perm: "manage_zones" },
-  { href: "/dashboard/admin/users?view=users", label: "إدارة الفرق الميدانية", icon: Users, perm: "manage_users", queryView: "users" },
-  { href: "/dashboard/admin/users?view=roles", label: "الأدوار والصلاحيات", icon: Users, perm: "manage_users", queryView: "roles" },
+  { href: "/dashboard/admin/users", label: "إدارة الفريق والصلاحيات", icon: Users, perm: "manage_users" },
   { href: "/dashboard/settings", label: "الإعدادات", icon: Settings, perm: "view_settings" },
 ];
 
@@ -48,7 +46,6 @@ export function DashboardSidebar({
   onCloseMobile,
 }: DashboardSidebarProps) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const roleLabel =
     role === "admin"
       ? "مدير النظام"
@@ -74,12 +71,8 @@ export function DashboardSidebar({
     <nav className={cn("mt-6 space-y-2", isCollapsed ? "mt-4" : "mt-6")}>
       {navItems.map((item) => {
         const Icon = item.icon;
-        const currentView = searchParams.get("view");
         const hrefPath = item.href.split("?")[0];
-        const active =
-          item.queryView != null
-            ? pathname === "/dashboard/admin/users" && currentView === item.queryView
-            : pathname === hrefPath;
+        const active = pathname === hrefPath;
 
         return (
           <Link

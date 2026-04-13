@@ -734,39 +734,37 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       lang="ar"
       style={{ colorScheme: "light" }}
     >
-      {!tableOnly ? <UserIdentityHeader /> : null}
-
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          className="h-10 w-10 shrink-0 p-0"
-          disabled={headerRefreshing}
-          onClick={() => void refreshDashboardQueries()}
-          aria-label="تحديث اللوحة"
-        >
-          <RefreshCw className={`size-4 ${headerRefreshing ? "animate-spin" : ""}`} />
-        </Button>
-      </div>
-
-      <header className="flex flex-col gap-3 border-b border-slate-200 bg-white pb-5 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+      <header className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
+        <p className="text-xs text-slate-500" suppressHydrationWarning>
+          {formatSaudiNow(nowTs)}
+        </p>
+        {!tableOnly ? <UserIdentityHeader compact /> : null}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl font-bold text-slate-900">{tableOnly ? "مركز البلاغات" : "لوحة التحكم"}</h1>
-          <p className="mt-1 text-xs text-slate-500" suppressHydrationWarning>
-            {formatSaudiNow(nowTs)}
-          </p>
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 w-10 shrink-0 p-0"
+              disabled={headerRefreshing}
+              onClick={() => void refreshDashboardQueries()}
+              aria-label="تحديث اللوحة"
+            >
+              <RefreshCw className={`size-4 ${headerRefreshing ? "animate-spin" : ""}`} />
+            </Button>
+            <Button
+              type="button"
+              className="h-11 min-w-[200px] shrink-0 bg-slate-900 text-base text-white hover:bg-slate-800"
+              onClick={() => setCreateModalOpen(true)}
+            >
+              + إنشاء بلاغ جديد
+            </Button>
+          </div>
         </div>
-        <Button
-          type="button"
-          className="h-11 min-w-[200px] shrink-0 bg-slate-900 text-base text-white hover:bg-slate-800"
-          onClick={() => setCreateModalOpen(true)}
-        >
-          + إنشاء بلاغ جديد
-        </Button>
       </header>
 
-      <div className="overflow-x-auto overflow-y-visible pb-4 [scrollbar-width:thin]">
-      <section className="grid min-w-[980px] grid-cols-5 gap-6">
+      <div className="overflow-x-auto overflow-y-visible px-1 pb-4 pt-1 [scrollbar-width:thin]">
+      <section className="grid min-w-[980px] grid-cols-5 items-stretch gap-6">
         <button
           type="button"
           className="min-w-[200px] w-full text-right"

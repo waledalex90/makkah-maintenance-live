@@ -61,6 +61,9 @@ export function DashboardBottomNav({ role, permissions }: DashboardBottomNavProp
             <Link
               key={item.href}
               href={item.href}
+              prefetch={item.href === "/dashboard/map" ? false : true}
+              onMouseEnter={() => router.prefetch(item.href)}
+              onFocus={() => router.prefetch(item.href)}
               className={cn(
                 "flex min-h-16 flex-col items-center justify-center gap-1 px-0.5 text-[11px] font-semibold leading-tight sm:text-xs",
                 active ? "text-emerald-800 dark:text-emerald-400" : "text-slate-800 dark:text-slate-200",

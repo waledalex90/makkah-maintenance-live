@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { BarChart3, LayoutDashboard, ListTodo, MapPinned, Menu, Settings, Ticket, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "@/components/logout-button";
@@ -36,6 +36,7 @@ const NAV_DEF: NavItem[] = [
 
 export function DashboardSidebar({ fullName, role, permissions }: DashboardSidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const roleLabel =
     role === "admin"
@@ -68,7 +69,9 @@ export function DashboardSidebar({ fullName, role, permissions }: DashboardSideb
           <Link
             key={item.href}
             href={item.href}
-            prefetch={item.href === "/dashboard/map" ? false : undefined}
+            prefetch={item.href === "/dashboard/map" ? false : true}
+            onMouseEnter={() => router.prefetch(item.href)}
+            onFocus={() => router.prefetch(item.href)}
             onClick={() => setMobileOpen(false)}
             className={cn(
               "flex min-h-12 items-center gap-2 rounded-md px-3 py-3 text-sm font-medium transition",

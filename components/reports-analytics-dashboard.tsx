@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Area,
@@ -187,6 +187,7 @@ export function ReportsAnalyticsDashboard() {
 
   const loading = ticketsQuery.isFetching;
   const err = ticketsQuery.error ? (ticketsQuery.error as Error).message : null;
+  const previewRows = useMemo(() => buildEliteMainDetailsRows(rows).slice(0, 8), [rows]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-12 pt-6 text-slate-100" dir="rtl" lang="ar">
@@ -534,9 +535,7 @@ export function ReportsAnalyticsDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {buildEliteMainDetailsRows(rows)
-                  .slice(0, 8)
-                  .map((ex, i) => (
+                {previewRows.map((ex, i) => (
                     <tr key={`${ex.ticketNumber}-${i}`} className="border-b border-slate-800/80">
                       <td className="px-2 py-2 font-mono">{ex.ticketNumber}</td>
                       <td className="px-2 py-2">{ex.zone}</td>
@@ -569,7 +568,7 @@ export function ReportsAnalyticsDashboard() {
   );
 }
 
-function InsightCard({
+const InsightCard = memo(function InsightCard({
   title,
   value,
   sub,
@@ -589,9 +588,9 @@ function InsightCard({
       <p className="mt-1 text-sm text-slate-400">{sub}</p>
     </div>
   );
-}
+});
 
-function ChartCard({
+const ChartCard = memo(function ChartCard({
   title,
   description,
   children,
@@ -609,4 +608,4 @@ function ChartCard({
       <CardContent>{children}</CardContent>
     </Card>
   );
-}
+});

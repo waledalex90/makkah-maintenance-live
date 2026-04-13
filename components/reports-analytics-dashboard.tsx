@@ -55,6 +55,51 @@ type Filters = {
   status: TicketStatus | "all";
 };
 
+type CustomReportField =
+  | "ticket_number"
+  | "zone"
+  | "category"
+  | "status"
+  | "created_at"
+  | "assigned_to"
+  | "response_hms";
+
+const CUSTOM_REPORT_FIELD_LABELS: Record<CustomReportField, string> = {
+  ticket_number: "رقم البلاغ",
+  zone: "المنطقة",
+  category: "التصنيف",
+  status: "الحالة",
+  created_at: "تاريخ الإنشاء",
+  assigned_to: "المكلّف",
+  response_hms: "زمن الاستجابة",
+};
+
+const SYSTEM_REPORT_PRESETS: Array<{
+  id: string;
+  title: string;
+  description: string;
+  sheets: ReportSheetId[];
+}> = [
+  {
+    id: "ops-daily",
+    title: "تقرير التشغيل اليومي",
+    description: "ملخص المناطق + الالتزام + التفاصيل الرئيسية لليوم التشغيلي.",
+    sheets: ["main", "zones", "sla"],
+  },
+  {
+    id: "field-performance",
+    title: "تقرير أداء الفرق الميدانية",
+    description: "أداء الفنيين، الأعطال المتكررة، وتوزيع البلاغات الشهرية.",
+    sheets: ["technicians", "recurring", "monthly_density"],
+  },
+  {
+    id: "hajj-command",
+    title: "تقرير غرفة عمليات الحج",
+    description: "حزمة شاملة لقياس الجاهزية والاستجابة أثناء الذروة.",
+    sheets: ["main", "technicians", "zones", "recurring", "monthly_density", "sla"],
+  },
+];
+
 const defaultFilters = (): Filters => ({
   dateFrom: "",
   dateTo: "",
@@ -87,6 +132,15 @@ export function ReportsAnalyticsDashboard() {
   const [exportSelection, setExportSelection] = useState<ReportExportSelection>(() => defaultReportExportSelection());
   const [exportMode, setExportMode] = useState<ReportExportMode>("single_workbook");
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [customFields, setCustomFields] = useState<CustomReportField[]>([
+    "ticket_number",
+    "zone",
+    "category",
+    "status",
+    "created_at",
+  ]);
+  const [customStatus, setCustomStatus] = useState<TicketStatus | "all">("all");
+  const [customZoneId, setCustomZoneId] = useState<string>("all");
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -188,6 +242,58 @@ export function ReportsAnalyticsDashboard() {
   const loading = ticketsQuery.isFetching;
   const err = ticketsQuery.error ? (ticketsQuery.error as Error).message : null;
   const previewRows = useMemo(() => buildEliteMainDetailsRows(rows).slice(0, 8), [rows]);
+  const customPreviewRows = useMemo(() => {
+    return rows.filter((row) => {
+      const zoneId = String((row as Record<string, unknown>).zone_id ?? "all");
+      const status = String((row as Record<string, unknown>).status ?? "");
+      if (customZoneId !== "all" && zoneId !== customZoneId) return false;
+      if (customStatus !== "all" && status !== customStatus) return false;
+      return true;
+    });
+  }, [rows, customZoneId, customStatus]);
+
+  const toggleCustomField = (field: CustomReportField) => {
+    setCustomFields((prev) => {
+      if (prev.includes(field)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((f) => f !== field);
+      }
+      return [...prev, field];
+    });
+  };
+
+  const applySystemPreset = (sheets: ReportSheetId[]) => {
+    const next = REPORT_SHEET_IDS.reduce((acc, id) => ({ ...acc, [id]: sheets.includes(id) }), {} as ReportExportSelection);
+    setExportSelection(next);
+  };
+
+  const cellValueForField = (row: ReportTicketRow, field: CustomReportField): string => {
+    const raw = row as Record<string, unknown>;
+    switch (field) {
+      case "ticket_number":
+        return String(raw.external_ticket_number ?? raw.ticket_number ?? raw.id ?? "-");
+      case "zone":
+        return String(raw.zone_name ?? raw.zone ?? raw.zone_id ?? "-");
+      case "category":
+        return String(raw.category_name ?? raw.category ?? raw.category_id ?? "-");
+      case "status":
+        return String(raw.status ?? "-");
+      case "created_at":
+        return String(raw.created_at ?? "-");
+      case "assigned_to":
+        return String(
+          raw.assigned_technician_name ??
+            raw.assigned_engineer_name ??
+            raw.assigned_supervisor_name ??
+            raw.assigned_to ??
+            "-",
+        );
+      case "response_hms":
+        return String(raw.response_hms ?? raw.response_time_hms ?? raw.response_duration_hms ?? "-");
+      default:
+        return "-";
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-12 pt-6 text-slate-100" dir="rtl" lang="ar">
@@ -207,6 +313,95 @@ export function ReportsAnalyticsDashboard() {
             </p>
           </div>
         </header>
+
+        <section className="grid gap-4 lg:grid-cols-2">
+          <Card className="border-slate-200 bg-white text-slate-900 shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">إنشاء تقرير مخصص</CardTitle>
+              <CardDescription className="text-slate-500">
+                اختر الحقول والفلاتر التشغيلية لبناء تقرير مخصص قبل التصدير.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {Object.entries(CUSTOM_REPORT_FIELD_LABELS).map(([key, label]) => {
+                  const field = key as CustomReportField;
+                  return (
+                    <label key={field} className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="size-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-700"
+                        checked={customFields.includes(field)}
+                        onChange={() => toggleCustomField(field)}
+                      />
+                      <span>{label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <Label className="mb-1 block text-slate-700">فلتر الحالة</Label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900"
+                    value={customStatus}
+                    onChange={(e) => setCustomStatus(e.target.value as TicketStatus | "all")}
+                  >
+                    <option value="all">كل الحالات</option>
+                    <option value="not_received">{statusLabelAr("not_received")}</option>
+                    <option value="received">{statusLabelAr("received")}</option>
+                    <option value="finished">{statusLabelAr("finished")}</option>
+                  </select>
+                </div>
+                <div>
+                  <Label className="mb-1 block text-slate-700">فلتر المنطقة</Label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900"
+                    value={customZoneId}
+                    onChange={(e) => setCustomZoneId(e.target.value)}
+                  >
+                    <option value="all">كل المناطق</option>
+                    {(zonesQuery.data ?? []).map((z) => (
+                      <option key={z.id} value={z.id}>
+                        {z.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                معاينة سريعة: {customPreviewRows.length} صف مطابق | حقول مختارة: {customFields.length}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 bg-white text-slate-900 shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">تقارير النظام الأساسية</CardTitle>
+              <CardDescription className="text-slate-500">
+                قوالب جاهزة للاستخدام السريع بنمط عمليات الحج.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              {SYSTEM_REPORT_PRESETS.map((preset) => (
+                <div key={preset.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-sm font-semibold text-slate-900">{preset.title}</p>
+                  <p className="mt-1 text-xs text-slate-600">{preset.description}</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-2 h-8 border-slate-300 bg-white text-xs text-slate-800 hover:bg-slate-100"
+                    onClick={() => applySystemPreset(preset.sheets)}
+                  >
+                    اختيار هذا التقرير
+                  </Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </section>
 
         <Card className="border-slate-700/80 bg-slate-900/70 shadow-lg shadow-black/20 backdrop-blur">
           <CardHeader className="border-b border-slate-700/60 pb-3">
@@ -395,6 +590,44 @@ export function ReportsAnalyticsDashboard() {
               {err ? <span className="text-sm text-red-400">{err}</span> : null}
               <span className="text-sm text-slate-500">عرض {rows.length} بلاغاً (حد أقصى ٢٥٠٠ للاستعلام)</span>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 bg-white text-slate-900 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">معاينة التقرير المخصص</CardTitle>
+            <CardDescription className="text-slate-500">عرض أول 8 صفوف حسب الحقول والفلاتر المختارة.</CardDescription>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="min-w-full text-right text-xs">
+              <thead className="border-b border-slate-200 text-slate-600">
+                <tr>
+                  {customFields.map((field) => (
+                    <th key={field} className="px-2 py-2">
+                      {CUSTOM_REPORT_FIELD_LABELS[field]}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {customPreviewRows.slice(0, 8).map((row, idx) => (
+                  <tr key={idx} className="border-b border-slate-100 text-slate-800">
+                    {customFields.map((field) => (
+                      <td key={field} className="whitespace-nowrap px-2 py-2">
+                        {cellValueForField(row, field)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+                {customPreviewRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={Math.max(customFields.length, 1)} className="px-2 py-6 text-center text-slate-500">
+                      لا توجد بيانات مطابقة للتقرير المخصص.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </CardContent>
         </Card>
 

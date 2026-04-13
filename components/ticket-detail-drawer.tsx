@@ -126,6 +126,15 @@ export function TicketDetailDrawer({
   }, [ticket?.id, ticket?.status]);
 
   useEffect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
+
+  useEffect(() => {
     if (!open || !ticketId) {
       return;
     }
@@ -528,7 +537,7 @@ export function TicketDetailDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         dir="rtl"
-        className="flex w-full flex-col overflow-hidden border-slate-200 bg-white text-slate-900 sm:max-w-lg"
+        className="flex h-[100dvh] w-full flex-col overflow-hidden border-slate-200 bg-white text-slate-900 sm:max-w-lg"
         style={{ colorScheme: "light" }}
       >
         {ticket ? (
@@ -538,7 +547,7 @@ export function TicketDetailDrawer({
               <SheetDescription>تفاصيل البلاغ، المرفقات، الدردشة، والتتبع عند توفر الصلاحيات.</SheetDescription>
             </SheetHeader>
 
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-0.5 pr-1 pb-2">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain scroll-smooth px-0.5 pb-2 pr-1">
               <section className="rounded-xl border border-slate-200 bg-white p-4">
                 <h3 className="mb-3 text-sm font-semibold text-slate-900">بيانات البلاغ</h3>
                 <div className="space-y-2 text-sm">

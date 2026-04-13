@@ -1102,9 +1102,12 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       </section>
 
       {createModalOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-slate-900/50 p-4" onClick={() => setCreateModalOpen(false)}>
+        <div
+          className="fixed inset-0 z-40 flex items-end justify-center overflow-y-auto bg-slate-900/45 p-0 backdrop-blur-[3px] md:items-center md:p-4"
+          onClick={() => setCreateModalOpen(false)}
+        >
           <div
-            className="max-h-[88dvh] w-full max-w-3xl overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl"
+            className="h-[100dvh] w-full overflow-y-auto overscroll-contain scroll-smooth rounded-none border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl md:h-auto md:max-h-[88dvh] md:max-w-3xl md:rounded-2xl md:p-5"
             style={{ colorScheme: "light" }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1134,7 +1137,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       {detailModalOpen ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-slate-900/50 p-4" onClick={() => setDetailModalOpen(false)}>
           <div
-            className="max-h-[88dvh] w-full max-w-4xl overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl"
+            className="max-h-[88dvh] w-full max-w-4xl overflow-y-auto overscroll-contain scroll-smooth rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl"
             style={{ colorScheme: "light" }}
             onClick={(e) => e.stopPropagation()}
           >

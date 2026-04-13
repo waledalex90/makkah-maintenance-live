@@ -24,6 +24,8 @@ const EMPTY_PERMISSIONS = {} as Record<AppPermissionKey, boolean>;
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<MeResponse | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,13 +51,38 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     return effectivePermissions(me.profile.role, (me.profile.permissions ?? null) as Record<string, unknown> | null);
   }, [me]);
 
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [mobileSidebarOpen]);
+
   return (
-    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="flex min-h-dvh bg-[#f5f5ef] dark:bg-slate-950">
       <LiveLocationTracker />
-      {me?.ok ? <DashboardSidebar fullName={fullName} role={role} permissions={permissions} /> : null}
-      <main className="flex-1 p-4 pb-24 md:p-6 md:pb-6">
-        <DashboardTopbar fullName={fullName} />
-        <PageTransition>{children}</PageTransition>
+      {me?.ok ? (
+        <DashboardSidebar
+          fullName={fullName}
+          role={role}
+          permissions={permissions}
+          collapsed={sidebarCollapsed}
+          mobileOpen={mobileSidebarOpen}
+          onCloseMobile={() => setMobileSidebarOpen(false)}
+        />
+      ) : null}
+      <main className="min-w-0 flex-1 px-3 pb-24 md:px-5 md:pb-6">
+        <DashboardTopbar
+          fullName={fullName}
+          onOpenMobileNav={() => setMobileSidebarOpen(true)}
+          onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+          sidebarCollapsed={sidebarCollapsed}
+        />
+        <div className="min-h-0 pt-2 md:pt-3">
+          <PageTransition>{children}</PageTransition>
+        </div>
       </main>
       {me?.ok ? <DashboardBottomNav role={role} permissions={permissions} /> : null}
     </div>

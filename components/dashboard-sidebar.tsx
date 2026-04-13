@@ -1,17 +1,20 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, LayoutDashboard, ListTodo, MapPinned, Menu, Settings, Ticket, Users, X } from "lucide-react";
+import { BarChart3, LayoutDashboard, ListTodo, MapPinned, Settings, Ticket, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "@/components/logout-button";
+import { LogoutIconButton } from "@/components/logout-icon-button";
 import type { AppPermissionKey } from "@/lib/permissions";
 
 type DashboardSidebarProps = {
   fullName: string;
   role: string;
   permissions: Record<AppPermissionKey, boolean>;
+  collapsed: boolean;
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
 };
 
 type NavItem = {
@@ -34,9 +37,15 @@ const NAV_DEF: NavItem[] = [
   { href: "/dashboard/settings", label: "الإعدادات", icon: Settings, perm: "view_settings" },
 ];
 
-export function DashboardSidebar({ fullName, role, permissions }: DashboardSidebarProps) {
+export function DashboardSidebar({
+  fullName,
+  role,
+  permissions,
+  collapsed,
+  mobileOpen,
+  onCloseMobile,
+}: DashboardSidebarProps) {
   const pathname = usePathname();
-  const [mobileOpen, setMobileOpen] = useState(false);
   const roleLabel =
     role === "admin"
       ? "مدير النظام"
@@ -58,8 +67,8 @@ export function DashboardSidebar({ fullName, role, permissions }: DashboardSideb
     (item) => permissions[item.perm] && (!item.roles || item.roles.includes(role)),
   );
 
-  const navList = (
-    <nav className="mt-6 space-y-2">
+  const navList = (isCollapsed: boolean, onNavigate?: () => void) => (
+    <nav className={cn("mt-6 space-y-2", isCollapsed ? "mt-4" : "mt-6")}>
       {navItems.map((item) => {
         const Icon = item.icon;
         const active = pathname === item.href;
@@ -69,16 +78,18 @@ export function DashboardSidebar({ fullName, role, permissions }: DashboardSideb
             key={item.href}
             href={item.href}
             prefetch={item.href === "/dashboard/map" ? false : undefined}
-            onClick={() => setMobileOpen(false)}
+            onClick={onNavigate}
+            title={item.label}
             className={cn(
-              "flex min-h-12 items-center gap-2 rounded-md px-3 py-3 text-sm font-medium transition",
+              "flex min-h-12 items-center rounded-md px-3 py-3 text-sm font-medium transition duration-300",
+              isCollapsed ? "justify-center px-2" : "gap-2",
               active
-                ? "border-s border-green-700 bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-50"
+                ? "border-s border-[#d4af37] bg-white text-[#064e3b] dark:bg-slate-900 dark:text-emerald-200"
                 : "text-slate-900 hover:bg-white dark:text-slate-100 dark:hover:bg-slate-900",
             )}
           >
-            <Icon className={cn("h-5 w-5", active ? "text-green-700 dark:text-green-500" : "text-slate-700 dark:text-slate-300")} />
-            <span>{item.label}</span>
+            <Icon className={cn("h-5 w-5 shrink-0", active ? "text-[#064e3b] dark:text-[#d4af37]" : "text-slate-700 dark:text-slate-300")} />
+            {!isCollapsed ? <span>{item.label}</span> : null}
           </Link>
         );
       })}
@@ -87,62 +98,70 @@ export function DashboardSidebar({ fullName, role, permissions }: DashboardSideb
 
   return (
     <>
-      {!mobileOpen ? (
+      <div
+        className={cn(
+          "fixed inset-0 z-[8040] md:hidden transition-opacity duration-300",
+          mobileOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+        )}
+        dir="rtl"
+        lang="ar"
+      >
         <button
           type="button"
-          aria-label="فتح القائمة"
-          className="fixed right-3 top-3 z-[8030] rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm md:hidden dark:border-slate-800 dark:bg-slate-900"
-          onClick={() => setMobileOpen(true)}
+          className="absolute inset-0 bg-black/45 backdrop-blur-[2px]"
+          aria-label="إغلاق القائمة"
+          onClick={onCloseMobile}
+        />
+        <aside
+          className={cn(
+            "absolute right-0 top-0 z-[1] flex h-full w-72 max-w-[86vw] flex-col border-l border-emerald-900/20 bg-[#f8f7f2] p-4 pb-28 shadow-2xl transition-transform duration-300 will-change-transform dark:border-emerald-800/40 dark:bg-slate-950",
+            mobileOpen ? "translate-x-0" : "translate-x-full",
+          )}
         >
-          <Menu className="h-5 w-5 text-slate-700 dark:text-slate-100" />
-        </button>
-      ) : null}
+          <div className="mb-2 flex items-center justify-between">
+            <button
+              type="button"
+              aria-label="إغلاق"
+              className="rounded-md border border-slate-200 p-2 dark:border-slate-700"
+              onClick={onCloseMobile}
+            >
+              <X className="h-4 w-4 dark:text-slate-100" />
+            </button>
+            <p className="text-sm font-semibold text-[#064e3b] dark:text-emerald-200">القائمة</p>
+          </div>
+          <div className="rounded-lg border border-[#d4af37]/35 bg-white p-3 dark:border-amber-700/30 dark:bg-slate-900">
+            <p className="text-xs font-medium text-slate-700 dark:text-slate-200">تسجيل الدخول باسم</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+              {roleLabel}: {fullName}
+            </p>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto pb-4">{navList(false, onCloseMobile)}</div>
+          <div className="absolute bottom-4 left-4 right-4">
+            <LogoutButton />
+          </div>
+        </aside>
+      </div>
 
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-[8025] md:hidden" dir="rtl" lang="ar">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/55 backdrop-blur-[1px]"
-            aria-label="إغلاق القائمة"
-            onClick={() => setMobileOpen(false)}
-          />
-          <aside className="absolute right-0 top-0 z-[1] flex h-full w-72 max-w-[86vw] flex-col border-l border-slate-200 bg-slate-100 p-4 pb-32 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
-            <div className="mb-2 flex items-center justify-between">
-              <button
-                type="button"
-                aria-label="إغلاق"
-                className="rounded-md border border-slate-200 p-2 dark:border-slate-700"
-                onClick={() => setMobileOpen(false)}
-              >
-                <X className="h-4 w-4 dark:text-slate-100" />
-              </button>
-              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">القائمة</p>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
-              <p className="text-xs font-medium text-slate-700 dark:text-slate-200">تسجيل الدخول باسم</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                {roleLabel}: {fullName}
-              </p>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto pb-4">{navList}</div>
-            <div className="absolute bottom-4 left-4 right-4">
-              <LogoutButton />
-            </div>
-          </aside>
+      <aside
+        className={cn(
+          "hidden h-dvh shrink-0 flex-col border-r border-emerald-900/20 bg-[#f8f7f2] p-4 transition-[width] duration-300 will-change-[width] dark:border-emerald-900/40 dark:bg-slate-950 md:flex",
+          collapsed ? "w-20" : "w-72",
+        )}
+        dir="rtl"
+        lang="ar"
+      >
+        <div className={cn("rounded-lg border border-[#d4af37]/35 bg-white p-3 dark:border-amber-700/30 dark:bg-slate-900", collapsed && "p-2 text-center")}>
+          <p className="text-xs font-medium text-slate-700 dark:text-slate-200">{collapsed ? "المستخدم" : "تسجيل الدخول باسم"}</p>
+          {!collapsed ? (
+            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+              {roleLabel}: {fullName}
+            </p>
+          ) : null}
         </div>
-      ) : null}
+        {navList(collapsed)}
 
-      <aside className="hidden h-screen w-72 flex-col border-r border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-950 md:flex" dir="rtl" lang="ar">
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
-          <p className="text-xs font-medium text-slate-700 dark:text-slate-200">تسجيل الدخول باسم</p>
-          <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {roleLabel}: {fullName}
-          </p>
-        </div>
-        {navList}
-
-        <div className="mt-auto pt-4">
-          <LogoutButton />
+        <div className="mt-auto flex justify-center pt-4">
+          {collapsed ? <LogoutIconButton /> : <LogoutButton />}
         </div>
       </aside>
     </>

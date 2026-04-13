@@ -257,6 +257,19 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const isSuperAdminSession = isProtectedSuperAdminEmail(sessionEmail);
 
   useEffect(() => {
+    const lockBody = createModalOpen || detailModalOpen || ticketDeleteDialogOpen;
+    if (!lockBody) return;
+    const prevOverflow = document.body.style.overflow;
+    const prevOverscroll = document.body.style.overscrollBehavior;
+    document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.overscrollBehavior = prevOverscroll;
+    };
+  }, [createModalOpen, detailModalOpen, ticketDeleteDialogOpen]);
+
+  useEffect(() => {
     void supabase.auth.getUser().then(({ data }) => {
       setSessionEmail(data.user?.email?.trim().toLowerCase() ?? null);
     });
@@ -1089,9 +1102,9 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       </section>
 
       {createModalOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setCreateModalOpen(false)}>
+        <div className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-slate-900/50 p-4" onClick={() => setCreateModalOpen(false)}>
           <div
-            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl"
+            className="max-h-[88dvh] w-full max-w-3xl overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl"
             style={{ colorScheme: "light" }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1119,9 +1132,9 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       ) : null}
 
       {detailModalOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setDetailModalOpen(false)}>
+        <div className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-slate-900/50 p-4" onClick={() => setDetailModalOpen(false)}>
           <div
-            className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl"
+            className="max-h-[88dvh] w-full max-w-4xl overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl"
             style={{ colorScheme: "light" }}
             onClick={(e) => e.stopPropagation()}
           >

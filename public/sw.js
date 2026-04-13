@@ -3,14 +3,14 @@
  * ملاحظة: إغلاق المتصفح بالكامل (Hard Close) يوقف التنفيذ على معظم الأنظمة؛
  * الإشعارات الفورية تعمل عند إعادة الفتح أو مع إبقاء المتصفح في الخلفية.
  */
-const CACHE_NAME = "makkah-ops-v3";
-const APP_SHELL = ["/", "/dashboard", "/dashboard/tickets", "/tasks/my-work", "/manifest.webmanifest"];
+const CACHE_NAME = "makkah-ops-v4";
+const STATIC_ASSETS = ["/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
+      .then((cache) => cache.addAll(STATIC_ASSETS))
       .then(() => self.skipWaiting()),
   );
 });
@@ -29,10 +29,41 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-self.addEventListener("fetch", function (event) {
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  if (request.method !== "GET") return;
+
+  const url = new URL(request.url);
+  const isSameOrigin = url.origin === self.location.origin;
+  if (!isSameOrigin) return;
+
+  // Never intercept app/document navigation:
+  // keep tab switching and route navigation on pure network.
+  if (request.mode === "navigate") return;
+
+  const pathname = url.pathname;
+  const isNextAsset = pathname.startsWith("/_next/");
+  const isApi = pathname.startsWith("/api/");
+  if (isNextAsset || isApi) return;
+
+  const isStaticAsset =
+    pathname === "/manifest.webmanifest" ||
+    pathname.startsWith("/icons/") ||
+    pathname.startsWith("/screenshots/");
+
+  if (!isStaticAsset) return;
+
   event.respondWith(
-    fetch(event.request).catch(function () {
-      return caches.match(event.request);
+    caches.match(request).then((cached) => {
+      const network = fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          return response;
+        })
+        .catch(() => cached);
+
+      return cached ?? network;
     }),
   );
 });

@@ -5,13 +5,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #fafaf9;
+  --background: #f8fafc;
   --foreground: #0f172a;
-}
-
-.dark {
-  --background: #020617;
-  --foreground: #f8fafc;
 }
 
 body {
@@ -22,9 +17,10 @@ body {
   line-height: 1.45;
   -webkit-text-size-adjust: 100%;
 }
-
-.dark body {
-  color-scheme: dark;
+html,
+body,
+* {
+  scroll-behavior: smooth;
 }
 
 .live-staff-marker {

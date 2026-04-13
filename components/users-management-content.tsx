@@ -238,8 +238,13 @@ const SPECIALTY_OPTIONS: Array<{ value: Specialty; label: string }> = [
   { value: "kitchens", label: "مطابخ" },
 ];
 
-export function UsersManagementContent() {
+type UsersManagementContentProps = {
+  initialView?: "users" | "roles";
+};
+
+export function UsersManagementContent({ initialView = "users" }: UsersManagementContentProps) {
   const queryClient = useQueryClient();
+  const [activeView, setActiveView] = useState<"users" | "roles">(initialView);
   const [roleTemplates, setRoleTemplates] = useState<RolePermissionTemplate[]>(makeDefaultRoleTemplates);
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTemplateRole, setNewTemplateRole] = useState<UserRole>("supervisor");
@@ -297,6 +302,7 @@ export function UsersManagementContent() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [roleEditorTemplateId, setRoleEditorTemplateId] = useState<string | null>(null);
   const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
 
   const fetchAllAdminUsers = useCallback(async () => {
@@ -365,8 +371,12 @@ export function UsersManagementContent() {
   useEffect(() => {
     window.localStorage.setItem(ROLE_TEMPLATE_STORAGE_KEY, JSON.stringify(roleTemplates));
   }, [roleTemplates]);
+  useEffect(() => {
+    setActiveView(initialView);
+  }, [initialView]);
 
   const roleTemplateMap = useMemo(() => new Map(roleTemplates.map((t) => [t.id, t])), [roleTemplates]);
+  const roleEditorTemplate = roleEditorTemplateId ? roleTemplateMap.get(roleEditorTemplateId) ?? null : null;
 
   const isSuperAdminViewer = isProtectedSuperAdminEmail(currentUserEmail);
 
@@ -931,10 +941,10 @@ export function UsersManagementContent() {
   };
 
   return (
-    <section className="w-full min-w-0 max-w-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm" dir="rtl" lang="ar">
+    <section className="w-full min-w-0 max-w-full rounded-xl border border-slate-200 bg-slate-100 p-4 shadow-sm" dir="rtl" lang="ar">
       <div className="mb-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold">إدارة المستخدمين</h1>
+        <h1 className="text-xl font-semibold text-slate-900">إدارة الفرق الميدانية</h1>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -972,12 +982,34 @@ export function UsersManagementContent() {
             </button>
           ) : null}
           <button
-            className="rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
+            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
             onClick={() => void openInviteModal()}
           >
-            إضافة مستخدم جديد
+            إنشاء مستخدم
           </button>
         </div>
+        </div>
+        <div className="mt-3 inline-flex rounded-xl border border-slate-200 bg-white p-1">
+          <button
+            type="button"
+            className={cn(
+              "rounded-lg px-3 py-1.5 text-sm font-semibold transition duration-300 ease-in-out",
+              activeView === "users" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100",
+            )}
+            onClick={() => setActiveView("users")}
+          >
+            إدارة الفرق الميدانية
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "rounded-lg px-3 py-1.5 text-sm font-semibold transition duration-300 ease-in-out",
+              activeView === "roles" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100",
+            )}
+            onClick={() => setActiveView("roles")}
+          >
+            الأدوار والصلاحيات
+          </button>
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
           نموذج الرفع يتضمّن عمود <span className="font-mono">access_work_list</span> (1 = تفعيل واجهة مهام الميدان، 0 = إيقافها). ورقة Excel
@@ -985,7 +1017,8 @@ export function UsersManagementContent() {
         </p>
       </div>
 
-      <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-900/30">
+      {activeView === "users" ? (
+      <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
         <label className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">بحث بالاسم</label>
         <Input
           className="h-10 max-w-md text-sm"
@@ -997,11 +1030,13 @@ export function UsersManagementContent() {
           {filteredUsers.length} مستخدم معروض من أصل {users.length}
         </p>
       </div>
+      ) : null}
 
-      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+      {activeView === "roles" ? (
+      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">استوديو الأدوار والصلاحيات</h2>
+            <h2 className="text-base font-semibold text-slate-900">استوديو الأدوار والصلاحيات</h2>
             <p className="text-xs text-slate-500">عرّف أدواراً تشغيلية واضبط الصلاحيات حسب مجموعات العمل.</p>
           </div>
         </div>
@@ -1012,7 +1047,7 @@ export function UsersManagementContent() {
             placeholder="اسم الدور التشغيلي (مثال: مشرف حج)"
           />
           <select
-            className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900"
+            className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
             value={newTemplateRole}
             onChange={(e) => setNewTemplateRole(e.target.value as UserRole)}
           >
@@ -1034,50 +1069,43 @@ export function UsersManagementContent() {
 
         <div className="grid gap-3 lg:grid-cols-2">
           {roleTemplates.map((template) => (
-            <div key={template.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+            <div key={template.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{template.name}</p>
+                  <p className="text-sm font-semibold text-slate-900">{template.name}</p>
                   <p className="text-[11px] text-slate-500">
                     دور النظام: {ROLE_OPTIONS.find((r) => r.value === template.role)?.label ?? template.role}
                   </p>
                 </div>
-                {!template.isSystem ? (
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    className="rounded border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50"
-                    onClick={() => deleteTemplate(template.id)}
+                    className="rounded border border-emerald-200 bg-white px-2 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                    onClick={() => setRoleEditorTemplateId(template.id)}
                   >
-                    حذف
+                    تعديل
                   </button>
-                ) : (
-                  <span className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-500">افتراضي</span>
-                )}
+                  {!template.isSystem ? (
+                    <button
+                      type="button"
+                      className="rounded border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50"
+                      onClick={() => deleteTemplate(template.id)}
+                    >
+                      حذف
+                    </button>
+                  ) : (
+                    <span className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-500">افتراضي</span>
+                  )}
+                </div>
               </div>
-              <div className="space-y-2">
-                {PERMISSION_GROUPS.map((group) => (
-                  <div key={group.id} className="rounded-md border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
-                    <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">{group.label}</p>
-                    <div className="space-y-1.5">
-                      {group.keys.map((key) => (
-                        <PermToggle
-                          key={`${template.id}-${key}`}
-                          label={PERM_LABELS_AR[key]}
-                          checked={Boolean(template.permissions[key])}
-                          disabled={template.role === "admin"}
-                          onChange={(v) => updateTemplatePermission(template.id, key, v)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <p className="text-xs text-slate-500">استخدم "تعديل" لفتح لوحة جانبية وتحديث صلاحيات هذا الدور فورًا.</p>
             </div>
           ))}
         </div>
       </div>
+      ) : null}
 
-      {isLoading && !usersQueryData ? (
+      {activeView === "users" && (isLoading && !usersQueryData ? (
         <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800">
           <div className="flex gap-2">
             <Skeleton className="h-10 flex-1" />
@@ -1338,7 +1366,49 @@ export function UsersManagementContent() {
           </table>
         </div>
         </>
-      )}
+      ))}
+
+      {roleEditorTemplate ? (
+        <div className="pointer-events-none fixed inset-0 z-50 flex">
+          <button
+            type="button"
+            className="pointer-events-auto h-full w-full bg-black/30 transition-opacity duration-300 ease-in-out"
+            aria-label="إغلاق محرر الدور"
+            onClick={() => setRoleEditorTemplateId(null)}
+          />
+          <aside className="pointer-events-auto h-full w-[95%] max-w-xl overflow-y-auto border-l border-slate-200 bg-slate-50 p-4 shadow-2xl transition-transform duration-300 ease-in-out">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">تحرير الدور التشغيلي</h3>
+                <p className="text-xs text-slate-500">{roleEditorTemplate.name}</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                onClick={() => setRoleEditorTemplateId(null)}
+              >
+                إغلاق
+              </button>
+            </div>
+            {PERMISSION_GROUPS.map((group) => (
+              <div key={group.id} className="mb-2 rounded-xl border border-slate-200 bg-white p-3">
+                <p className="mb-2 text-xs font-semibold text-slate-700">{group.label}</p>
+                <div className="space-y-1.5">
+                  {group.keys.map((key) => (
+                    <PermToggle
+                      key={`${roleEditorTemplate.id}-${key}`}
+                      label={PERM_LABELS_AR[key]}
+                      checked={Boolean(roleEditorTemplate.permissions[key])}
+                      disabled={roleEditorTemplate.role === "admin"}
+                      onChange={(v) => updateTemplatePermission(roleEditorTemplate.id, key, v)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </aside>
+        </div>
+      ) : null}
 
       {isInviteModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closeInviteModal}>

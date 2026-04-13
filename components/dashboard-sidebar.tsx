@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { BarChart3, LayoutDashboard, ListTodo, MapPinned, Settings, Ticket, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "@/components/logout-button";
@@ -22,6 +22,7 @@ type NavItem = {
   label: string;
   icon: typeof MapPinned;
   perm: AppPermissionKey;
+  queryView?: "users" | "roles";
   /** إن وُجدت، يُعرض الرابط فقط لهذه الأدوار */
   roles?: string[];
 };
@@ -31,9 +32,10 @@ const NAV_DEF: NavItem[] = [
   { href: "/dashboard", label: "لوحة التحكم", icon: LayoutDashboard, perm: "view_dashboard" },
   { href: "/dashboard/tickets", label: "البلاغات", icon: Ticket, perm: "view_tickets" },
   { href: "/dashboard/tasks", label: "المهام", icon: ListTodo, perm: "view_tickets", roles: ["reporter", "admin"] },
-  { href: "/dashboard/reports", label: "التقارير", icon: BarChart3, perm: "view_reports" },
+  { href: "/dashboard/reports", label: "تقارير حية", icon: BarChart3, perm: "view_reports" },
   { href: "/dashboard/admin/zones", label: "إدارة المناطق", icon: MapPinned, perm: "manage_zones" },
-  { href: "/dashboard/admin/users", label: "إدارة المستخدمين", icon: Users, perm: "manage_users" },
+  { href: "/dashboard/admin/users?view=users", label: "إدارة الفرق الميدانية", icon: Users, perm: "manage_users", queryView: "users" },
+  { href: "/dashboard/admin/users?view=roles", label: "الأدوار والصلاحيات", icon: Users, perm: "manage_users", queryView: "roles" },
   { href: "/dashboard/settings", label: "الإعدادات", icon: Settings, perm: "view_settings" },
 ];
 
@@ -46,6 +48,7 @@ export function DashboardSidebar({
   onCloseMobile,
 }: DashboardSidebarProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const roleLabel =
     role === "admin"
       ? "مدير النظام"
@@ -71,24 +74,29 @@ export function DashboardSidebar({
     <nav className={cn("mt-6 space-y-2", isCollapsed ? "mt-4" : "mt-6")}>
       {navItems.map((item) => {
         const Icon = item.icon;
-        const active = pathname === item.href;
+        const currentView = searchParams.get("view");
+        const hrefPath = item.href.split("?")[0];
+        const active =
+          item.queryView != null
+            ? pathname === "/dashboard/admin/users" && currentView === item.queryView
+            : pathname === hrefPath;
 
         return (
           <Link
             key={item.href}
             href={item.href}
-            prefetch={item.href === "/dashboard/map" ? false : undefined}
+            prefetch={item.href.includes("/dashboard/map") ? false : true}
             onClick={onNavigate}
             title={item.label}
             className={cn(
-              "flex min-h-12 items-center rounded-md px-3 py-3 text-sm font-medium transition duration-300",
+              "flex min-h-12 items-center rounded-xl px-3 py-3 text-sm font-medium transition duration-300 ease-in-out",
               isCollapsed ? "justify-center px-2" : "gap-2",
               active
-                ? "border-s border-[#d4af37] bg-white text-[#064e3b] dark:bg-slate-900 dark:text-emerald-200"
-                : "text-slate-900 hover:bg-white dark:text-slate-100 dark:hover:bg-slate-900",
+                ? "border-s border-amber-500 bg-slate-100 text-slate-900"
+                : "text-slate-700 hover:bg-slate-100",
             )}
           >
-            <Icon className={cn("h-5 w-5 shrink-0", active ? "text-[#064e3b] dark:text-[#d4af37]" : "text-slate-700 dark:text-slate-300")} />
+            <Icon className={cn("h-5 w-5 shrink-0 transition-colors duration-300 ease-in-out", active ? "text-amber-500" : "text-slate-600")} />
             {!isCollapsed ? <span>{item.label}</span> : null}
           </Link>
         );
@@ -114,7 +122,7 @@ export function DashboardSidebar({
         />
         <aside
           className={cn(
-            "absolute right-0 top-0 z-[1] flex h-full w-72 max-w-[86vw] flex-col border-l border-emerald-900/20 bg-[#f8f7f2] p-4 pb-28 shadow-2xl transition-transform duration-300 will-change-transform dark:border-emerald-800/40 dark:bg-slate-950",
+            "absolute right-0 top-0 z-[1] flex h-full w-72 max-w-[86vw] flex-col border-l border-slate-200 bg-slate-50 p-4 pb-28 shadow-2xl transition-transform duration-300 ease-in-out will-change-transform",
             mobileOpen ? "translate-x-0" : "translate-x-full",
           )}
         >
@@ -122,16 +130,16 @@ export function DashboardSidebar({
             <button
               type="button"
               aria-label="إغلاق"
-              className="rounded-md border border-slate-200 p-2 dark:border-slate-700"
+              className="rounded-xl border border-slate-200 p-2"
               onClick={onCloseMobile}
             >
-              <X className="h-4 w-4 dark:text-slate-100" />
+              <X className="h-4 w-4 text-slate-700" />
             </button>
-            <p className="text-sm font-semibold text-[#064e3b] dark:text-emerald-200">القائمة</p>
+            <p className="text-sm font-semibold text-slate-900">القائمة</p>
           </div>
-          <div className="rounded-lg border border-[#d4af37]/35 bg-white p-3 dark:border-amber-700/30 dark:bg-slate-900">
-            <p className="text-xs font-medium text-slate-700 dark:text-slate-200">تسجيل الدخول باسم</p>
-            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+          <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
+            <p className="text-xs font-medium text-slate-700">المستخدم الحالي</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">
               {roleLabel}: {fullName}
             </p>
           </div>
@@ -144,16 +152,16 @@ export function DashboardSidebar({
 
       <aside
         className={cn(
-          "hidden h-dvh shrink-0 flex-col border-r border-emerald-900/20 bg-[#f8f7f2] p-4 transition-[width] duration-300 will-change-[width] dark:border-emerald-900/40 dark:bg-slate-950 md:flex",
+          "hidden h-dvh shrink-0 flex-col border-r border-slate-200 bg-slate-50 p-4 transition-[width] duration-300 ease-in-out will-change-[width] md:flex",
           collapsed ? "w-20" : "w-72",
         )}
         dir="rtl"
         lang="ar"
       >
-        <div className={cn("rounded-lg border border-[#d4af37]/35 bg-white p-3 dark:border-amber-700/30 dark:bg-slate-900", collapsed && "p-2 text-center")}>
-          <p className="text-xs font-medium text-slate-700 dark:text-slate-200">{collapsed ? "المستخدم" : "تسجيل الدخول باسم"}</p>
+        <div className={cn("rounded-xl border border-slate-200 bg-slate-100 p-3", collapsed && "p-2 text-center")}>
+          <p className="text-xs font-medium text-slate-700">{collapsed ? "المستخدم" : "المستخدم الحالي"}</p>
           {!collapsed ? (
-            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <p className="mt-1 text-sm font-semibold text-slate-900">
               {roleLabel}: {fullName}
             </p>
           ) : null}

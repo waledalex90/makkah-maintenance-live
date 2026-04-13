@@ -4,7 +4,11 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { UsersManagementContent } from "@/components/users-management-content";
 import { effectivePermissions } from "@/lib/permissions";
 
-export default async function AdminUsersPage() {
+export default async function AdminUsersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -25,9 +29,12 @@ export default async function AdminUsersPage() {
     redirect("/dashboard");
   }
 
+  const params = await searchParams;
+  const initialView = params?.view === "roles" ? "roles" : "users";
+
   return (
     <Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">جاري التحميل…</div>}>
-      <UsersManagementContent />
+      <UsersManagementContent initialView={initialView} />
     </Suspense>
   );
 }

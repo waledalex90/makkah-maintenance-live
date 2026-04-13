@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ChevronDown, Download, Filter, LayoutDashboard, Sparkles } from "lucide-react";
+import { Check, ChevronDown, Download, Filter, LayoutDashboard, Sparkles } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -174,6 +174,9 @@ export function ReportsAnalyticsDashboard() {
   const [templateName, setTemplateName] = useState("");
   const [savedTemplates, setSavedTemplates] = useState<SavedReportTemplate[]>([]);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const columnMenuRef = useRef<HTMLDivElement>(null);
+  const [columnMenuOpen, setColumnMenuOpen] = useState(false);
+  const [columnSearch, setColumnSearch] = useState("");
 
   useEffect(() => {
     if (!exportMenuOpen) return;
@@ -183,6 +186,15 @@ export function ReportsAnalyticsDashboard() {
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [exportMenuOpen]);
+
+  useEffect(() => {
+    if (!columnMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) setColumnMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [columnMenuOpen]);
 
   useEffect(() => {
     try {
@@ -320,16 +332,11 @@ export function ReportsAnalyticsDashboard() {
     });
   };
 
-  const moveCustomField = (index: number, direction: -1 | 1) => {
-    setCustomFields((prev) => {
-      const nextIndex = index + direction;
-      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
-      const copy = [...prev];
-      const [item] = copy.splice(index, 1);
-      copy.splice(nextIndex, 0, item);
-      return copy;
-    });
-  };
+  const filteredColumnOptions = useMemo(() => {
+    const q = columnSearch.trim();
+    if (!q) return Object.entries(CUSTOM_REPORT_FIELD_LABELS);
+    return Object.entries(CUSTOM_REPORT_FIELD_LABELS).filter(([, label]) => label.includes(q));
+  }, [columnSearch]);
 
   const applySystemPreset = (sheets: ReportSheetId[]) => {
     const next = REPORT_SHEET_IDS.reduce((acc, id) => ({ ...acc, [id]: sheets.includes(id) }), {} as ReportExportSelection);
@@ -477,64 +484,81 @@ export function ReportsAnalyticsDashboard() {
                 اختر الحقول والفلاتر التشغيلية لبناء تقرير مخصص قبل التصدير.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4 text-right">
+            <CardContent className="space-y-3 text-right">
               <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700">
                 معاينة فورية: {customPreviewRows.length} صف | ترتيب الأعمدة: {customFields.length}
               </div>
 
               <div className="space-y-2 rounded-xl border border-slate-200 p-3">
-                <p className="text-sm font-semibold text-slate-800">اختيار الأعمدة وترتيبها</p>
-                {Object.entries(CUSTOM_REPORT_FIELD_LABELS).map(([key, label]) => {
-                  const field = key as CustomReportField;
-                  const idx = customFields.indexOf(field);
-                  const selected = idx >= 0;
-                  return (
-                    <div key={field} className="flex items-center gap-2 rounded-lg border border-slate-100 px-2 py-1.5">
-                      <input
-                        type="checkbox"
-                        className="size-4 rounded border-slate-300 text-emerald-600"
-                        checked={selected}
-                        onChange={() => toggleCustomField(field)}
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-slate-800">اختيار الأعمدة</p>
+                  <span className="text-[11px] text-slate-500">الترتيب حسب اختيارك</span>
+                </div>
+                <div ref={columnMenuRef} className="relative">
+                  <button
+                    type="button"
+                    className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-800"
+                    onClick={() => setColumnMenuOpen((v) => !v)}
+                    aria-expanded={columnMenuOpen}
+                  >
+                    <span>{customFields.length ? `${customFields.length} عمود محدد` : "اختر الأعمدة"}</span>
+                    <ChevronDown className={`h-4 w-4 transition-transform ${columnMenuOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {columnMenuOpen ? (
+                    <div className="absolute z-40 mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                      <Input
+                        className="h-9 border-slate-200"
+                        placeholder="ابحث عن عمود..."
+                        value={columnSearch}
+                        onChange={(e) => setColumnSearch(e.target.value)}
                       />
-                      <span className="flex-1 text-sm text-slate-700">{label}</span>
-                      {selected ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            className="rounded-md border border-slate-200 p-1 text-slate-600 hover:bg-slate-50"
-                            onClick={() => moveCustomField(idx, -1)}
-                            aria-label="تحريك لأعلى"
-                          >
-                            <ArrowUp className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded-md border border-slate-200 p-1 text-slate-600 hover:bg-slate-50"
-                            onClick={() => moveCustomField(idx, 1)}
-                            aria-label="تحريك لأسفل"
-                          >
-                            <ArrowDown className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ) : null}
+                      <div className="mt-2 max-h-56 overflow-auto space-y-1">
+                        {filteredColumnOptions.map(([key, label]) => {
+                          const field = key as CustomReportField;
+                          const selected = customFields.includes(field);
+                          return (
+                            <button
+                              key={field}
+                              type="button"
+                              className="flex w-full items-center justify-between rounded-md border border-slate-100 px-2 py-1.5 text-sm hover:bg-slate-50"
+                              onClick={() => toggleCustomField(field)}
+                            >
+                              <span>{label}</span>
+                              {selected ? <Check className="h-4 w-4 text-emerald-600" /> : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="mt-2 flex justify-end">
+                        <Button type="button" className="h-8 bg-emerald-600 px-3 text-xs text-white hover:bg-emerald-700" onClick={() => setColumnMenuOpen(false)}>
+                          تم
+                        </Button>
+                      </div>
                     </div>
-                  );
-                })}
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {customFields.map((field, idx) => (
+                    <span key={field} className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-700">
+                      {idx + 1}. {CUSTOM_REPORT_FIELD_LABELS[field]}
+                    </span>
+                  ))}
+                </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                 <div>
                   <Label className="mb-1 block">من تاريخ</Label>
-                  <Input type="date" value={customDateFrom} onChange={(e) => setCustomDateFrom(e.target.value)} />
+                  <Input className="h-9 border-slate-200 bg-white" type="date" value={customDateFrom} onChange={(e) => setCustomDateFrom(e.target.value)} />
                 </div>
                 <div>
                   <Label className="mb-1 block">إلى تاريخ</Label>
-                  <Input type="date" value={customDateTo} onChange={(e) => setCustomDateTo(e.target.value)} />
+                  <Input className="h-9 border-slate-200 bg-white" type="date" value={customDateTo} onChange={(e) => setCustomDateTo(e.target.value)} />
                 </div>
                 <div>
                   <Label className="mb-1 block">المنطقة</Label>
                   <select
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+                    className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
                     value={customZoneId}
                     onChange={(e) => setCustomZoneId(e.target.value)}
                   >
@@ -549,7 +573,7 @@ export function ReportsAnalyticsDashboard() {
                 <div>
                   <Label className="mb-1 block">حالة البلاغ</Label>
                   <select
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+                    className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
                     value={customStatus}
                     onChange={(e) => setCustomStatus(e.target.value as TicketStatus | "all")}
                   >
@@ -559,10 +583,10 @@ export function ReportsAnalyticsDashboard() {
                     <option value="finished">{statusLabelAr("finished")}</option>
                   </select>
                 </div>
-                <div className="sm:col-span-2">
+                <div className="md:col-span-2 xl:col-span-4">
                   <Label className="mb-1 block">الفني المسؤول</Label>
                   <select
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+                    className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
                     value={customTechnicianId}
                     onChange={(e) => setCustomTechnicianId(e.target.value)}
                   >

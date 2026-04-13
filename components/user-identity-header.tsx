@@ -80,7 +80,7 @@ export function UserIdentityHeader({ compact = false }: { compact?: boolean }) {
       <div
         className={
           compact
-            ? "h-16 animate-pulse rounded-xl border border-slate-200/80 bg-white/60 shadow-sm"
+            ? "h-14 animate-pulse rounded-md bg-slate-100/70"
             : "mb-4 h-24 animate-pulse rounded-xl border border-slate-200/80 bg-white/60 shadow-sm dark:border-slate-800 dark:bg-slate-900/40"
         }
       />
@@ -97,14 +97,14 @@ export function UserIdentityHeader({ compact = false }: { compact?: boolean }) {
     <section
       className={
         compact
-          ? "rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50/90 px-3 py-2 shadow-sm"
+          ? "px-0 py-0"
           : "mb-4 rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50/90 px-4 py-3 shadow-sm dark:border-slate-800 dark:from-slate-950 dark:to-slate-900/80"
       }
     >
       <div className="min-w-0 space-y-2 text-right">
         <div>
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">هوية المستخدم</p>
-          <p className={compact ? "truncate text-base font-bold text-slate-900" : "truncate text-lg font-bold text-slate-900 dark:text-slate-50"}>
+          <p className={compact ? "truncate text-sm font-bold text-slate-900" : "truncate text-lg font-bold text-slate-900 dark:text-slate-50"}>
             {row.full_name}
           </p>
           <p className={compact ? "text-xs text-slate-600" : "text-sm text-slate-600 dark:text-slate-300"}>

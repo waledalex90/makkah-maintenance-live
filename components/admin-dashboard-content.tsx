@@ -734,11 +734,14 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       lang="ar"
       style={{ colorScheme: "light" }}
     >
-      <header className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
-        <p className="text-xs text-slate-500" suppressHydrationWarning>
-          {formatSaudiNow(nowTs)}
-        </p>
-        {!tableOnly ? <UserIdentityHeader compact /> : null}
+      <header className="space-y-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <p className="text-xs font-medium text-slate-500" suppressHydrationWarning>
+            {formatSaudiNow(nowTs)}
+          </p>
+          {!tableOnly ? <UserIdentityHeader compact /> : null}
+        </div>
+        <div className="h-px w-full bg-slate-200" />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl font-bold text-slate-900">{tableOnly ? "مركز البلاغات" : "لوحة التحكم"}</h1>
           <div className="flex items-center justify-end gap-2">

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { LiveLocationTracker } from "@/components/live-location-tracker";
 import { DashboardBottomNav } from "@/components/dashboard-bottom-nav";
@@ -24,7 +23,6 @@ type MeResponse =
 const EMPTY_PERMISSIONS = {} as Record<AppPermissionKey, boolean>;
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const [me, setMe] = useState<MeResponse | null>(null);
 
   useEffect(() => {
@@ -50,13 +48,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     if (!me?.ok) return EMPTY_PERMISSIONS;
     return effectivePermissions(me.profile.role, (me.profile.permissions ?? null) as Record<string, unknown> | null);
   }, [me]);
-
-  useEffect(() => {
-    if (!me?.ok) return;
-    const links = ["/dashboard", "/dashboard/tickets", "/dashboard/tasks", "/dashboard/settings"];
-    if (permissions.view_reports) links.push("/dashboard/reports");
-    for (const href of links) router.prefetch(href);
-  }, [me, permissions.view_reports, router]);
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">

@@ -9,8 +9,11 @@ export function ThemeToggle() {
 
   useEffect(() => {
     const saved = window.localStorage.getItem("theme");
-    const dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const dark = saved === "dark";
     document.documentElement.classList.toggle("dark", dark);
+    if (saved !== "dark" && saved !== "light") {
+      window.localStorage.setItem("theme", "light");
+    }
     setIsDark(dark);
   }, []);
 
@@ -30,7 +33,9 @@ export function ThemeToggle() {
       aria-label="تبديل المظهر"
       title="تبديل المظهر"
     >
-      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      <span className="inline-flex h-4 w-4 items-center justify-center">
+        {isDark ? <Sun className="h-4 w-4 transition-transform duration-200 ease-out" /> : <Moon className="h-4 w-4 transition-transform duration-200 ease-out" />}
+      </span>
     </Button>
   );
 }

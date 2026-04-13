@@ -26,6 +26,7 @@ import {
   statusLabelAr,
 } from "@/lib/ticket-status";
 import { TicketReceptionCaption } from "@/components/ticket-reception-caption";
+import { StorageMediaPreview } from "@/components/storage-media-preview";
 
 export type { TicketStatus } from "@/lib/ticket-status";
 
@@ -733,22 +734,17 @@ export function TicketDetailDrawer({
                           className="block overflow-hidden rounded-lg border border-slate-200"
                         >
                           {att.file_type === "video" || /\.(mp4|webm|mov|ogg)(\?|$)/i.test(att.file_url) ? (
-                            <video
+                            <StorageMediaPreview
                               src={att.file_url}
+                              alt={att.file_name ?? "مرفق فيديو"}
+                              type="video"
                               className="h-32 w-full object-cover"
-                              controls
-                              muted
-                              playsInline
-                              preload="none"
                             />
                           ) : (
-                            <img
+                            <StorageMediaPreview
                               src={att.file_url}
                               alt={att.file_name ?? "مرفق"}
-                              width={800}
-                              height={256}
-                              loading="lazy"
-                              decoding="async"
+                              type="image"
                               className="h-32 w-full object-cover"
                             />
                           )}

@@ -22,6 +22,7 @@ import { TicketCreateForm } from "@/components/ticket-create-form";
 import { TicketChatPanel } from "@/components/ticket-chat-panel";
 import { TicketReceptionCaption } from "@/components/ticket-reception-caption";
 import { UserIdentityHeader } from "@/components/user-identity-header";
+import { StorageMediaPreview } from "@/components/storage-media-preview";
 import { TICKET_ROW_WITH_HANDLER_PROFILES } from "@/lib/ticket-handler-select";
 import { ticketReceptionExportLine } from "@/lib/ticket-reception-label";
 import {
@@ -1248,22 +1249,17 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                         <div key={att.id} className="space-y-1">
                           <a href={att.file_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-slate-200">
                             {att.file_type === "video" || /\.(mp4|webm|mov|ogg)(\?|$)/i.test(att.file_url) ? (
-                              <video
+                              <StorageMediaPreview
                                 src={att.file_url}
+                                alt={att.file_name ?? "مرفق فيديو"}
+                                type="video"
                                 className="h-36 w-full object-cover"
-                                controls
-                                muted
-                                playsInline
-                                preload="none"
                               />
                             ) : (
-                              <img
+                              <StorageMediaPreview
                                 src={att.file_url}
                                 alt={att.file_name ?? "مرفق"}
-                                width={800}
-                                height={288}
-                                loading="lazy"
-                                decoding="async"
+                                type="image"
                                 className="h-36 w-full object-cover"
                               />
                             )}

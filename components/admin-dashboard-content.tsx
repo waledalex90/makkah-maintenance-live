@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import { GripHorizontal, RefreshCw } from "lucide-react";
+import { motion, useDragControls } from "framer-motion";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import {
@@ -254,6 +255,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const [ticketDeleteDialogOpen, setTicketDeleteDialogOpen] = useState(false);
   const [ticketDeleting, setTicketDeleting] = useState(false);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(false);
+  const detailDragControls = useDragControls();
 
   const isSuperAdminSession = isProtectedSuperAdminEmail(sessionEmail);
 
@@ -274,6 +277,15 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     void supabase.auth.getUser().then(({ data }) => {
       setSessionEmail(data.user?.email?.trim().toLowerCase() ?? null);
     });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia === "undefined") return;
+    const media = window.matchMedia("(min-width: 768px)");
+    const sync = () => setIsDesktopViewport(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
   }, []);
 
   const zonesQuery = useQuery({
@@ -1104,11 +1116,11 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
       {createModalOpen ? (
         <div
-          className="fixed inset-0 z-[100] flex items-end justify-center overflow-hidden bg-slate-900/45 p-2 backdrop-blur-[3px] md:items-center md:p-4"
+          className="fixed inset-0 z-[999] flex items-end justify-center overflow-hidden bg-slate-900/45 p-0 backdrop-blur-[3px] md:items-center md:p-4"
           onClick={() => setCreateModalOpen(false)}
         >
           <div
-            className="h-[calc(100dvh-1rem)] w-full overflow-y-auto overscroll-contain scroll-smooth rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl md:h-auto md:max-h-[85dvh] md:max-w-2xl md:p-5"
+            className="h-[100dvh] w-full overflow-y-auto overscroll-contain scroll-smooth rounded-none border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:p-5"
             style={{ colorScheme: "light" }}
             role="dialog"
             aria-modal="true"
@@ -1139,16 +1151,29 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
 
       {detailModalOpen ? (
         <div
-          className="fixed inset-0 z-[100] flex items-end justify-center overflow-hidden bg-slate-900/50 p-2 md:items-center md:p-4"
+          className="fixed inset-0 z-[999] flex items-end justify-center overflow-hidden bg-slate-900/50 p-0 md:items-center md:p-4"
           onClick={() => setDetailModalOpen(false)}
         >
-          <div
-            className="h-[calc(100dvh-1rem)] w-full overflow-y-auto overscroll-contain scroll-smooth rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl md:h-auto md:max-h-[85dvh] md:max-w-2xl md:p-5"
+          <motion.div
+            className="h-[100dvh] w-full overflow-y-auto overscroll-contain scroll-smooth rounded-none border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:p-5"
             style={{ colorScheme: "light" }}
             role="dialog"
             aria-modal="true"
+            drag={isDesktopViewport}
+            dragControls={detailDragControls}
+            dragListener={false}
+            dragMomentum={false}
+            dragElastic={0.06}
+            dragConstraints={{ top: -240, bottom: 240, left: -360, right: 360 }}
             onClick={(e) => e.stopPropagation()}
           >
+            <div
+              className="mb-3 hidden cursor-grab items-center justify-center rounded-lg border border-slate-200 bg-slate-50 py-1.5 active:cursor-grabbing md:flex"
+              onPointerDown={(e) => detailDragControls.start(e)}
+              aria-label="مقبض سحب نافذة التفاصيل"
+            >
+              <GripHorizontal className="h-4 w-4 text-slate-500" />
+            </div>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-lg font-semibold">تفاصيل البلاغ</h3>
               <div className="flex flex-wrap items-center gap-2">
@@ -1281,13 +1306,13 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                 </div>
               </div>
             )}
-          </div>
+          </motion.div>
         </div>
       ) : null}
 
       {ticketDeleteDialogOpen && selectedTicket ? (
         <div
-          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/60 p-4"
+          className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 p-4"
           onClick={() => (ticketDeleting ? undefined : setTicketDeleteDialogOpen(false))}
         >
           <div

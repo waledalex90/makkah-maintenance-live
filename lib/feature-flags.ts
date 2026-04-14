@@ -5,6 +5,10 @@ function isTruthy(value: string | undefined): boolean {
 }
 
 export function isDynamicRolesEnabled(): boolean {
-  return isTruthy(process.env.RBAC_DYNAMIC_ROLES_ENABLED);
+  const raw = process.env.RBAC_DYNAMIC_ROLES_ENABLED;
+  if (raw === undefined || raw === null || raw.trim() === "") {
+    return true;
+  }
+  return isTruthy(raw);
 }
 

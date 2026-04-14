@@ -5,6 +5,14 @@ import { canAccessDashboardPath } from "@/lib/permissions";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
 
+type MiddlewareProfile = {
+  role?: string | null;
+  role_id?: string | null;
+  permissions?: Record<string, unknown> | null;
+  access_work_list?: boolean | null;
+  roles?: { permissions?: Record<string, unknown> | null } | { permissions?: Record<string, unknown> | null }[] | null;
+};
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -44,7 +52,7 @@ export async function updateSession(request: NextRequest) {
   if (user && isAuthPage) {
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("role, permissions, access_work_list")
+      .select("role, role_id, permissions, access_work_list, roles:role_id(permissions)")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -56,11 +64,12 @@ export async function updateSession(request: NextRequest) {
     }
 
     const url = request.nextUrl.clone();
-    if (profile.access_work_list) {
+    const typedProfile = (profile ?? null) as MiddlewareProfile | null;
+    if (typedProfile?.access_work_list) {
       url.pathname = "/tasks/my-work";
-    } else if (profile.role === "technician" || profile.role === "supervisor" || profile.role === "data_entry") {
+    } else if (typedProfile?.role === "technician" || typedProfile?.role === "supervisor" || typedProfile?.role === "data_entry") {
       url.pathname = "/tasks/my-work";
-    } else if (profile.role === "reporter" || profile.role === "engineer") {
+    } else if (typedProfile?.role === "reporter" || typedProfile?.role === "engineer") {
       url.pathname = "/dashboard/tickets";
     } else {
       url.pathname = "/dashboard";
@@ -71,23 +80,27 @@ export async function updateSession(request: NextRequest) {
   if (user && path.startsWith("/dashboard")) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role, permissions, access_work_list")
+      .select("role, role_id, permissions, access_work_list, roles:role_id(permissions)")
       .eq("id", user.id)
       .maybeSingle();
 
-    if (
-      profile?.access_work_list ||
-      profile?.role === "technician" ||
-      profile?.role === "supervisor" ||
-      profile?.role === "data_entry"
-    ) {
+    const typedProfile = (profile ?? null) as MiddlewareProfile | null;
+    if (typedProfile?.access_work_list || typedProfile?.role === "technician" || typedProfile?.role === "supervisor" || typedProfile?.role === "data_entry") {
       const url = request.nextUrl.clone();
       url.pathname = "/tasks/my-work";
       return NextResponse.redirect(url);
     }
 
-    const raw = profile?.permissions as Record<string, unknown> | null | undefined;
-    if (!canAccessDashboardPath(path, profile?.role, raw ?? null)) {
+    const rolePerms = Array.isArray(typedProfile?.roles) ? typedProfile.roles[0]?.permissions : typedProfile?.roles?.permissions;
+    const raw = { ...(rolePerms ?? {}), ...((typedProfile?.permissions as Record<string, unknown> | null | undefined) ?? {}) };
+    const canAccess = canAccessDashboardPath(path, typedProfile?.role, raw ?? null);
+    console.info("[rbac-path-access]", {
+      path,
+      role: typedProfile?.role ?? null,
+      role_id: typedProfile?.role_id ?? null,
+      decision: canAccess ? "allow" : "deny",
+    });
+    if (!canAccess) {
       const url = request.nextUrl.clone();
       url.pathname = "/dashboard";
       return NextResponse.redirect(url);

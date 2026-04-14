@@ -7,6 +7,13 @@ import { parseUsernameOrEmailLocalPart, toAuthEmail, displayLoginIdentifier } fr
 import type { AppPermissionKey } from "@/lib/permissions";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 import { defaultAccessWorkListForRole } from "@/lib/access-work-list-defaults";
+import { isDynamicRolesEnabled } from "@/lib/feature-flags";
+import {
+  mergeRoleAndUserOverrides,
+  roleToPublicOption,
+  sanitizePermissionPayload,
+  type RoleRow,
+} from "@/lib/rbac-roles";
 
 type ProfileRow = {
   id: string;
@@ -18,6 +25,8 @@ type ProfileRow = {
   username?: string | null;
   permissions?: Record<string, unknown> | null;
   access_work_list?: boolean | null;
+  role_id?: string | null;
+  roles?: { display_name?: string | null; role_key?: string | null; permissions?: Record<string, unknown> | null } | null;
   role:
     | "admin"
     | "projects_director"
@@ -30,7 +39,7 @@ type ProfileRow = {
 };
 
 const PROFILE_SELECT =
-  "id, full_name, mobile, role, job_title, specialty, region, permissions, username, access_work_list";
+  "id, full_name, mobile, role, role_id, job_title, specialty, region, permissions, username, access_work_list, roles:role_id(display_name, role_key, permissions)";
 
 async function buildZoneMapForProfiles(
   adminSupabase: ReturnType<typeof createSupabaseAdminClient>,
@@ -76,6 +85,8 @@ async function mapProfilesToUserRows(
     const accountStatus = authUser?.email_confirmed_at ? "نشط" : "بانتظار التفعيل";
     const displayUser = profile.username?.trim() || displayLoginIdentifier(authUser?.email ?? null);
 
+    const rolePermissions = profile.roles?.permissions ?? {};
+    const effective = mergeRoleAndUserOverrides(rolePermissions, profile.permissions ?? {});
     return {
       id: profile.id,
       full_name: profile.full_name,
@@ -84,8 +95,11 @@ async function mapProfilesToUserRows(
       specialty: profile.specialty ?? "",
       region: profile.region ?? "",
       username: displayUser,
-      permissions: profile.permissions ?? {},
+      permissions: effective,
       role: profile.role,
+      role_id: profile.role_id ?? null,
+      role_display_name: profile.roles?.display_name ?? profile.role,
+      role_key: profile.roles?.role_key ?? profile.role,
       email,
       account_status: accountStatus,
       zones: zoneMap.get(profile.id) ?? [],
@@ -104,6 +118,11 @@ export async function GET() {
     const adminSupabase = createSupabaseAdminClient();
 
     const { data: zones } = await adminSupabase.from("zones").select("id, name").order("name");
+    const { data: rolesData } = await adminSupabase
+      .from("roles")
+      .select("id, role_key, display_name, permissions, legacy_role, is_system")
+      .order("is_system", { ascending: false })
+      .order("display_name", { ascending: true });
 
     const { data: profiles, error: profilesError } = await adminSupabase
       .from("profiles")
@@ -123,6 +142,7 @@ export async function GET() {
     return NextResponse.json({
       users: rows,
       zones: zones ?? [],
+      roles: ((rolesData as RoleRow[] | null) ?? []).map(roleToPublicOption),
       total: rows.length,
     });
   } catch (error) {
@@ -144,15 +164,9 @@ type InvitePayload = {
   job_title?: string;
   specialty?: "fire" | "electricity" | "ac" | "civil" | "kitchens";
   zone_ids?: string[];
-  role?:
-    | "admin"
-    | "projects_director"
-    | "project_manager"
-    | "engineer"
-    | "supervisor"
-    | "technician"
-    | "reporter"
-    | "data_entry";
+  role?: string;
+  role_id?: string;
+  role_key?: string;
   permissions?: Partial<Record<AppPermissionKey, boolean>>;
 };
 
@@ -168,20 +182,7 @@ export async function POST(request: Request) {
   const jobTitle = body.job_title?.trim() ?? "";
   const specialty = body.specialty ?? "civil";
   const zoneIds = Array.isArray(body.zone_ids) ? body.zone_ids.filter((value) => typeof value === "string") : [];
-  const role = body.role ?? "technician";
-  const allowedInviteRoles = new Set<string>([
-    "admin",
-    "projects_director",
-    "project_manager",
-    "engineer",
-    "supervisor",
-    "technician",
-    "reporter",
-    "data_entry",
-  ]);
-  if (!allowedInviteRoles.has(role)) {
-    return NextResponse.json({ error: "دور غير صالح." }, { status: 400 });
-  }
+  const roleInput = body.role_id?.trim() || body.role_key?.trim() || body.role?.trim() || "technician";
   const mode = body.mode ?? "direct_password";
 
   if (mode === "invite") {
@@ -214,14 +215,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "لا يُسمح بإنشاء حساب يطابق المدير المحمي." }, { status: 400 });
   }
 
+  const adminSupabase = createSupabaseAdminClient();
+  const dynamicEnabled = isDynamicRolesEnabled();
+  const roleQuery = adminSupabase
+    .from("roles")
+    .select("id, role_key, display_name, permissions, legacy_role, is_system")
+    .or(`id.eq.${roleInput},role_key.eq.${roleInput}`)
+    .maybeSingle();
+  const { data: resolvedRole, error: roleError } = await roleQuery;
+  if (roleError) {
+    return NextResponse.json({ error: roleError.message }, { status: 400 });
+  }
+  const roleRow = resolvedRole as RoleRow | null;
+  if (!roleRow) {
+    return NextResponse.json({ error: "دور غير صالح." }, { status: 400 });
+  }
+  const legacyRole = roleRow.legacy_role ?? "technician";
+  const rolePermissions = sanitizePermissionPayload(roleRow.permissions);
+  const permissionsPatch = mergeExplicitInvitePermissions(body.permissions);
+  const effectivePermissions = mergeRoleAndUserOverrides(rolePermissions, permissionsPatch);
   const permissions =
-    role === "admin" && body.permissions === undefined
+    !dynamicEnabled && legacyRole === "admin" && body.permissions === undefined
       ? mergeInvitePermissions("admin", undefined)
-      : mergeExplicitInvitePermissions(body.permissions);
+      : { ...effectivePermissions, view_admin_reports: effectivePermissions.view_reports };
 
   try {
-    const adminSupabase = createSupabaseAdminClient();
-
     /** `email_confirm: true` يفعّل البريد فوراً في Auth دون انتظار رابط من المستخدم.
      * إن ظل الدخول يطلب تأكيداً، عطّل في لوحة Supabase: Authentication → Providers → Email → Confirm email. */
     const { data: created, error: createError } = await adminSupabase.auth.admin.createUser({
@@ -244,11 +262,12 @@ export async function POST(request: Request) {
       mobile,
       jobTitle,
       specialty,
-      role,
+      role: legacyRole,
+      roleId: roleRow.id,
       zoneIds,
       permissions,
       username: usernameNormalized,
-      access_work_list: defaultAccessWorkListForRole(role),
+      access_work_list: defaultAccessWorkListForRole(legacyRole),
     });
     if (zoneErr) {
       await adminSupabase.auth.admin.deleteUser(newUserId);

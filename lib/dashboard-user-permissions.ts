@@ -2,6 +2,7 @@ import {
   APP_PERMISSION_KEYS,
   effectivePermissions,
   defaultInvitePermissionToggles,
+  sanitizePermissionObject,
   type AppPermissionKey,
 } from "@/lib/permissions";
 
@@ -41,4 +42,25 @@ export function mergeInvitePermissions(
     out.view_admin_reports = out.view_reports;
   }
   return out;
+}
+
+/** دمج صلاحيات الدور + تجاوزات المستخدم مع دعم حذف المفتاح بإرسال null. */
+export function mergePermissionsWithUnset(
+  rolePermissions: Record<string, unknown> | null | undefined,
+  currentOverrides: Record<string, unknown> | null | undefined,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const nextOverrides: Record<string, unknown> = { ...(currentOverrides ?? {}) };
+  for (const [key, value] of Object.entries(patch)) {
+    if (!APP_PERMISSION_KEYS.includes(key as AppPermissionKey)) continue;
+    if (value === null) {
+      delete nextOverrides[key];
+      continue;
+    }
+    if (typeof value === "boolean") {
+      nextOverrides[key] = value;
+    }
+  }
+  const effective = sanitizePermissionObject({ ...(rolePermissions ?? {}), ...nextOverrides });
+  return { ...effective, view_admin_reports: effective.view_reports };
 }

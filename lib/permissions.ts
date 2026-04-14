@@ -80,29 +80,36 @@ function defaultsForRole(role: string): AppPermissions {
   }
 }
 
+export function sanitizePermissionObject(
+  raw: Record<string, unknown> | null | undefined,
+): Record<AppPermissionKey, boolean> {
+  const out = {} as Record<AppPermissionKey, boolean>;
+  for (const key of APP_PERMISSION_KEYS) {
+    out[key] = Boolean(raw?.[key]);
+  }
+  if (raw?.view_admin_reports !== undefined && raw?.view_reports === undefined) {
+    out.view_reports = Boolean(raw.view_admin_reports);
+  }
+  return out;
+}
+
 /**
- * يدمج defaults حسب الرتبة مع JSON المخزّن. المدير يملك كل الصلاحيات دائماً.
+ * يدمج defaults حسب الرتبة مع JSON المخزّن. يُفضّل مفاتيح الصلاحية الصريحة على أي افتراضات role.
  */
 export function effectivePermissions(
   role: string | null | undefined,
   raw: Record<string, unknown> | null | undefined,
 ): Record<AppPermissionKey, boolean> {
-  if (role === "admin") {
-    return { ...ALL_TRUE };
+  const normalizedRaw = sanitizePermissionObject(raw);
+  const hasExplicitKeys = APP_PERMISSION_KEYS.some((key) => raw?.[key] !== undefined) || raw?.view_admin_reports !== undefined;
+  if (hasExplicitKeys) {
+    return normalizedRaw;
   }
-
+  // TODO(dynamic-rbac): remove role-default fallback after complete migration from legacy enums.
   const base = defaultsForRole(role ?? "engineer");
-  const r = raw ?? {};
 
   const pick = (key: AppPermissionKey): boolean => {
-    if (r[key] !== undefined) {
-      return Boolean(r[key]);
-    }
-    if (key === "view_reports") {
-      if (r.view_admin_reports !== undefined) {
-        return Boolean(r.view_admin_reports);
-      }
-    }
+    if (normalizedRaw[key] !== undefined) return Boolean(normalizedRaw[key]);
     return Boolean(base[key]);
   };
 

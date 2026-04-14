@@ -148,15 +148,7 @@ function PermToggle({
   );
 }
 
-type UserRole =
-  | "admin"
-  | "projects_director"
-  | "project_manager"
-  | "engineer"
-  | "supervisor"
-  | "technician"
-  | "reporter"
-  | "data_entry";
+type UserRole = string;
 
 type UserRow = {
   id: string;
@@ -166,6 +158,9 @@ type UserRow = {
   /** اسم الدخول الظاهر */
   username: string;
   role: UserRole;
+  role_id?: string | null;
+  role_key?: string | null;
+  role_display_name?: string | null;
   mobile: string;
   job_title?: string;
   specialty?: string;
@@ -184,7 +179,7 @@ type ZoneOption = {
 
 type Specialty = "fire" | "electricity" | "ac" | "civil" | "kitchens";
 
-const ROLE_OPTIONS: Array<{ value: UserRole; label: string }> = [
+const LEGACY_ROLE_OPTIONS: Array<{ value: UserRole; label: string }> = [
   { value: "admin", label: "مدير النظام" },
   { value: "projects_director", label: "مدير المشاريع" },
   { value: "project_manager", label: "مدير مشروع" },
@@ -194,8 +189,6 @@ const ROLE_OPTIONS: Array<{ value: UserRole; label: string }> = [
   { value: "supervisor", label: "مشرف" },
   { value: "technician", label: "فني" },
 ];
-
-const ROLE_TEMPLATE_STORAGE_KEY = "makkah-role-permission-templates-v1";
 
 const PERMISSION_GROUPS: Array<{
   id: string;
@@ -211,15 +204,19 @@ type RolePermissionTemplate = {
   id: string;
   name: string;
   role: UserRole;
+  roleKey: string;
+  legacyRole: UserRole | null;
   permissions: Record<AppPermissionKey, boolean>;
   isSystem: boolean;
 };
 
 function makeDefaultRoleTemplates(): RolePermissionTemplate[] {
-  return ROLE_OPTIONS.map((role) => ({
+  return LEGACY_ROLE_OPTIONS.map((role) => ({
     id: `sys-${role.value}`,
     name: role.label,
     role: role.value,
+    roleKey: role.value,
+    legacyRole: role.value,
     permissions: effectivePermissions(role.value, null),
     isSystem: true,
   }));
@@ -244,6 +241,24 @@ type UsersManagementContentProps = {
   initialView?: "users" | "roles";
 };
 
+type RoleOption = {
+  id: string;
+  role_key: string;
+  display_name: string;
+  permissions: Record<AppPermissionKey, boolean>;
+  legacy_role: string | null;
+  is_system: boolean;
+};
+
+function normalizeRoleKeyInput(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_\s-]/g, "")
+    .replace(/[\s-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 export function UsersManagementContent({ initialView = "users" }: UsersManagementContentProps) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -251,11 +266,11 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
   const [activeView, setActiveView] = useState<"users" | "roles">(initialView);
   const [roleTemplates, setRoleTemplates] = useState<RolePermissionTemplate[]>(makeDefaultRoleTemplates);
   const [newTemplateName, setNewTemplateName] = useState("");
-  const [newTemplateRole, setNewTemplateRole] = useState<UserRole>("supervisor");
+  const [newRoleKeyInput, setNewRoleKeyInput] = useState("");
   const [inviteTemplateId, setInviteTemplateId] = useState<string>("");
   const [editTemplateId, setEditTemplateId] = useState<string>("");
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
-  const [draftRoleMap, setDraftRoleMap] = useState<Record<string, UserRole>>({});
+  const [draftRoleMap, setDraftRoleMap] = useState<Record<string, string>>({});
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [inviteName, setInviteName] = useState("");
@@ -265,7 +280,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
   const [inviteSpecialty, setInviteSpecialty] = useState<Specialty>("civil");
   const [inviteZoneIds, setInviteZoneIds] = useState<string[]>([]);
   const [zoneDropdownOpen, setZoneDropdownOpen] = useState(false);
-  const [inviteRole, setInviteRole] = useState<UserRole>("technician");
+  const [inviteRole, setInviteRole] = useState<string>("technician");
   const [passwordModalUser, setPasswordModalUser] = useState<UserRow | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
@@ -288,7 +303,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
 
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
   const [editName, setEditName] = useState("");
-  const [editRole, setEditRole] = useState<UserRole>("technician");
+  const [editRole, setEditRole] = useState<string>("technician");
   const [editRegion, setEditRegion] = useState("");
   const [editSpecialty, setEditSpecialty] = useState<Specialty>("civil");
   const [editZoneIds, setEditZoneIds] = useState<string[]>([]);
@@ -314,6 +329,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
     const json = (await res.json()) as {
       users?: UserRow[];
       zones?: ZoneOption[];
+      roles?: RoleOption[];
       total?: number;
       error?: string;
     };
@@ -323,6 +339,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
     return {
       users: json.users ?? [],
       zones: json.zones ?? [],
+      roles: json.roles ?? [],
       total: json.total ?? 0,
     };
   }, []);
@@ -342,6 +359,37 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
 
   const users = usersQueryData?.users ?? [];
   const zones = usersQueryData?.zones ?? [];
+  const roleOptions = usersQueryData?.roles ?? [];
+  const defaultRoleId = roleOptions[0]?.id ?? "technician";
+  const roleOptionMap = useMemo(
+    () => new Map(roleOptions.map((role) => [role.id, role])),
+    [roleOptions],
+  );
+  const roleLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    roleOptions.forEach((r) => {
+      map.set(r.id, r.display_name);
+      map.set(r.role_key, r.display_name);
+    });
+    return map;
+  }, [roleOptions]);
+  const resolveLegacyRole = useCallback(
+    (roleIdOrKey: string | null | undefined) => {
+      if (!roleIdOrKey) return "technician";
+      return roleOptionMap.get(roleIdOrKey)?.legacy_role ?? roleIdOrKey;
+    },
+    [roleOptionMap],
+  );
+
+  useEffect(() => {
+    if (!roleOptions.length) return;
+    if (!inviteRole || !roleOptionMap.has(inviteRole)) {
+      setInviteRole(defaultRoleId);
+    }
+    if (!editRole || !roleOptionMap.has(editRole)) {
+      setEditRole(defaultRoleId);
+    }
+  }, [roleOptions, roleOptionMap, inviteRole, editRole, defaultRoleId]);
 
   const filteredUsers = useMemo(() => {
     const q = nameSearch.trim().toLowerCase();
@@ -355,26 +403,22 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
   }, [users, nameSearch]);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(ROLE_TEMPLATE_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as RolePermissionTemplate[];
-      if (!Array.isArray(parsed) || parsed.length === 0) return;
-      const system = makeDefaultRoleTemplates();
-      const mergedSystem = system.map((s) => {
-        const found = parsed.find((p) => p.id === s.id);
-        return found ? { ...s, permissions: found.permissions } : s;
-      });
-      const custom = parsed.filter((p) => !p.isSystem);
-      setRoleTemplates([...mergedSystem, ...custom]);
-    } catch {
+    if (!roleOptions.length) {
       setRoleTemplates(makeDefaultRoleTemplates());
+      return;
     }
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(ROLE_TEMPLATE_STORAGE_KEY, JSON.stringify(roleTemplates));
-  }, [roleTemplates]);
+    setRoleTemplates(
+      roleOptions.map((role) => ({
+        id: role.id,
+        name: role.display_name,
+        role: role.id,
+        roleKey: role.role_key,
+        legacyRole: role.legacy_role,
+        permissions: role.permissions,
+        isSystem: role.is_system,
+      })),
+    );
+  }, [roleOptions]);
   useEffect(() => {
     setActiveView(initialView);
   }, [initialView]);
@@ -440,8 +484,8 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
   useEffect(() => {
     if (!users.length) return;
     setDraftRoleMap(
-      users.reduce<Record<string, UserRole>>((acc, row) => {
-        acc[row.id] = row.role;
+      users.reduce<Record<string, string>>((acc, row) => {
+        acc[row.id] = row.role_id ?? row.role;
         return acc;
       }, {}),
     );
@@ -451,34 +495,62 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
     await queryClient.invalidateQueries({ queryKey: ["admin-users-all"] });
   }, [queryClient]);
 
-  const createRoleTemplate = () => {
+  const createRoleTemplate = async () => {
     const name = newTemplateName.trim();
     if (!name) {
       toast.error("اسم الدور التشغيلي مطلوب.");
       return;
     }
-    const next: RolePermissionTemplate = {
-      id: `custom-${Date.now()}`,
-      name,
-      role: newTemplateRole,
-      permissions: effectivePermissions(newTemplateRole, null),
-      isSystem: false,
-    };
-    setRoleTemplates((prev) => [next, ...prev]);
+    const roleKey = normalizeRoleKeyInput(newRoleKeyInput || name);
+    if (!roleKey) {
+      toast.error("role_key غير صالح. استخدم أحرف إنجليزية وأرقام و _ فقط.");
+      return;
+    }
+    const res = await fetch("/api/admin/roles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        display_name: name,
+        role_key: roleKey,
+        permissions: defaultInvitePermissionToggles(),
+      }),
+    });
+    const data = (await res.json()) as { ok?: boolean; role?: RoleOption; error?: string };
+    if (!res.ok || !data.role) {
+      toast.error(data.error ?? "تعذر إنشاء الدور.");
+      return;
+    }
+    await invalidateUsers();
     setNewTemplateName("");
-    toast.success("تم إنشاء دور تشغيلي جديد.");
+    setNewRoleKeyInput("");
+    setRoleEditorTemplateId(data.role.id);
+    toast.success("تم إنشاء الدور وفتح محرر الصلاحيات.");
   };
 
   const updateTemplatePermission = (templateId: string, key: AppPermissionKey, value: boolean) => {
     setRoleTemplates((prev) =>
       prev.map((t) => (t.id === templateId ? { ...t, permissions: { ...t.permissions, [key]: value } } : t)),
     );
+    void (async () => {
+      const template = roleTemplateMap.get(templateId);
+      if (!template) return;
+      const permissions = { ...template.permissions, [key]: value };
+      const res = await fetch(`/api/admin/roles/${templateId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ permissions }),
+      });
+      if (!res.ok) {
+        toast.error("فشل حفظ صلاحيات الدور.");
+      }
+      await invalidateUsers();
+    })();
   };
 
   const deleteTemplate = (templateId: string) => {
     const row = roleTemplateMap.get(templateId);
     if (!row || row.isSystem) return;
-    setRoleTemplates((prev) => prev.filter((t) => t.id !== templateId));
+    toast.error("حذف الأدوار غير مدعوم حالياً لحماية سلامة البيانات.");
   };
 
   const saveAccessWorkList = async (user: UserRow, next: boolean) => {
@@ -511,13 +583,13 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
       return;
     }
     const nextRole = draftRoleMap[user.id];
-    if (!nextRole || nextRole === user.role) return;
+    if (!nextRole || nextRole === (user.role_id ?? user.role)) return;
 
     setSavingUserId(user.id);
     const res = await fetch(`/api/admin/users/${user.id}/role`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: nextRole }),
+      body: JSON.stringify({ role_id: nextRole }),
     });
     const data = (await res.json()) as { ok?: boolean; error?: string };
     setSavingUserId(null);
@@ -536,7 +608,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
       toast.error("لا يمكن تعديل حساب المدير المحمي إلا من صاحبه.");
       return;
     }
-    if (user.role === "admin") {
+    if ((user.role_key ?? user.role) === "admin") {
       toast.info("مدير النظام يملك جميع الصلاحيات دائماً — لا يُعدّل من الجدول.");
       return;
     }
@@ -601,7 +673,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
     setInviteSpecialty("civil");
     setInviteZoneIds([]);
     setZoneDropdownOpen(false);
-    setInviteRole("technician");
+    setInviteRole(defaultRoleId);
     setInviteTemplateId("");
     setInviteErrors({});
     setInvitePassword("");
@@ -652,11 +724,11 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
       full_name: inviteName.trim(),
       mobile: inviteMobile.trim(),
       job_title: inviteJobTitle.trim(),
-      specialty: showSpecialtyForRole(inviteRole) ? inviteSpecialty : "civil",
+      specialty: showSpecialtyForRole(resolveLegacyRole(inviteRole)) ? inviteSpecialty : "civil",
       zone_ids: inviteZoneIds,
-      role: inviteRole,
+      role_id: inviteRole,
       permissions:
-        inviteRole === "admin"
+        roleOptionMap.get(inviteRole)?.role_key === "admin"
           ? undefined
           : {
               ...invitePermToggles,
@@ -745,14 +817,14 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
   useEffect(() => {
     if (!isInviteModalOpen) return;
     if (!inviteTemplateId) {
-      setInvitePermToggles(effectivePermissions(inviteRole, null));
+      setInvitePermToggles(roleOptionMap.get(inviteRole)?.permissions ?? defaultInvitePermissionToggles());
       return;
     }
     const template = roleTemplateMap.get(inviteTemplateId);
     if (!template) return;
     setInviteRole(template.role);
     setInvitePermToggles(template.permissions);
-  }, [inviteTemplateId, inviteRole, isInviteModalOpen, roleTemplateMap]);
+  }, [inviteTemplateId, inviteRole, isInviteModalOpen, roleTemplateMap, roleOptionMap]);
 
   const selectedZones = zones.filter((zone) => inviteZoneIds.includes(zone.id));
   const selectedEditZones = zones.filter((zone) => editZoneIds.includes(zone.id));
@@ -767,10 +839,10 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
 
   const openInviteModal = async () => {
     setIsInviteModalOpen(true);
-    const defaultTemplateId = "sys-technician";
+    const defaultTemplateId = roleTemplates[0]?.id ?? "";
     setInviteTemplateId(defaultTemplateId);
-    setInviteRole("technician");
-    setInvitePermToggles(roleTemplateMap.get(defaultTemplateId)?.permissions ?? effectivePermissions("technician", null));
+    setInviteRole(defaultRoleId);
+    setInvitePermToggles(roleTemplateMap.get(defaultTemplateId)?.permissions ?? defaultInvitePermissionToggles());
     if (zones.length > 0) return;
     await refetch();
   };
@@ -795,12 +867,12 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
       displayLoginIdentifier(user.email && user.email !== "غير متوفر" ? user.email : null, user.username),
     );
     setEditName(user.full_name);
-    setEditRole(user.role);
-    setEditTemplateId(`sys-${user.role}`);
+    setEditRole(user.role_id ?? user.role);
+    setEditTemplateId(user.role_id ?? user.role);
     setEditRegion(user.region ?? "");
     setEditSpecialty((user.specialty as Specialty) ?? "civil");
     setEditZoneIds((user.zones ?? []).map((z) => z.id));
-    setPermToggles(effectivePermissions(user.role, user.permissions ?? undefined));
+    setPermToggles(effectivePermissions(user.role_key ?? user.role, user.permissions ?? undefined));
     setEditZoneDropdownOpen(false);
     setDeleteConfirm(false);
   };
@@ -826,12 +898,12 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
     const patchBody: Record<string, unknown> = {
       username: normalizedUsername,
       full_name: editName.trim(),
-      role: editRole,
+      role_id: editRole,
       region: editRegion.trim() || null,
-      specialty: showSpecialtyForRole(editRole) ? editSpecialty : "civil",
+      specialty: showSpecialtyForRole(resolveLegacyRole(editRole)) ? editSpecialty : "civil",
       zone_ids: editZoneIds,
     };
-    if (editRole !== "admin" && permToggles) {
+    if (roleOptionMap.get(editRole)?.role_key !== "admin" && permToggles) {
       patchBody.permissions = {
         ...permToggles,
         view_admin_reports: permToggles.view_reports,
@@ -1042,27 +1114,23 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
             <p className="text-xs text-slate-500">عرّف أدواراً تشغيلية واضبط الصلاحيات حسب مجموعات العمل.</p>
           </div>
         </div>
-        <div className="mb-4 grid gap-2 md:grid-cols-[1fr_auto_auto]">
+        <div className="mb-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
           <Input
             value={newTemplateName}
-            onChange={(e) => setNewTemplateName(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setNewTemplateName(value);
+              if (!newRoleKeyInput) {
+                setNewRoleKeyInput(normalizeRoleKeyInput(value));
+              }
+            }}
             placeholder="اسم الدور التشغيلي (مثال: مشرف حج)"
           />
-          <select
-            className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
-            value={newTemplateRole}
-            onChange={(e) => setNewTemplateRole(e.target.value as UserRole)}
-          >
-            {ROLE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <Input value={newRoleKeyInput} onChange={(e) => setNewRoleKeyInput(normalizeRoleKeyInput(e.target.value))} placeholder="role_key (مثال: field_coordinator)" />
           <button
             type="button"
             className="inline-flex h-10 items-center justify-center gap-1 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800"
-            onClick={createRoleTemplate}
+            onClick={() => void createRoleTemplate()}
           >
             <Plus className="h-4 w-4" />
             إنشاء دور
@@ -1076,7 +1144,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
                 <div>
                   <p className="text-sm font-semibold text-slate-900">{template.name}</p>
                   <p className="text-[11px] text-slate-500">
-                    دور النظام: {ROLE_OPTIONS.find((r) => r.value === template.role)?.label ?? template.role}
+                    role_key: {template.roleKey}
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -1178,7 +1246,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
             <tbody>
               {filteredUsers.map((user, rowIdx) => {
                 const eff = effectivePermissions(user.role, user.permissions ?? undefined);
-                const isAdminRow = user.role === "admin";
+                const isAdminRow = (user.role_key ?? user.role) === "admin";
                 const hideActionsForOthers = shouldHideAdminActionsForProtectedRow(user.email, currentUserEmail);
                 const rowQuickLock = isAdminRow || hideActionsForOthers;
                 const zebraEven = rowIdx % 2 === 0;
@@ -1249,8 +1317,11 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
                     <td className="max-h-14 min-w-0 overflow-hidden px-2 py-1 align-middle">
                       <RegionsCell zones={user.zones} />
                     </td>
-                    <td className="truncate px-2 py-1.5 align-middle text-xs text-slate-800 dark:text-slate-200" title={ROLE_OPTIONS.find((o) => o.value === user.role)?.label}>
-                      {ROLE_OPTIONS.find((option) => option.value === user.role)?.label ?? user.role}
+                    <td
+                      className="truncate px-2 py-1.5 align-middle text-xs text-slate-800 dark:text-slate-200"
+                      title={roleLabelMap.get(user.role_id ?? user.role) ?? user.role_display_name ?? user.role}
+                    >
+                      {roleLabelMap.get(user.role_id ?? user.role) ?? user.role_display_name ?? user.role}
                     </td>
                     <td className="truncate px-2 py-1.5 align-middle text-xs text-slate-700 dark:text-slate-300">
                       {user.account_status}
@@ -1284,17 +1355,17 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
                         <select
                           className="h-7 min-w-[5.5rem] max-w-[6.5rem] flex-shrink rounded border border-slate-200 bg-white px-1 text-[11px] dark:border-slate-600 dark:bg-slate-900"
                           disabled={hideActionsForOthers}
-                          value={draftRoleMap[user.id] ?? user.role}
+                          value={draftRoleMap[user.id] ?? user.role_id ?? user.role}
                           onChange={(e) =>
                             setDraftRoleMap((prev) => ({
                               ...prev,
-                              [user.id]: e.target.value as UserRole,
+                              [user.id]: e.target.value,
                             }))
                           }
                         >
-                          {ROLE_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
+                          {roleOptions.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.display_name}
                             </option>
                           ))}
                         </select>
@@ -1305,7 +1376,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
                           disabled={
                             hideActionsForOthers ||
                             savingUserId === user.id ||
-                            (draftRoleMap[user.id] ?? user.role) === user.role
+                            (draftRoleMap[user.id] ?? user.role_id ?? user.role) === (user.role_id ?? user.role)
                           }
                         >
                           {savingUserId === user.id ? "…" : "حفظ"}
@@ -1403,7 +1474,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
                       key={`${roleEditorTemplate.id}-${key}`}
                       label={PERM_LABELS_AR[key]}
                       checked={Boolean(roleEditorTemplate.permissions[key])}
-                      disabled={roleEditorTemplate.role === "admin"}
+                      disabled={roleEditorTemplate.roleKey === "admin"}
                       onChange={(v) => updateTemplatePermission(roleEditorTemplate.id, key, v)}
                     />
                   ))}
@@ -1524,24 +1595,24 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
                   className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
                   value={inviteRole}
                   onChange={(e) => {
-                    const nextRole = e.target.value as UserRole;
-                    const templateId = `sys-${nextRole}`;
+                    const nextRole = e.target.value;
+                    const templateId = nextRole;
                     setInviteRole(nextRole);
                     setInviteTemplateId(templateId);
                     setInvitePermToggles(
-                      roleTemplateMap.get(templateId)?.permissions ?? effectivePermissions(nextRole, null),
+                      roleTemplateMap.get(templateId)?.permissions ?? roleOptionMap.get(nextRole)?.permissions ?? defaultInvitePermissionToggles(),
                     );
                   }}
                 >
-                  {ROLE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
+                  {roleOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.display_name}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {showSpecialtyForRole(inviteRole) ? (
+              {showSpecialtyForRole(resolveLegacyRole(inviteRole)) ? (
                 <div>
                   <p className="mb-2 text-sm font-medium">التصنيف</p>
                   <select
@@ -1600,7 +1671,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
 
               <div className="md:col-span-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
                 <p className="text-sm font-semibold text-slate-900">صلاحيات الواجهة عند الإنشاء</p>
-                {inviteRole === "admin" ? (
+                {roleOptionMap.get(inviteRole)?.role_key === "admin" ? (
                   <p className="text-xs text-slate-600">مدير النظام يملك جميع الصلاحيات تلقائياً.</p>
                 ) : (
                   APP_PERMISSION_KEYS.map((key) => (
@@ -1693,21 +1764,21 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
                   className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
                   value={editRole}
                   onChange={(e) => {
-                    const nr = e.target.value as UserRole;
-                    const templateId = `sys-${nr}`;
+                    const nr = e.target.value;
+                    const templateId = nr;
                     setEditRole(nr);
                     setEditTemplateId(templateId);
-                    setPermToggles(roleTemplateMap.get(templateId)?.permissions ?? effectivePermissions(nr, null));
+                    setPermToggles(roleTemplateMap.get(templateId)?.permissions ?? roleOptionMap.get(nr)?.permissions ?? defaultInvitePermissionToggles());
                   }}
                 >
-                  {ROLE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
+                  {roleOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.display_name}
                     </option>
                   ))}
                 </select>
               </div>
-              {showSpecialtyForRole(editRole) ? (
+              {showSpecialtyForRole(resolveLegacyRole(editRole)) ? (
                 <div>
                   <p className="mb-1 text-sm font-medium">التصنيف</p>
                   <select
@@ -1752,7 +1823,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
               </div>
               <div className="md:col-span-2 space-y-2">
                 <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">صلاحيات الواجهة</p>
-                {editRole === "admin" ? (
+                {roleOptionMap.get(editRole)?.role_key === "admin" ? (
                   <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
                     مدير النظام يملك جميع الصلاحيات تلقائياً.
                   </p>

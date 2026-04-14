@@ -4,20 +4,21 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSessionProfile, requireManageUsers } from "@/lib/auth-guards";
 import { denyDeleteProtectedSuperAdmin, denyMutationOfProtectedSuperAdmin } from "@/lib/protected-super-admin";
 import { parseUsernameOrEmailLocalPart, toAuthEmail } from "@/lib/username-auth";
+import { mergePermissionsWithUnset } from "@/lib/dashboard-user-permissions";
+import { mergeRoleAndUserOverrides, sanitizePermissionPayload, type RoleRow } from "@/lib/rbac-roles";
+
+type ProfilePermissionsRow = {
+  permissions?: Record<string, unknown> | null;
+  roles?: { permissions?: Record<string, unknown> | null } | { permissions?: Record<string, unknown> | null }[] | null;
+};
 
 type PatchBody = {
   /** تعديل اسم الدخول الظاهر — يُحدَّث البريد الاصطناعي في Auth عند الحاجة */
   username?: string;
   full_name?: string;
-  role?:
-    | "admin"
-    | "projects_director"
-    | "project_manager"
-    | "engineer"
-    | "supervisor"
-    | "technician"
-    | "reporter"
-    | "data_entry";
+  role?: string;
+  role_id?: string;
+  role_key?: string;
   region?: string | null;
   specialty?: "fire" | "electricity" | "ac" | "civil" | "kitchens" | null;
   /** واجهة مهام الميدان */
@@ -72,18 +73,46 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
     updates.username = next;
   }
   if (typeof body.full_name === "string") updates.full_name = body.full_name.trim();
-  if (body.role !== undefined) updates.role = body.role;
+  const requestedRole = body.role_id?.trim() || body.role_key?.trim() || body.role?.trim();
+  if (requestedRole) {
+    const { data: roleRow, error: roleError } = await admin
+      .from("roles")
+      .select("id, role_key, display_name, permissions, legacy_role, is_system")
+      .or(`id.eq.${requestedRole},role_key.eq.${requestedRole}`)
+      .maybeSingle();
+    if (roleError || !roleRow) {
+      return NextResponse.json({ error: roleError?.message ?? "دور غير صالح." }, { status: 400 });
+    }
+    const r = roleRow as RoleRow;
+    updates.role = r.legacy_role ?? "technician";
+    updates.role_id = r.id;
+  }
   if (body.region !== undefined) updates.region = body.region === null || body.region === "" ? null : String(body.region).trim();
   if (body.specialty !== undefined) updates.specialty = body.specialty;
   if (typeof body.access_work_list === "boolean") updates.access_work_list = body.access_work_list;
   if (body.permissions !== undefined && typeof body.permissions === "object" && body.permissions !== null) {
-    const { data: current } = await admin.from("profiles").select("permissions").eq("id", userId).single();
-    const prev = (current?.permissions as Record<string, unknown> | null) ?? {};
-    const merged = { ...prev, ...body.permissions } as Record<string, unknown>;
-    if (merged.view_reports !== undefined) {
-      merged.view_admin_reports = merged.view_reports;
-    }
-    updates.permissions = merged;
+    const { data: current } = await admin
+      .from("profiles")
+      .select("permissions, role_id, roles:role_id(permissions)")
+      .eq("id", userId)
+      .single();
+    const currentRow = (current ?? null) as ProfilePermissionsRow | null;
+    const prev = (currentRow?.permissions as Record<string, unknown> | null) ?? {};
+    const rolePerms = Array.isArray(currentRow?.roles) ? currentRow.roles[0]?.permissions : currentRow?.roles?.permissions;
+    const merged = mergePermissionsWithUnset(rolePerms, prev, body.permissions);
+    const finalPerms = mergeRoleAndUserOverrides(rolePerms, merged);
+    updates.permissions = { ...sanitizePermissionPayload(finalPerms), view_admin_reports: finalPerms.view_reports };
+  }
+  if (requestedRole && body.permissions === undefined) {
+    const { data: current } = await admin
+      .from("profiles")
+      .select("permissions, roles:role_id(permissions)")
+      .eq("id", userId)
+      .single();
+    const currentRow = (current ?? null) as ProfilePermissionsRow | null;
+    const rolePerms = Array.isArray(currentRow?.roles) ? currentRow.roles[0]?.permissions : currentRow?.roles?.permissions;
+    const merged = mergeRoleAndUserOverrides(rolePerms, currentRow?.permissions as Record<string, unknown> | null);
+    updates.permissions = { ...sanitizePermissionPayload(merged), view_admin_reports: merged.view_reports };
   }
 
   if (Object.keys(updates).length > 0) {

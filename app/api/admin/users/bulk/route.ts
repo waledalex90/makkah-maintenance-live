@@ -8,16 +8,7 @@ import { parseUsernameOrEmailLocalPart, toAuthEmail } from "@/lib/username-auth"
 import { APP_PERMISSION_KEYS, type AppPermissionKey } from "@/lib/permissions";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 import { defaultAccessWorkListForRole } from "@/lib/access-work-list-defaults";
-
-type Role =
-  | "admin"
-  | "projects_director"
-  | "project_manager"
-  | "engineer"
-  | "supervisor"
-  | "technician"
-  | "reporter"
-  | "data_entry";
+import { mergeRoleAndUserOverrides, sanitizePermissionPayload, type RoleRow } from "@/lib/rbac-roles";
 
 function pickCell(row: Record<string, unknown>, ...keys: string[]): string {
   for (const k of keys) {
@@ -36,7 +27,7 @@ function parseBool(v: string): boolean | undefined {
   return undefined;
 }
 
-function resolveAccessWorkList(raw: string, role: Role): boolean {
+function resolveAccessWorkList(raw: string, role: string): boolean {
   const t = raw.trim();
   if (t === "") {
     return defaultAccessWorkListForRole(role);
@@ -45,25 +36,14 @@ function resolveAccessWorkList(raw: string, role: Role): boolean {
   return b !== false;
 }
 
-const ROLE_SLUGS = new Set<string>([
-  "admin",
-  "projects_director",
-  "project_manager",
-  "engineer",
-  "supervisor",
-  "technician",
-  "reporter",
-  "data_entry",
-]);
-
 /** يقبل slug إنجليزي أو تسمية عربية كما في واجهة الإدارة — يمنع الخلط بين «مبلّغ» و«إدخال بيانات». */
-function parseBulkRole(cell: string): Role | null {
+function parseBulkRole(cell: string): string | null {
   const t = cell.trim();
   if (!t) return "technician";
   const lower = t.toLowerCase();
-  if (ROLE_SLUGS.has(lower)) return lower as Role;
+  if (lower) return lower;
   const compact = t.replace(/\s+/g, " ").trim();
-  const ar: Array<[string, Role]> = [
+  const ar: Array<[string, string]> = [
     ["مدير النظام", "admin"],
     ["مدير المشاريع", "projects_director"],
     ["مدير مشروع", "project_manager"],
@@ -124,6 +104,18 @@ export async function POST(request: Request) {
   const adminSupabase = createSupabaseAdminClient();
   const { data: zonesData } = await adminSupabase.from("zones").select("id, name");
   const zoneByName = new Map((zonesData ?? []).map((z) => [z.name.trim().toLowerCase(), z.id]));
+  const { data: rolesData, error: rolesError } = await adminSupabase
+    .from("roles")
+    .select("id, role_key, display_name, permissions, legacy_role, is_system");
+  if (rolesError) {
+    return NextResponse.json({ error: rolesError.message }, { status: 400 });
+  }
+  const roleByKey = new Map<string, RoleRow>();
+  const roleByDisplayName = new Map<string, RoleRow>();
+  ((rolesData as RoleRow[] | null) ?? []).forEach((r) => {
+    roleByKey.set(r.role_key.toLowerCase(), r);
+    roleByDisplayName.set(r.display_name.trim().toLowerCase(), r);
+  });
 
   const created: string[] = [];
   const errors: Array<{ row: number; message: string }> = [];
@@ -148,10 +140,11 @@ export async function POST(request: Request) {
     const specialty = pickCell(row, "specialty", "التخصص", "تخصص") || "civil";
     const roleCell = pickCell(row, "role", "الدور");
     const roleStr = parseBulkRole(roleCell);
-    if (!roleStr) {
+    const roleRow = roleStr ? roleByKey.get(roleStr.toLowerCase()) || roleByDisplayName.get(roleStr.toLowerCase()) : null;
+    if (!roleRow) {
       errors.push({
         row: rowNum,
-        message: `دور غير صالح: «${roleCell}». استخدم slug (مثل data_entry) أو التسمية العربية كما في لوحة المستخدمين.`,
+        message: `دور غير صالح: «${roleCell}». استخدم role_key أو display_name مطابقاً لأدوار النظام.`,
       });
       continue;
     }
@@ -230,8 +223,9 @@ export async function POST(request: Request) {
       continue;
     }
 
-    const permissions = mergeExplicitInvitePermissions(permPartial);
-    const access_work_list = resolveAccessWorkList(accessWorkListRaw, roleStr);
+    const rolePerms = sanitizePermissionPayload(roleRow.permissions);
+    const permissions = mergeRoleAndUserOverrides(rolePerms, mergeExplicitInvitePermissions(permPartial));
+    const access_work_list = resolveAccessWorkList(accessWorkListRaw, roleRow.legacy_role ?? "technician");
 
     /** يفعّل البريد في Auth فوراً؛ إن طلب Supabase تأكيداً يدوياً عطّل Confirm email من لوحة المشروع. */
     const { data: createdUser, error: createError } = await adminSupabase.auth.admin.createUser({
@@ -251,9 +245,10 @@ export async function POST(request: Request) {
       mobile,
       jobTitle,
       specialty,
-      role: roleStr,
+      role: roleRow.legacy_role ?? "technician",
+      roleId: roleRow.id,
       zoneIds,
-      permissions,
+      permissions: { ...permissions, view_admin_reports: permissions.view_reports },
       username: usernameNormalized,
       access_work_list,
     });

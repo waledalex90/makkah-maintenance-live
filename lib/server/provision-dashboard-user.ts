@@ -2,16 +2,6 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
-type Role =
-  | "admin"
-  | "projects_director"
-  | "project_manager"
-  | "engineer"
-  | "supervisor"
-  | "technician"
-  | "reporter"
-  | "data_entry";
-
 export async function upsertProfileAndZones(
   adminSupabase: AdminClient,
   userId: string,
@@ -20,14 +10,15 @@ export async function upsertProfileAndZones(
     mobile: string;
     jobTitle: string;
     specialty: string;
-    role: Role | undefined;
+    role: string | undefined;
+    roleId?: string | null;
     zoneIds: string[];
     permissions: Record<string, unknown>;
     username: string;
     access_work_list?: boolean;
   },
 ) {
-  const { fullName, mobile, jobTitle, specialty, role, zoneIds, permissions, username, access_work_list } = params;
+  const { fullName, mobile, jobTitle, specialty, role, roleId, zoneIds, permissions, username, access_work_list } = params;
   const row: Record<string, unknown> = {
     id: userId,
     full_name: fullName,
@@ -35,6 +26,7 @@ export async function upsertProfileAndZones(
     job_title: jobTitle,
     specialty,
     role: role ?? "technician",
+    role_id: roleId ?? null,
     permissions,
     username,
   };

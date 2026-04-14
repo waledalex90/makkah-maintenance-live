@@ -3,7 +3,9 @@ import { effectivePermissions } from "@/lib/permissions";
 
 type ProfileRow = {
   role: string;
+  role_id?: string | null;
   permissions?: Record<string, unknown> | null;
+  roles?: { permissions?: Record<string, unknown> | null } | { permissions?: Record<string, unknown> | null }[] | null;
 };
 
 export async function getSessionProfile() {
@@ -15,20 +17,40 @@ export async function getSessionProfile() {
   if (userError || !user) {
     return { user: null as null, profile: null as ProfileRow | null, supabase };
   }
-  const { data: profile } = await supabase.from("profiles").select("role, permissions").eq("id", user.id).single();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, role_id, permissions, roles:role_id(permissions)")
+    .eq("id", user.id)
+    .single();
   return { user, profile: profile as ProfileRow | null, supabase };
 }
 
 export function hasManageUsers(profile: ProfileRow | null): boolean {
   if (!profile) return false;
-  if (profile.role === "admin") return true;
-  return effectivePermissions(profile.role, profile.permissions ?? undefined).manage_users;
+  const rolePerms = Array.isArray(profile.roles) ? profile.roles[0]?.permissions : profile.roles?.permissions;
+  const merged = { ...(rolePerms ?? {}), ...(profile.permissions ?? {}) };
+  const allowed = effectivePermissions(profile.role, merged).manage_users;
+  console.info("[rbac-authz]", {
+    check: "manage_users",
+    role: profile.role,
+    role_id: profile.role_id ?? null,
+    decision: allowed ? "allow" : "deny",
+  });
+  return allowed;
 }
 
 export function hasManageZones(profile: ProfileRow | null): boolean {
   if (!profile) return false;
-  if (profile.role === "admin") return true;
-  return effectivePermissions(profile.role, profile.permissions ?? undefined).manage_zones;
+  const rolePerms = Array.isArray(profile.roles) ? profile.roles[0]?.permissions : profile.roles?.permissions;
+  const merged = { ...(rolePerms ?? {}), ...(profile.permissions ?? {}) };
+  const allowed = effectivePermissions(profile.role, merged).manage_zones;
+  console.info("[rbac-authz]", {
+    check: "manage_zones",
+    role: profile.role,
+    role_id: profile.role_id ?? null,
+    decision: allowed ? "allow" : "deny",
+  });
+  return allowed;
 }
 
 /** للاستخدام في API routes (إدارة المستخدمين والدعوات وكلمات المرور). */

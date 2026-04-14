@@ -6,7 +6,6 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -19,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TaskTicketDetailModal } from "@/components/task-ticket-detail-modal";
 
 const PICKUP_SLACK_MINUTES = 2;
 const EXEC_DELAY_MINUTES = 40;
@@ -74,6 +74,7 @@ export function OfficialReporterTasksContent() {
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
   const [tab, setTab] = useState<OfficialTab>("not_received");
+  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
   const prevAlertSetsRef = useRef<{ t1: Set<string>; t2: Set<string> } | null>(null);
   const hydratedRef = useRef(false);
 
@@ -372,15 +373,16 @@ export function OfficialReporterTasksContent() {
                           </Button>
                         </>
                       ) : null}
-                      <Link
-                        href={`/dashboard/tickets?open=${t.id}`}
+                      <button
+                        type="button"
                         className={cn(
                           buttonVariants({ variant: "outline", size: "sm" }),
                           "border-transparent text-sky-800 hover:bg-sky-50",
                         )}
+                        onClick={() => setOpenTicketId(t.id)}
                       >
                         فتح البلاغ
-                      </Link>
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -450,6 +452,7 @@ export function OfficialReporterTasksContent() {
         </CardHeader>
         <CardContent>{renderTable()}</CardContent>
       </Card>
+      <TaskTicketDetailModal open={Boolean(openTicketId)} ticketId={openTicketId} onOpenChange={(next) => !next && setOpenTicketId(null)} />
     </div>
   );
 }

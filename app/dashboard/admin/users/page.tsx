@@ -4,6 +4,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { UsersManagementContent } from "@/components/users-management-content";
 import { effectivePermissions } from "@/lib/permissions";
 
+type ProfilePermRow = {
+  role?: string | null;
+  permissions?: Record<string, unknown> | null;
+  roles?: { permissions?: Record<string, unknown> | null } | { permissions?: Record<string, unknown> | null }[] | null;
+};
+
 export default async function AdminUsersPage({
   searchParams,
 }: {
@@ -20,11 +26,18 @@ export default async function AdminUsersPage({
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role, permissions")
+    .select("role, permissions, roles:role_id(permissions)")
     .eq("id", user.id)
     .single();
 
-  const perms = effectivePermissions(profile?.role, profile?.permissions as Record<string, unknown> | null);
+  const typedProfile = (profile ?? null) as ProfilePermRow | null;
+  const rolePerms = Array.isArray(typedProfile?.roles)
+    ? typedProfile.roles[0]?.permissions
+    : typedProfile?.roles?.permissions;
+  const perms = effectivePermissions(typedProfile?.role, {
+    ...(rolePerms ?? {}),
+    ...((typedProfile?.permissions as Record<string, unknown> | null) ?? {}),
+  });
   if (!perms.manage_users) {
     redirect("/dashboard");
   }

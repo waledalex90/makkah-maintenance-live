@@ -6,6 +6,9 @@ import { denyDeleteProtectedSuperAdmin, denyMutationOfProtectedSuperAdmin } from
 import { parseUsernameOrEmailLocalPart, toAuthEmail } from "@/lib/username-auth";
 import { mergePermissionsWithUnset } from "@/lib/dashboard-user-permissions";
 import { mergeRoleAndUserOverrides, sanitizePermissionPayload, type RoleRow } from "@/lib/rbac-roles";
+import { getTenantContext } from "@/lib/tenant-context";
+import { resolveRoleForTenant } from "@/lib/server/tenant-roles";
+import { recordSecurityEvent } from "@/lib/security-events";
 
 type ProfilePermissionsRow = {
   permissions?: Record<string, unknown> | null;
@@ -41,8 +44,25 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
   const { userId } = await context.params;
   const body = (await request.json()) as PatchBody;
   const admin = createSupabaseAdminClient();
+  const tenant = await getTenantContext();
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+  }
 
   const { data: targetAuth } = await admin.auth.admin.getUserById(userId);
+  const { data: targetProfile } = await admin.from("profiles").select("company_id").eq("id", userId).maybeSingle();
+  if (!tenant.isPlatformAdmin && targetProfile?.company_id !== tenant.activeCompanyId) {
+    await recordSecurityEvent({
+      event_type: "tenant_guard_reject",
+      status_code: 403,
+      message: "Cross-tenant user mutation blocked.",
+      actor_user_id: tenant.userId,
+      actor_company_id: tenant.activeCompanyId,
+      metadata: { route: "admin/users/[userId]#PATCH", targetUserId: userId, targetCompanyId: targetProfile?.company_id ?? null },
+    });
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const deny = denyMutationOfProtectedSuperAdmin(targetAuth?.user?.email, actor.email);
   if (deny) {
     return NextResponse.json({ error: deny }, { status: 403 });
@@ -75,13 +95,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
   if (typeof body.full_name === "string") updates.full_name = body.full_name.trim();
   const requestedRole = body.role_id?.trim() || body.role_key?.trim() || body.role?.trim();
   if (requestedRole) {
-    const { data: roleRow, error: roleError } = await admin
-      .from("roles")
-      .select("id, role_key, display_name, permissions, legacy_role, is_system")
-      .or(`id.eq.${requestedRole},role_key.eq.${requestedRole}`)
-      .maybeSingle();
+    const roleScopeCompanyId = tenant.activeCompanyId ?? targetProfile?.company_id ?? null;
+    const { role: roleRow, error: roleError } = await resolveRoleForTenant(admin, requestedRole, roleScopeCompanyId);
     if (roleError || !roleRow) {
-      return NextResponse.json({ error: roleError?.message ?? "دور غير صالح." }, { status: 400 });
+      return NextResponse.json({ error: roleError ?? "دور غير صالح." }, { status: 400 });
     }
     const r = roleRow as RoleRow;
     updates.role = r.legacy_role ?? "technician";
@@ -116,21 +133,53 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
   }
 
   if (Object.keys(updates).length > 0) {
-    const { error: upErr } = await admin.from("profiles").update(updates).eq("id", userId);
+    let updateQuery = admin.from("profiles").update(updates).eq("id", userId);
+    if (!tenant.isPlatformAdmin || tenant.activeCompanyId) {
+      updateQuery = updateQuery.eq("company_id", tenant.activeCompanyId ?? "");
+    }
+    const { error: upErr } = await updateQuery;
     if (upErr) {
       return NextResponse.json({ error: upErr.message }, { status: 400 });
     }
   }
 
+  if (requestedRole && updates.role_id && tenant.activeCompanyId) {
+    await admin
+      .from("company_memberships")
+      .update({ role_id: updates.role_id as string })
+      .eq("user_id", userId)
+      .eq("company_id", tenant.activeCompanyId);
+  }
+
   if (Array.isArray(body.zone_ids)) {
     const zoneIds = body.zone_ids.filter((id) => typeof id === "string");
-    const { error: delErr } = await admin.from("zone_profiles").delete().eq("profile_id", userId);
+    const zoneCompanyId = tenant.activeCompanyId ?? targetProfile?.company_id ?? null;
+    if (!zoneCompanyId) {
+      return NextResponse.json({ error: "missing_active_company" }, { status: 403 });
+    }
+    let deleteZoneQuery = admin.from("zone_profiles").delete().eq("profile_id", userId);
+    if (!tenant.isPlatformAdmin || tenant.activeCompanyId) {
+      deleteZoneQuery = deleteZoneQuery.eq("company_id", tenant.activeCompanyId ?? "");
+    }
+    const { error: delErr } = await deleteZoneQuery;
     if (delErr) {
       return NextResponse.json({ error: delErr.message }, { status: 400 });
     }
     if (zoneIds.length > 0) {
+      const { data: tenantZones, error: zoneScopeError } = await admin
+        .from("zones")
+        .select("id")
+        .eq("company_id", zoneCompanyId)
+        .in("id", zoneIds);
+      if (zoneScopeError) {
+        return NextResponse.json({ error: zoneScopeError.message }, { status: 400 });
+      }
+      const allowed = new Set((tenantZones ?? []).map((z) => z.id as string));
+      if (zoneIds.some((id) => !allowed.has(id))) {
+        return NextResponse.json({ error: "zone_ids خارج نطاق الشركة النشطة." }, { status: 403 });
+      }
       const { error: insErr } = await admin.from("zone_profiles").insert(
-        zoneIds.map((zone_id) => ({ zone_id, profile_id: userId })),
+        zoneIds.map((zone_id) => ({ zone_id, profile_id: userId, company_id: zoneCompanyId })),
       );
       if (insErr) {
         return NextResponse.json({ error: insErr.message }, { status: 400 });
@@ -157,10 +206,27 @@ export async function DELETE(_request: Request, context: { params: Promise<{ use
   }
 
   const admin = createSupabaseAdminClient();
+  const tenant = await getTenantContext();
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+  }
   const { data: targetAuth } = await admin.auth.admin.getUserById(userId);
   const denyDel = denyDeleteProtectedSuperAdmin(targetAuth?.user?.email);
   if (denyDel) {
     return NextResponse.json({ error: denyDel }, { status: 403 });
+  }
+
+  const { data: targetProfile } = await admin.from("profiles").select("company_id").eq("id", userId).maybeSingle();
+  if (!tenant.isPlatformAdmin && targetProfile?.company_id !== tenant.activeCompanyId) {
+    await recordSecurityEvent({
+      event_type: "tenant_guard_reject",
+      status_code: 403,
+      message: "Cross-tenant user delete blocked.",
+      actor_user_id: tenant.userId,
+      actor_company_id: tenant.activeCompanyId,
+      metadata: { route: "admin/users/[userId]#DELETE", targetUserId: userId, targetCompanyId: targetProfile?.company_id ?? null },
+    });
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const { error: authErr } = await admin.auth.admin.deleteUser(userId);

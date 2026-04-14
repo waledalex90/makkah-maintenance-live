@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import { canAccessDashboardPath } from "@/lib/permissions";
+import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
@@ -50,6 +51,12 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (user && isAuthPage) {
+    if (isProtectedSuperAdminEmail(user.email)) {
+      const adminUrl = request.nextUrl.clone();
+      adminUrl.pathname = "/dashboard/admin/companies";
+      return NextResponse.redirect(adminUrl);
+    }
+
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("role, role_id, permissions, access_work_list, roles:role_id(permissions)")
@@ -78,6 +85,12 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (user && path.startsWith("/dashboard")) {
+    if (isProtectedSuperAdminEmail(user.email) && path === "/dashboard") {
+      const adminUrl = request.nextUrl.clone();
+      adminUrl.pathname = "/dashboard/admin/companies";
+      return NextResponse.redirect(adminUrl);
+    }
+
     const { data: profile } = await supabase
       .from("profiles")
       .select("role, role_id, permissions, access_work_list, roles:role_id(permissions)")

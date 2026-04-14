@@ -1,8 +1,15 @@
 # Makkah Maintenance Live - Project Booklet
 
-Version: 1.0  
-Date: 2026-04-13  
+Version: 1.1  
+Date: 2026-04-14  
 Prepared for: Operations and Management Team
+
+## Update Note (v1.1)
+
+This update reflects the live rollout of:
+- Dynamic roles lifecycle (custom role create/edit/delete guards).
+- Tenancy foundation (Phase 1) migrations.
+- Tenant-aware RLS starter pack (Phase 2) on core tables.
 
 ## 1) Executive Summary
 
@@ -160,6 +167,15 @@ Checklist:
 - Supabase URL config updated with production domain
 - Migrations applied
 - Smoke test on desktop/mobile
+
+### 9.1 Latest Database Rollout (Live)
+- Applied successfully via Supabase CLI:
+  - `20260510000001_tenancy_core.sql`
+  - `20260510000002_add_company_id_nullable.sql`
+  - `20260510000003_backfill_default_company.sql`
+  - `20260510000004_phase1_hardening.sql`
+  - `20260510000005_phase2_rls_starter_pack.sql`
+- Legacy migration files were moved to backup folders to resolve duplicate-version conflicts during `db push`.
 
 ## 10) Known Operational Notes
 

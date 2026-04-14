@@ -11,6 +11,7 @@ import type { AppPermissionKey } from "@/lib/permissions";
 type DashboardSidebarProps = {
   fullName: string;
   role: string;
+  isPlatformAdmin?: boolean;
   permissions: Record<AppPermissionKey, boolean>;
   collapsed: boolean;
   mobileOpen: boolean;
@@ -24,6 +25,7 @@ type NavItem = {
   perm: AppPermissionKey;
   /** إن وُجدت، يُعرض الرابط فقط لهذه الأدوار */
   roles?: string[];
+  platformAdminOnly?: boolean;
 };
 
 const NAV_DEF: NavItem[] = [
@@ -34,12 +36,15 @@ const NAV_DEF: NavItem[] = [
   { href: "/dashboard/reports", label: "تقارير", icon: BarChart3, perm: "view_reports" },
   { href: "/dashboard/admin/zones", label: "إدارة المناطق", icon: MapPinned, perm: "manage_zones" },
   { href: "/dashboard/admin/users", label: "إدارة الفريق والصلاحيات", icon: Users, perm: "manage_users" },
+  { href: "/dashboard/admin/companies", label: "إدارة الشركات", icon: Users, perm: "manage_users", platformAdminOnly: true },
+  { href: "/dashboard/admin/monitoring", label: "مراقبة الأمان", icon: BarChart3, perm: "manage_users", platformAdminOnly: true },
   { href: "/dashboard/settings", label: "الإعدادات", icon: Settings, perm: "view_settings" },
 ];
 
 export function DashboardSidebar({
   fullName,
   role,
+  isPlatformAdmin = false,
   permissions,
   collapsed,
   mobileOpen,
@@ -64,7 +69,10 @@ export function DashboardSidebar({
                   : role;
 
   const navItems = NAV_DEF.filter(
-    (item) => permissions[item.perm] && (!item.roles || item.roles.includes(role)),
+    (item) =>
+      permissions[item.perm] &&
+      (!item.roles || item.roles.includes(role)) &&
+      (!item.platformAdminOnly || isPlatformAdmin),
   );
 
   const navList = (isCollapsed: boolean, onNavigate?: () => void) => (

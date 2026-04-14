@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireManageUsers } from "@/lib/auth-guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isDynamicRolesEnabled } from "@/lib/feature-flags";
+import { getTenantContext } from "@/lib/tenant-context";
+import { listVisibleRoles } from "@/lib/server/tenant-roles";
 import {
   isLegacySystemRole,
   isValidRoleKey,
@@ -26,15 +28,16 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
   }
 
+  const tenant = await getTenantContext();
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+  }
+
   const admin = createSupabaseAdminClient();
-  const { data, error } = await admin
-    .from("roles")
-    .select("id, role_key, display_name, permissions, legacy_role, is_system")
-    .order("is_system", { ascending: false })
-    .order("display_name", { ascending: true });
+  const { data, error } = await listVisibleRoles(admin, tenant.activeCompanyId);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error }, { status: 400 });
   }
 
   return NextResponse.json({
@@ -50,6 +53,13 @@ export async function POST(request: Request) {
   }
   if (!isDynamicRolesEnabled()) {
     return NextResponse.json({ error: "Role lifecycle is disabled by feature flag." }, { status: 403 });
+  }
+  const tenant = await getTenantContext();
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+  }
+  if (!tenant.activeCompanyId) {
+    return NextResponse.json({ error: "missing_active_company" }, { status: 403 });
   }
 
   const body = (await request.json()) as CreateRolePayload;
@@ -70,6 +80,20 @@ export async function POST(request: Request) {
 
   const permissions = sanitizePermissionPayload(body.permissions ?? {});
   const admin = createSupabaseAdminClient();
+  const { data: roleConflict, error: conflictError } = await admin
+    .from("roles")
+    .select("id")
+    .eq("role_key", generatedRoleKey)
+    .or(`company_id.is.null,company_id.eq.${tenant.activeCompanyId}`)
+    .limit(1)
+    .maybeSingle();
+  if (conflictError) {
+    return NextResponse.json({ error: conflictError.message }, { status: 400 });
+  }
+  if (roleConflict) {
+    return NextResponse.json({ error: "role_key already exists in this scope." }, { status: 409 });
+  }
+
   const { data, error } = await admin
     .from("roles")
     .insert({
@@ -78,8 +102,9 @@ export async function POST(request: Request) {
       permissions,
       legacy_role: legacyRole,
       is_system: false,
+      company_id: tenant.activeCompanyId,
     })
-    .select("id, role_key, display_name, permissions, legacy_role, is_system")
+    .select("id, role_key, display_name, permissions, legacy_role, is_system, company_id")
     .single();
 
   if (error) {

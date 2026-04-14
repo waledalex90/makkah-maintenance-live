@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { effectivePermissions } from "@/lib/permissions";
+import { getTenantContext } from "@/lib/tenant-context";
 
 type ProfileRow = {
   role: string;
@@ -66,5 +67,13 @@ export async function requireManageZones(): Promise<{ ok: true } | { ok: false; 
   const { user, profile } = await getSessionProfile();
   if (!user) return { ok: false, status: 401 };
   if (!hasManageZones(profile)) return { ok: false, status: 403 };
+  return { ok: true };
+}
+
+/** حارس إدارة المنصة (Platform Admin) لمسارات التحكم العامة فقط. */
+export async function requirePlatformAdmin(): Promise<{ ok: true } | { ok: false; status: number }> {
+  const tenant = await getTenantContext();
+  if (!tenant.ok) return { ok: false, status: tenant.status };
+  if (!tenant.isPlatformAdmin) return { ok: false, status: 403 };
   return { ok: true };
 }

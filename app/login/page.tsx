@@ -18,6 +18,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+type LoginMembershipRow = {
+  company_id: string;
+  companies?: { name?: string | null } | { name?: string | null }[] | null;
+};
+
 export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
@@ -26,6 +31,14 @@ export default function LoginPage() {
   const [resetSending, setResetSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
+  const [selectingCompany, setSelectingCompany] = useState(false);
+  const [pendingLogin, setPendingLogin] = useState<{
+    userId: string;
+    role: string | null;
+    access_work_list: boolean | null;
+    memberships: Array<{ company_id: string; company_name: string }>;
+  } | null>(null);
 
   const logAuthError = async (context: string, details: unknown) => {
     console.error(context, details);
@@ -149,6 +162,39 @@ export default function LoginPage() {
 
       await logInfo("Login profile ok", { userId, role: profileRow.role });
 
+      const { data: membershipsData, error: membershipsError } = await supabase
+        .from("company_memberships")
+        .select("company_id, companies:company_id(name)")
+        .eq("user_id", userId)
+        .eq("status", "active");
+
+      if (membershipsError) {
+        await logAuthError("Membership check failed after login", membershipsError);
+      }
+
+      const memberships = ((membershipsData ?? []) as LoginMembershipRow[])
+        .map((m) => ({
+          company_id: String(m.company_id),
+          company_name: (Array.isArray(m.companies) ? m.companies[0]?.name : m.companies?.name) ?? String(m.company_id),
+        }))
+        .filter((m) => Boolean(m.company_id));
+
+      if (memberships.length > 1) {
+        setSelectedCompanyId(memberships[0].company_id);
+        setPendingLogin({
+          userId,
+          role: profileRow.role,
+          access_work_list: profileRow.access_work_list,
+          memberships,
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (memberships.length === 1) {
+        await supabase.from("profiles").update({ active_company_id: memberships[0].company_id }).eq("id", userId);
+      }
+
       setLoading(false);
       const nextHref = postLoginHrefForProfile({
         role: profileRow.role,
@@ -161,6 +207,33 @@ export default function LoginPage() {
       setError("حدث خطأ غير متوقع أثناء تسجيل الدخول.");
       setLoading(false);
     }
+  };
+
+  const continueWithSelectedCompany = async () => {
+    if (!pendingLogin || !selectedCompanyId) {
+      setError("اختر الشركة أولاً.");
+      return;
+    }
+    setSelectingCompany(true);
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({ active_company_id: selectedCompanyId })
+      .eq("id", pendingLogin.userId);
+    setSelectingCompany(false);
+
+    if (updateError) {
+      await logAuthError("Failed setting active company at login", updateError);
+      setError("تعذر اختيار الشركة النشطة.");
+      return;
+    }
+
+    const nextHref = postLoginHrefForProfile({
+      role: pendingLogin.role,
+      access_work_list: pendingLogin.access_work_list,
+    });
+    setPendingLogin(null);
+    router.replace(nextHref);
+    router.refresh();
   };
 
   const onForgotPassword = async () => {
@@ -253,6 +326,32 @@ export default function LoginPage() {
         </CardContent>
       </Card>
       <p className="absolute bottom-3 text-[10px] font-medium text-slate-600 dark:text-slate-400">v1.0.5 - Azzam Live</p>
+      {pendingLogin ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>اختيار الشركة النشطة</CardTitle>
+              <CardDescription>لديك أكثر من شركة. اختر الشركة التي تريد العمل عليها الآن.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <select
+                className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                value={selectedCompanyId}
+                onChange={(e) => setSelectedCompanyId(e.target.value)}
+              >
+                {pendingLogin.memberships.map((membership) => (
+                  <option key={membership.company_id} value={membership.company_id}>
+                    {membership.company_name}
+                  </option>
+                ))}
+              </select>
+              <Button className="w-full bg-green-700 hover:bg-green-800" disabled={selectingCompany} onClick={() => void continueWithSelectedCompany()}>
+                {selectingCompany ? "جاري المتابعة..." : "متابعة"}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
     </main>
   );
 }

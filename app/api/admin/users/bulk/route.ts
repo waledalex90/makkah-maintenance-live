@@ -9,6 +9,9 @@ import { APP_PERMISSION_KEYS, type AppPermissionKey } from "@/lib/permissions";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 import { defaultAccessWorkListForRole } from "@/lib/access-work-list-defaults";
 import { mergeRoleAndUserOverrides, sanitizePermissionPayload, type RoleRow } from "@/lib/rbac-roles";
+import { getTenantContext } from "@/lib/tenant-context";
+import { listVisibleRoles } from "@/lib/server/tenant-roles";
+import { assertWithinTechnicianLimit } from "@/lib/billing-limits";
 
 function pickCell(row: Record<string, unknown>, ...keys: string[]): string {
   for (const k of keys) {
@@ -102,19 +105,32 @@ export async function POST(request: Request) {
   }
 
   const adminSupabase = createSupabaseAdminClient();
-  const { data: zonesData } = await adminSupabase.from("zones").select("id, name");
-  const zoneByName = new Map((zonesData ?? []).map((z) => [z.name.trim().toLowerCase(), z.id]));
-  const { data: rolesData, error: rolesError } = await adminSupabase
-    .from("roles")
-    .select("id, role_key, display_name, permissions, legacy_role, is_system");
+  const tenant = await getTenantContext();
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+  }
+  if (!tenant.activeCompanyId) {
+    return NextResponse.json({ error: "missing_active_company" }, { status: 403 });
+  }
+  const activeCompanyId = tenant.activeCompanyId;
+  const { data: zonesData } = await adminSupabase.from("zones").select("id, name, company_id");
+  const tenantZones = (zonesData ?? []).filter((z) => (activeCompanyId ? z.company_id === activeCompanyId : true));
+  const zoneByName = new Map(tenantZones.map((z) => [z.name.trim().toLowerCase(), z.id]));
+  const { data: rolesData, error: rolesError } = await listVisibleRoles(adminSupabase, activeCompanyId);
   if (rolesError) {
-    return NextResponse.json({ error: rolesError.message }, { status: 400 });
+    return NextResponse.json({ error: rolesError }, { status: 400 });
   }
   const roleByKey = new Map<string, RoleRow>();
   const roleByDisplayName = new Map<string, RoleRow>();
   ((rolesData as RoleRow[] | null) ?? []).forEach((r) => {
-    roleByKey.set(r.role_key.toLowerCase(), r);
-    roleByDisplayName.set(r.display_name.trim().toLowerCase(), r);
+    const key = r.role_key.toLowerCase();
+    const label = r.display_name.trim().toLowerCase();
+    const existingByKey = roleByKey.get(key);
+    const existingByLabel = roleByDisplayName.get(label);
+    const preferCurrent = (candidate: RoleRow, current?: RoleRow) =>
+      !current || (candidate.company_id === activeCompanyId && current.company_id !== activeCompanyId);
+    if (preferCurrent(r, existingByKey)) roleByKey.set(key, r);
+    if (preferCurrent(r, existingByLabel)) roleByDisplayName.set(label, r);
   });
 
   const created: string[] = [];
@@ -226,6 +242,13 @@ export async function POST(request: Request) {
     const rolePerms = sanitizePermissionPayload(roleRow.permissions);
     const permissions = mergeRoleAndUserOverrides(rolePerms, mergeExplicitInvitePermissions(permPartial));
     const access_work_list = resolveAccessWorkList(accessWorkListRaw, roleRow.legacy_role ?? "technician");
+    if (["technician", "engineer", "supervisor"].includes(roleRow.legacy_role ?? "technician")) {
+      const limitCheck = await assertWithinTechnicianLimit(adminSupabase, activeCompanyId);
+      if (!limitCheck.ok) {
+        errors.push({ row: rowNum, message: limitCheck.message });
+        continue;
+      }
+    }
 
     /** يفعّل البريد في Auth فوراً؛ إن طلب Supabase تأكيداً يدوياً عطّل Confirm email من لوحة المشروع. */
     const { data: createdUser, error: createError } = await adminSupabase.auth.admin.createUser({
@@ -251,12 +274,31 @@ export async function POST(request: Request) {
       permissions: { ...permissions, view_admin_reports: permissions.view_reports },
       username: usernameNormalized,
       access_work_list,
+      companyId: activeCompanyId,
     });
 
     if (zoneErr) {
       await adminSupabase.auth.admin.deleteUser(uid);
       errors.push({ row: rowNum, message: zoneErr.message });
       continue;
+    }
+
+    if (activeCompanyId) {
+      const { error: membershipError } = await adminSupabase.from("company_memberships").upsert(
+        {
+          user_id: uid,
+          company_id: activeCompanyId,
+          role_id: roleRow.id,
+          status: "active",
+          is_owner: false,
+        },
+        { onConflict: "user_id,company_id" },
+      );
+      if (membershipError) {
+        await adminSupabase.auth.admin.deleteUser(uid);
+        errors.push({ row: rowNum, message: membershipError.message });
+        continue;
+      }
     }
 
     created.push(usernameNormalized);

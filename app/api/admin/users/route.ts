@@ -8,6 +8,9 @@ import type { AppPermissionKey } from "@/lib/permissions";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 import { defaultAccessWorkListForRole } from "@/lib/access-work-list-defaults";
 import { isDynamicRolesEnabled } from "@/lib/feature-flags";
+import { getTenantContext } from "@/lib/tenant-context";
+import { listVisibleRoles, resolveRoleForTenant } from "@/lib/server/tenant-roles";
+import { assertWithinTechnicianLimit } from "@/lib/billing-limits";
 import {
   mergeRoleAndUserOverrides,
   roleToPublicOption,
@@ -25,8 +28,11 @@ type ProfileRow = {
   username?: string | null;
   permissions?: Record<string, unknown> | null;
   access_work_list?: boolean | null;
+  company_id?: string | null;
   role_id?: string | null;
-  roles?: { display_name?: string | null; role_key?: string | null; permissions?: Record<string, unknown> | null } | null;
+  roles?:
+    | { display_name?: string | null; role_key?: string | null; permissions?: Record<string, unknown> | null; company_id?: string | null }
+    | null;
   role:
     | "admin"
     | "projects_director"
@@ -39,18 +45,35 @@ type ProfileRow = {
 };
 
 const PROFILE_SELECT =
-  "id, full_name, mobile, role, role_id, job_title, specialty, region, permissions, username, access_work_list, roles:role_id(display_name, role_key, permissions)";
+  "id, full_name, mobile, role, role_id, company_id, job_title, specialty, region, permissions, username, access_work_list, roles:role_id(display_name, role_key, permissions, company_id)";
 
 async function buildZoneMapForProfiles(
   adminSupabase: ReturnType<typeof createSupabaseAdminClient>,
   profileIds: string[],
+  activeCompanyId: string | null,
+  isPlatformAdmin: boolean,
 ): Promise<Map<string, Array<{ id: string; name: string }>>> {
   const zoneMap = new Map<string, Array<{ id: string; name: string }>>();
   if (profileIds.length === 0) return zoneMap;
   const { data: zoneLinks } = await adminSupabase
     .from("zone_profiles")
     .select("profile_id, zones(id, name)")
-    .in("profile_id", profileIds);
+    .in("profile_id", profileIds)
+    .eq("company_id", activeCompanyId ?? "");
+  if (isPlatformAdmin && !activeCompanyId) {
+    const { data: allZoneLinks } = await adminSupabase
+      .from("zone_profiles")
+      .select("profile_id, zones(id, name)")
+      .in("profile_id", profileIds);
+    (allZoneLinks ?? []).forEach((link) => {
+      const zone = Array.isArray(link.zones) ? link.zones[0] : link.zones;
+      if (!zone) return;
+      const current = zoneMap.get(link.profile_id) ?? [];
+      current.push({ id: zone.id, name: zone.name });
+      zoneMap.set(link.profile_id, current);
+    });
+    return zoneMap;
+  }
   (zoneLinks ?? []).forEach((link) => {
     const zone = Array.isArray(link.zones) ? link.zones[0] : link.zones;
     if (!zone) return;
@@ -115,20 +138,31 @@ export async function GET() {
   }
 
   try {
+    const tenant = await getTenantContext();
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+    }
+
     const adminSupabase = createSupabaseAdminClient();
+    let zonesQuery = adminSupabase.from("zones").select("id, name").order("name");
+    if (!tenant.isPlatformAdmin || tenant.activeCompanyId) {
+      zonesQuery = zonesQuery.eq("company_id", tenant.activeCompanyId ?? "");
+    }
+    const { data: zones } = await zonesQuery;
+    const { data: rolesData, error: rolesError } = await listVisibleRoles(adminSupabase, tenant.activeCompanyId);
+    if (rolesError) {
+      return NextResponse.json({ error: rolesError }, { status: 400 });
+    }
 
-    const { data: zones } = await adminSupabase.from("zones").select("id, name").order("name");
-    const { data: rolesData } = await adminSupabase
-      .from("roles")
-      .select("id, role_key, display_name, permissions, legacy_role, is_system")
-      .order("is_system", { ascending: false })
-      .order("display_name", { ascending: true });
-
-    const { data: profiles, error: profilesError } = await adminSupabase
+    let profilesQuery = adminSupabase
       .from("profiles")
       .select(PROFILE_SELECT)
       .order("full_name", { ascending: true })
       .limit(8000);
+    if (!tenant.isPlatformAdmin || tenant.activeCompanyId) {
+      profilesQuery = profilesQuery.eq("company_id", tenant.activeCompanyId ?? "");
+    }
+    const { data: profiles, error: profilesError } = await profilesQuery;
 
     if (profilesError) {
       return NextResponse.json({ error: profilesError.message }, { status: 400 });
@@ -136,7 +170,7 @@ export async function GET() {
 
     const list = ((profiles as ProfileRow[]) ?? []) as ProfileRow[];
     const profileIds = list.map((p) => p.id);
-    const zoneMap = await buildZoneMapForProfiles(adminSupabase, profileIds);
+    const zoneMap = await buildZoneMapForProfiles(adminSupabase, profileIds, tenant.activeCompanyId, tenant.isPlatformAdmin);
     const rows = await mapProfilesToUserRows(adminSupabase, list, zoneMap);
 
     return NextResponse.json({
@@ -217,21 +251,30 @@ export async function POST(request: Request) {
   }
 
   const adminSupabase = createSupabaseAdminClient();
+  const tenant = await getTenantContext();
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+  }
+  if (!tenant.activeCompanyId) {
+    return NextResponse.json({ error: "missing_active_company" }, { status: 403 });
+  }
+  const activeCompanyId = tenant.activeCompanyId;
   const dynamicEnabled = isDynamicRolesEnabled();
-  const roleQuery = adminSupabase
-    .from("roles")
-    .select("id, role_key, display_name, permissions, legacy_role, is_system")
-    .or(`id.eq.${roleInput},role_key.eq.${roleInput}`)
-    .maybeSingle();
-  const { data: resolvedRole, error: roleError } = await roleQuery;
+  const { role: resolvedRole, error: roleError } = await resolveRoleForTenant(adminSupabase, roleInput, activeCompanyId);
   if (roleError) {
-    return NextResponse.json({ error: roleError.message }, { status: 400 });
+    return NextResponse.json({ error: roleError }, { status: 400 });
   }
   const roleRow = resolvedRole as RoleRow | null;
   if (!roleRow) {
     return NextResponse.json({ error: "دور غير صالح." }, { status: 400 });
   }
   const legacyRole = roleRow.legacy_role ?? "technician";
+  if (["technician", "engineer", "supervisor"].includes(legacyRole)) {
+    const limitCheck = await assertWithinTechnicianLimit(adminSupabase, activeCompanyId);
+    if (!limitCheck.ok) {
+      return NextResponse.json({ error: limitCheck.message }, { status: 409 });
+    }
+  }
   const rolePermissions = sanitizePermissionPayload(roleRow.permissions);
   const permissionsPatch = mergeExplicitInvitePermissions(body.permissions);
   const effectivePermissions = mergeRoleAndUserOverrides(rolePermissions, permissionsPatch);
@@ -258,6 +301,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "تعذر إنشاء المعرّف." }, { status: 400 });
     }
 
+    if (activeCompanyId) {
+      const { error: membershipError } = await adminSupabase.from("company_memberships").upsert(
+        {
+          user_id: newUserId,
+          company_id: activeCompanyId,
+          role_id: roleRow.id,
+          status: "active",
+          is_owner: false,
+        },
+        { onConflict: "user_id,company_id" },
+      );
+      if (membershipError) {
+        await adminSupabase.auth.admin.deleteUser(newUserId);
+        return NextResponse.json({ error: membershipError.message }, { status: 400 });
+      }
+    }
+
+    if (zoneIds.length > 0 && activeCompanyId) {
+      const { data: tenantZones, error: zoneScopeError } = await adminSupabase
+        .from("zones")
+        .select("id")
+        .eq("company_id", activeCompanyId)
+        .in("id", zoneIds);
+      if (zoneScopeError) {
+        await adminSupabase.auth.admin.deleteUser(newUserId);
+        return NextResponse.json({ error: zoneScopeError.message }, { status: 400 });
+      }
+      const allowed = new Set((tenantZones ?? []).map((z) => z.id as string));
+      const hasOutOfScope = zoneIds.some((id) => !allowed.has(id));
+      if (hasOutOfScope) {
+        await adminSupabase.auth.admin.deleteUser(newUserId);
+        return NextResponse.json({ error: "zone_ids خارج نطاق الشركة النشطة." }, { status: 403 });
+      }
+    }
+
     const zoneErr = await upsertProfileAndZones(adminSupabase, newUserId, {
       fullName,
       mobile,
@@ -269,6 +347,7 @@ export async function POST(request: Request) {
       permissions,
       username: usernameNormalized,
       access_work_list: defaultAccessWorkListForRole(legacyRole),
+      companyId: activeCompanyId,
     });
     if (zoneErr) {
       await adminSupabase.auth.admin.deleteUser(newUserId);

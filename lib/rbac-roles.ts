@@ -20,6 +20,7 @@ export type RoleRow = {
   permissions: Record<string, unknown> | null;
   legacy_role: LegacySystemRole | null;
   is_system: boolean;
+  company_id?: string | null;
 };
 
 export type PublicRoleOption = {
@@ -29,6 +30,8 @@ export type PublicRoleOption = {
   permissions: Record<AppPermissionKey, boolean>;
   legacy_role: LegacySystemRole | null;
   is_system: boolean;
+  company_id?: string | null;
+  scope?: "global" | "tenant";
 };
 
 export function isLegacySystemRole(value: string | null | undefined): value is LegacySystemRole {
@@ -87,6 +90,8 @@ export function roleToPublicOption(row: RoleRow): PublicRoleOption {
     permissions: sanitizePermissionPayload(row.permissions),
     legacy_role: row.legacy_role,
     is_system: row.is_system,
+    company_id: row.company_id ?? null,
+    scope: row.company_id ? "tenant" : "global",
   };
 }
 

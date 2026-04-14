@@ -16,9 +16,10 @@ export async function upsertProfileAndZones(
     permissions: Record<string, unknown>;
     username: string;
     access_work_list?: boolean;
+    companyId?: string | null;
   },
 ) {
-  const { fullName, mobile, jobTitle, specialty, role, roleId, zoneIds, permissions, username, access_work_list } = params;
+  const { fullName, mobile, jobTitle, specialty, role, roleId, zoneIds, permissions, username, access_work_list, companyId } = params;
   const row: Record<string, unknown> = {
     id: userId,
     full_name: fullName,
@@ -30,6 +31,10 @@ export async function upsertProfileAndZones(
     permissions,
     username,
   };
+  if (companyId) {
+    row.company_id = companyId;
+    row.active_company_id = companyId;
+  }
   if (typeof access_work_list === "boolean") {
     row.access_work_list = access_work_list;
   }
@@ -45,12 +50,12 @@ export async function upsertProfileAndZones(
   }
 
   if (zoneIds.length > 0) {
-    const { error: insertZonesError } = await adminSupabase.from("zone_profiles").insert(
-      zoneIds.map((zoneId) => ({
-        zone_id: zoneId,
-        profile_id: userId,
-      })),
-    );
+    const zoneRows = zoneIds.map((zoneId) => ({
+      zone_id: zoneId,
+      profile_id: userId,
+      ...(companyId ? { company_id: companyId } : {}),
+    }));
+    const { error: insertZonesError } = await adminSupabase.from("zone_profiles").insert(zoneRows);
     if (insertZonesError) {
       return insertZonesError;
     }

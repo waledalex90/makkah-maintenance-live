@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSessionProfile } from "@/lib/auth-guards";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
+import { getTenantContext } from "@/lib/tenant-context";
 
 /** حذف بلاغ نهائياً — مسموح فقط لبريد المدير المحمي (Super Admin). */
 export async function DELETE(_request: Request, context: { params: Promise<{ ticketId: string }> }) {
@@ -19,7 +20,15 @@ export async function DELETE(_request: Request, context: { params: Promise<{ tic
   }
 
   const admin = createSupabaseAdminClient();
-  const { error } = await admin.from("tickets").delete().eq("id", ticketId);
+  const tenant = await getTenantContext();
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+  }
+  let deleteQuery = admin.from("tickets").delete().eq("id", ticketId);
+  if (!tenant.isPlatformAdmin || tenant.activeCompanyId) {
+    deleteQuery = deleteQuery.eq("company_id", tenant.activeCompanyId ?? "");
+  }
+  const { error } = await deleteQuery;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }

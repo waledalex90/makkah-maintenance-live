@@ -19,6 +19,44 @@ export function AccountSettingsContent() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [profileRole, setProfileRole] = useState<string | null>(null);
   const [testNotifyPending, setTestNotifyPending] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(true);
+  const [billing, setBilling] = useState<{
+    plan_name: string;
+    plan_key: string;
+    price_monthly: number;
+    limits: { technicians: number | null; tickets_per_month: number | null; zones: number | null };
+    usage: { technicians: number; tickets_this_month: number; zones: number };
+  } | null>(null);
+  const [invoices, setInvoices] = useState<
+    Array<{ id: string; invoice_number?: string | null; amount: number; currency: string; invoice_status: string; period_start: string; period_end: string }>
+  >([]);
+  const [plans, setPlans] = useState<
+    Array<{ plan_key: string; display_name: string; price_monthly: number; max_technicians: number | null; max_tickets_per_month: number | null; max_zones: number | null }>
+  >([]);
+  const [selectedPlan, setSelectedPlan] = useState<string>("");
+  const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null);
+  const [upgradingPlan, setUpgradingPlan] = useState(false);
+  const [notifications, setNotifications] = useState<
+    Array<{ id: string; title: string; body: string; created_at: string; notification_type: string }>
+  >([]);
+
+  const loadBillingData = async () => {
+    const res = await fetch("/api/company/billing-summary", { cache: "no-store" });
+    const json = (await res.json()) as { ok?: boolean; billing?: typeof billing; error?: string };
+    if (res.ok && json.ok && json.billing) {
+      setBilling(json.billing);
+      setSelectedPlan(json.billing.plan_key);
+    }
+
+    const invoicesRes = await fetch("/api/company/invoices", { cache: "no-store" });
+    const invoicesJson = (await invoicesRes.json()) as {
+      ok?: boolean;
+      invoices?: Array<{ id: string; invoice_number?: string | null; amount: number; currency: string; invoice_status: string; period_start: string; period_end: string }>;
+    };
+    if (invoicesRes.ok && invoicesJson.ok && invoicesJson.invoices) {
+      setInvoices(invoicesJson.invoices);
+    }
+  };
 
   useEffect(() => {
     const savedAlerts = window.localStorage.getItem(ALERT_SOUND_STORAGE_KEY);
@@ -28,6 +66,34 @@ export function AccountSettingsContent() {
     const dark = savedTheme === "dark";
     setIsDarkMode(dark);
     document.documentElement.classList.toggle("dark", dark);
+  }, []);
+
+  useEffect(() => {
+    const loadBilling = async () => {
+      try {
+        await loadBillingData();
+        const plansRes = await fetch("/api/company/plans", { cache: "no-store" });
+        const plansJson = (await plansRes.json()) as {
+          ok?: boolean;
+          plans?: Array<{ plan_key: string; display_name: string; price_monthly: number; max_technicians: number | null; max_tickets_per_month: number | null; max_zones: number | null }>;
+        };
+        if (plansRes.ok && plansJson.ok && plansJson.plans) {
+          setPlans(plansJson.plans);
+        }
+
+        const notificationsRes = await fetch("/api/company/notifications", { cache: "no-store" });
+        const notificationsJson = (await notificationsRes.json()) as {
+          ok?: boolean;
+          notifications?: Array<{ id: string; title: string; body: string; created_at: string; notification_type: string }>;
+        };
+        if (notificationsRes.ok && notificationsJson.ok && notificationsJson.notifications) {
+          setNotifications(notificationsJson.notifications);
+        }
+      } finally {
+        setBillingLoading(false);
+      }
+    };
+    void loadBilling();
   }, []);
 
   useEffect(() => {
@@ -128,6 +194,44 @@ export function AccountSettingsContent() {
     }, 10_000);
   };
 
+  const startInvoicePayment = async (invoiceId: string) => {
+    setPayingInvoiceId(invoiceId);
+    try {
+      const res = await fetch(`/api/company/invoices/${invoiceId}/checkout`, { method: "POST" });
+      const json = (await res.json()) as { ok?: boolean; url?: string; error?: string };
+      if (!res.ok || !json.ok || !json.url) {
+        toast.error(json.error ?? "تعذر بدء عملية الدفع.");
+        return;
+      }
+      window.location.href = json.url;
+    } finally {
+      setPayingInvoiceId(null);
+    }
+  };
+
+  const createUpgradeAndPay = async () => {
+    if (!selectedPlan) {
+      toast.error("اختر الباقة أولاً.");
+      return;
+    }
+    setUpgradingPlan(true);
+    try {
+      const createRes = await fetch("/api/company/billing/upgrade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan_key: selectedPlan }),
+      });
+      const createJson = (await createRes.json()) as { ok?: boolean; invoice?: { id: string }; error?: string };
+      if (!createRes.ok || !createJson.ok || !createJson.invoice?.id) {
+        toast.error(createJson.error ?? "تعذر إنشاء فاتورة الترقية.");
+        return;
+      }
+      await startInvoicePayment(createJson.invoice.id);
+    } finally {
+      setUpgradingPlan(false);
+    }
+  };
+
   return (
     <div className="space-y-4" dir="rtl" lang="ar">
       <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -180,6 +284,108 @@ export function AccountSettingsContent() {
           </button>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>الفوترة</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {billingLoading ? (
+            <p className="text-sm text-slate-500">جاري تحميل بيانات الفوترة...</p>
+          ) : !billing ? (
+            <p className="text-sm text-slate-500">لا تتوفر بيانات فوترة للشركة النشطة حالياً.</p>
+          ) : (
+            <>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-sm font-semibold text-slate-900">الباقة الحالية: {billing.plan_name}</p>
+                <p className="text-xs text-slate-600">Plan Key: {billing.plan_key} - السعر الشهري: {billing.price_monthly} SAR</p>
+              </div>
+              <div className="grid gap-2 md:grid-cols-3">
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  الفنيون: {billing.usage.technicians}/{billing.limits.technicians ?? "غير محدود"}
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  التذاكر هذا الشهر: {billing.usage.tickets_this_month}/{billing.limits.tickets_per_month ?? "غير محدود"}
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  المناطق: {billing.usage.zones}/{billing.limits.zones ?? "غير محدود"}
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="mb-2 text-sm font-semibold text-slate-900">آخر الفواتير</p>
+                {invoices.length === 0 ? (
+                  <p className="text-xs text-slate-500">لا توجد فواتير بعد.</p>
+                ) : (
+                  <div className="space-y-2 text-xs text-slate-700">
+                    {invoices.slice(0, 3).map((inv) => (
+                      <div key={inv.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-100 p-2">
+                        <p>
+                          {(inv.invoice_number ?? inv.id.slice(0, 8)).toUpperCase()} | {inv.period_start} → {inv.period_end} | {inv.amount} {inv.currency} | {inv.invoice_status}
+                        </p>
+                        {inv.invoice_status !== "paid" ? (
+                          <Button
+                            type="button"
+                            className="h-7 bg-emerald-600 px-2 text-xs hover:bg-emerald-700"
+                            disabled={payingInvoiceId === inv.id}
+                            onClick={() => void startInvoicePayment(inv.id)}
+                          >
+                            {payingInvoiceId === inv.id ? "جاري التحويل..." : "دفع الآن"}
+                          </Button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="mb-2 text-sm font-semibold text-slate-900">ترقية الباقة</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    className="h-9 min-w-[220px] rounded-md border border-slate-200 bg-white px-2 text-xs"
+                    value={selectedPlan}
+                    onChange={(e) => setSelectedPlan(e.target.value)}
+                  >
+                    {plans.map((plan) => (
+                      <option key={plan.plan_key} value={plan.plan_key}>
+                        {plan.display_name} - {plan.price_monthly} SAR
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    className="h-9 bg-indigo-600 px-3 text-xs hover:bg-indigo-700"
+                    disabled={upgradingPlan || !selectedPlan}
+                    onClick={() => void createUpgradeAndPay()}
+                  >
+                    {upgradingPlan ? "جاري الإنشاء..." : "إنشاء فاتورة الترقية والدفع"}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {profileRole === "admin" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>تنبيهات الفوترة والاشتراك</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {notifications.length === 0 ? (
+              <p className="text-xs text-slate-500">لا توجد تنبيهات حالياً.</p>
+            ) : (
+              notifications.slice(0, 5).map((n) => (
+                <div key={n.id} className="rounded border border-slate-200 bg-slate-50 p-2">
+                  <p className="text-sm font-semibold text-slate-900">{n.title}</p>
+                  <p className="text-xs text-slate-700">{n.body}</p>
+                  <p className="mt-1 text-[10px] text-slate-500">{new Date(n.created_at).toLocaleString("ar-SA")}</p>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

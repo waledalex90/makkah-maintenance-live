@@ -5,6 +5,13 @@ import { Menu, PanelRightClose, PanelRightOpen } from "lucide-react";
 
 type DashboardTopbarProps = {
   fullName: string;
+  loading?: boolean;
+  companyName?: string;
+  companyLogoUrl?: string | null;
+  memberships?: Array<{ company_id: string; company_name: string }>;
+  activeCompanyId?: string | null;
+  switchingCompany?: boolean;
+  onChangeCompany?: (companyId: string) => void;
   onOpenMobileNav: () => void;
   onToggleSidebar: () => void;
   sidebarCollapsed: boolean;
@@ -12,6 +19,13 @@ type DashboardTopbarProps = {
 
 export function DashboardTopbar({
   fullName,
+  loading = false,
+  companyName,
+  companyLogoUrl,
+  memberships = [],
+  activeCompanyId = null,
+  switchingCompany = false,
+  onChangeCompany,
   onOpenMobileNav,
   onToggleSidebar,
   sidebarCollapsed,
@@ -56,12 +70,39 @@ export function DashboardTopbar({
             {sidebarCollapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
           </button>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-900">{fullName}</p>
-            <p className="text-[11px] text-amber-600">غرفة عمليات الحج - مكة</p>
+            {loading ? (
+              <div className="space-y-1">
+                <div className="h-3 w-24 animate-pulse rounded bg-slate-200" />
+                <div className="h-2.5 w-28 animate-pulse rounded bg-slate-200" />
+              </div>
+            ) : (
+              <>
+                <p className="truncate text-sm font-semibold text-slate-900">{fullName}</p>
+                <p className="truncate text-[11px] text-amber-600">{companyName || "غرفة العمليات"}</p>
+              </>
+            )}
           </div>
         </div>
 
         <div className="hidden items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 md:flex">
+          {companyLogoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={companyLogoUrl} alt={companyName || "company logo"} className="h-6 w-6 rounded-full border border-slate-200 bg-white object-cover" />
+          ) : null}
+          {memberships.length > 1 && onChangeCompany ? (
+            <select
+              className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700"
+              value={activeCompanyId ?? ""}
+              disabled={switchingCompany}
+              onChange={(e) => onChangeCompany(e.target.value)}
+            >
+              {memberships.map((m) => (
+                <option key={m.company_id} value={m.company_id}>
+                  {m.company_name}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <span className="text-sm leading-none" aria-hidden="true">🕋</span>
           <span className="text-xs font-semibold text-emerald-600">Live Makkah</span>
           <span className="text-xs text-slate-400">|</span>

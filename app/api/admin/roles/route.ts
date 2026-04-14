@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireManageUsers } from "@/lib/auth-guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isDynamicRolesEnabled } from "@/lib/feature-flags";
 import {
   isLegacySystemRole,
   isValidRoleKey,
@@ -38,6 +39,7 @@ export async function GET() {
 
   return NextResponse.json({
     roles: ((data as RoleRow[] | null) ?? []).map(roleToPublicOption),
+    role_lifecycle_enabled: isDynamicRolesEnabled(),
   });
 }
 
@@ -45,6 +47,9 @@ export async function POST(request: Request) {
   const access = await requireManageUsers();
   if (!access.ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
+  }
+  if (!isDynamicRolesEnabled()) {
+    return NextResponse.json({ error: "Role lifecycle is disabled by feature flag." }, { status: 403 });
   }
 
   const body = (await request.json()) as CreateRolePayload;

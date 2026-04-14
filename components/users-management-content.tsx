@@ -330,6 +330,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
       users?: UserRow[];
       zones?: ZoneOption[];
       roles?: RoleOption[];
+      role_lifecycle_enabled?: boolean;
       total?: number;
       error?: string;
     };
@@ -340,6 +341,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
       users: json.users ?? [],
       zones: json.zones ?? [],
       roles: json.roles ?? [],
+      roleLifecycleEnabled: Boolean(json.role_lifecycle_enabled),
       total: json.total ?? 0,
     };
   }, []);
@@ -360,6 +362,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
   const users = usersQueryData?.users ?? [];
   const zones = usersQueryData?.zones ?? [];
   const roleOptions = usersQueryData?.roles ?? [];
+  const roleLifecycleEnabled = usersQueryData?.roleLifecycleEnabled ?? false;
   const defaultRoleId = roleOptions[0]?.id ?? "technician";
   const roleOptionMap = useMemo(
     () => new Map(roleOptions.map((role) => [role.id, role])),
@@ -496,6 +499,10 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
   }, [queryClient]);
 
   const createRoleTemplate = async () => {
+    if (!roleLifecycleEnabled) {
+      toast.error("تم تعطيل إضافة الأدوار عبر الإعدادات.");
+      return;
+    }
     const name = newTemplateName.trim();
     if (!name) {
       toast.error("اسم الدور التشغيلي مطلوب.");
@@ -550,7 +557,25 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
   const deleteTemplate = (templateId: string) => {
     const row = roleTemplateMap.get(templateId);
     if (!row || row.isSystem) return;
-    toast.error("حذف الأدوار غير مدعوم حالياً لحماية سلامة البيانات.");
+    if (!roleLifecycleEnabled) {
+      toast.error("تم تعطيل حذف الأدوار عبر الإعدادات.");
+      return;
+    }
+    const yes = window.confirm(`حذف الدور «${row.name}»؟ هذا الإجراء لا يمكن التراجع عنه.`);
+    if (!yes) return;
+    void (async () => {
+      const res = await fetch(`/api/admin/roles/${templateId}`, { method: "DELETE" });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        toast.error(data.error ?? "تعذر حذف الدور.");
+        return;
+      }
+      toast.success("تم حذف الدور.");
+      if (roleEditorTemplateId === templateId) {
+        setRoleEditorTemplateId(null);
+      }
+      await invalidateUsers();
+    })();
   };
 
   const saveAccessWorkList = async (user: UserRow, next: boolean) => {
@@ -1114,28 +1139,34 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
             <p className="text-xs text-slate-500">عرّف أدواراً تشغيلية واضبط الصلاحيات حسب مجموعات العمل.</p>
           </div>
         </div>
-        <div className="mb-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-          <Input
-            value={newTemplateName}
-            onChange={(e) => {
-              const value = e.target.value;
-              setNewTemplateName(value);
-              if (!newRoleKeyInput) {
-                setNewRoleKeyInput(normalizeRoleKeyInput(value));
-              }
-            }}
-            placeholder="اسم الدور التشغيلي (مثال: مشرف حج)"
-          />
-          <Input value={newRoleKeyInput} onChange={(e) => setNewRoleKeyInput(normalizeRoleKeyInput(e.target.value))} placeholder="role_key (مثال: field_coordinator)" />
-          <button
-            type="button"
-            className="inline-flex h-10 items-center justify-center gap-1 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800"
-            onClick={() => void createRoleTemplate()}
-          >
-            <Plus className="h-4 w-4" />
-            إنشاء دور
-          </button>
-        </div>
+        {roleLifecycleEnabled ? (
+          <div className="mb-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+            <Input
+              value={newTemplateName}
+              onChange={(e) => {
+                const value = e.target.value;
+                setNewTemplateName(value);
+                if (!newRoleKeyInput) {
+                  setNewRoleKeyInput(normalizeRoleKeyInput(value));
+                }
+              }}
+              placeholder="اسم الدور التشغيلي (مثال: مشرف حج)"
+            />
+            <Input value={newRoleKeyInput} onChange={(e) => setNewRoleKeyInput(normalizeRoleKeyInput(e.target.value))} placeholder="role_key (مثال: field_coordinator)" />
+            <button
+              type="button"
+              className="inline-flex h-10 items-center justify-center gap-1 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800"
+              onClick={() => void createRoleTemplate()}
+            >
+              <Plus className="h-4 w-4" />
+              إنشاء دور
+            </button>
+          </div>
+        ) : (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            تم تعطيل إضافة/حذف الأدوار عبر الإعدادات الحالية (`RBAC_DYNAMIC_ROLES_ENABLED=false`).
+          </div>
+        )}
 
         <div className="grid gap-3 lg:grid-cols-2">
           {roleTemplates.map((template) => (
@@ -1155,7 +1186,7 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
                   >
                     تعديل
                   </button>
-                  {!template.isSystem ? (
+                  {!template.isSystem && roleLifecycleEnabled ? (
                     <button
                       type="button"
                       className="rounded border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50"
@@ -1163,8 +1194,10 @@ export function UsersManagementContent({ initialView = "users" }: UsersManagemen
                     >
                       حذف
                     </button>
-                  ) : (
+                  ) : template.isSystem ? (
                     <span className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-500">افتراضي</span>
+                  ) : (
+                    <span className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-500">الحذف معطل</span>
                   )}
                 </div>
               </div>

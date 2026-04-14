@@ -143,6 +143,7 @@ export async function GET() {
       users: rows,
       zones: zones ?? [],
       roles: ((rolesData as RoleRow[] | null) ?? []).map(roleToPublicOption),
+      role_lifecycle_enabled: isDynamicRolesEnabled(),
       total: rows.length,
     });
   } catch (error) {

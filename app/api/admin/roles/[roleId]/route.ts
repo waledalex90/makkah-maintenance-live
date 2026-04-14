@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireManageUsers } from "@/lib/auth-guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isDynamicRolesEnabled } from "@/lib/feature-flags";
 import {
   isLegacySystemRole,
   isValidRoleKey,
@@ -74,5 +75,53 @@ export async function PATCH(request: Request, context: { params: Promise<{ roleI
   }
 
   return NextResponse.json({ ok: true, role: roleToPublicOption(data as RoleRow) });
+}
+
+export async function DELETE(_request: Request, context: { params: Promise<{ roleId: string }> }) {
+  const access = await requireManageUsers();
+  if (!access.ok) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
+  }
+  if (!isDynamicRolesEnabled()) {
+    return NextResponse.json({ error: "Role lifecycle is disabled by feature flag." }, { status: 403 });
+  }
+
+  const { roleId } = await context.params;
+  const admin = createSupabaseAdminClient();
+  const { data: role, error: roleError } = await admin
+    .from("roles")
+    .select("id, is_system")
+    .eq("id", roleId)
+    .maybeSingle();
+
+  if (roleError) {
+    return NextResponse.json({ error: roleError.message }, { status: 400 });
+  }
+  if (!role) {
+    return NextResponse.json({ error: "Role not found." }, { status: 404 });
+  }
+  if (role.is_system) {
+    return NextResponse.json({ error: "Cannot delete system role." }, { status: 403 });
+  }
+
+  const { count, error: countError } = await admin
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("role_id", roleId);
+  if (countError) {
+    return NextResponse.json({ error: countError.message }, { status: 400 });
+  }
+  if ((count ?? 0) > 0) {
+    return NextResponse.json(
+      { error: "Cannot delete role while users are assigned to it. Reassign users first." },
+      { status: 409 },
+    );
+  }
+
+  const { error } = await admin.from("roles").delete().eq("id", roleId);
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+  return NextResponse.json({ ok: true });
 }
 

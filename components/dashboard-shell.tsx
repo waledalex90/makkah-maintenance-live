@@ -9,6 +9,7 @@ import { DashboardTopbar } from "@/components/dashboard-topbar";
 import { effectivePermissions } from "@/lib/permissions";
 import type { AppPermissionKey } from "@/lib/permissions";
 import { toast } from "sonner";
+import { clearPlatformClientContext } from "@/lib/platform-context";
 
 type MeResponse =
   | {
@@ -52,6 +53,7 @@ type MeResponse =
         } | null;
       }>;
       is_platform_admin?: boolean;
+      is_protected_super_admin?: boolean;
       platform_company_options?: Array<{ id: string; name: string }>;
     }
   | { ok: false; error: string };
@@ -165,6 +167,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     await handleChangeCompany(PLATFORM_CONTEXT_SWITCH_VALUE);
   };
 
+  const handleClearCacheAndReset = async () => {
+    try {
+      await fetch("/api/me/reset-context", { method: "POST" });
+      clearPlatformClientContext();
+      toast.success("تم تصفير الكاش والسياق بنجاح.");
+      window.location.replace("/dashboard/admin/platform");
+    } catch {
+      toast.error("تعذر تصفير الجلسة حالياً.");
+    }
+  };
+
   useEffect(() => {
     if (!mobileSidebarOpen) return;
     const prevOverflow = document.body.style.overflow;
@@ -201,9 +214,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           platformContextSelectValue={PLATFORM_CONTEXT_SWITCH_VALUE}
           showCompanySwitcher={showCompanySwitcher}
           showReturnToPlatform={Boolean(me?.ok && me.is_platform_admin && me.profile.active_company_id)}
+          showClearCacheReset={Boolean(me?.ok && me.is_protected_super_admin)}
           switchingCompany={switchingCompany}
           onChangeCompany={handleChangeCompany}
           onReturnToPlatform={() => void backToPlatform()}
+          onClearCacheReset={() => void handleClearCacheAndReset()}
           onOpenMobileNav={() => setMobileSidebarOpen(true)}
           onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
           sidebarCollapsed={sidebarCollapsed}

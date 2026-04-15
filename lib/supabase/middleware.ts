@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import { canAccessDashboardPath } from "@/lib/permissions";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
+import { PLATFORM_CONTEXT_COOKIE } from "@/lib/platform-context";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
@@ -93,7 +94,15 @@ export async function updateSession(request: NextRequest) {
       await supabase.from("profiles").update({ active_company_id: null }).eq("id", user.id);
       const adminUrl = request.nextUrl.clone();
       adminUrl.pathname = "/dashboard/admin/platform";
-      return NextResponse.redirect(adminUrl);
+      const response = NextResponse.redirect(adminUrl);
+      response.cookies.set(PLATFORM_CONTEXT_COOKIE, "", {
+        path: "/",
+        maxAge: 0,
+        sameSite: "lax",
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+      });
+      return response;
     }
 
     const { data: profile, error: profileError } = await supabase
@@ -131,7 +140,7 @@ export async function updateSession(request: NextRequest) {
       .maybeSingle();
 
     const typedProfile = (profile ?? null) as MiddlewareProfile | null;
-    if (isPlatformAdminSession && path === "/dashboard" && !typedProfile?.active_company_id) {
+    if (isPlatformAdminSession && path === "/dashboard") {
       const adminUrl = request.nextUrl.clone();
       adminUrl.pathname = "/dashboard/admin/platform";
       return NextResponse.redirect(adminUrl);

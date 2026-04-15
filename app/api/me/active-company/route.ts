@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getTenantContext } from "@/lib/tenant-context";
 import { recordSecurityEvent } from "@/lib/security-events";
+import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
+import { PLATFORM_CONTEXT_COOKIE } from "@/lib/platform-context";
 
 type ActiveCompanyPayload = {
   company_id?: string | null;
@@ -22,13 +23,16 @@ export async function PATCH(request: Request) {
   const raw = body.company_id;
 
   const admin = createSupabaseAdminClient();
+  const { data: platformAdminRow } = await admin
+    .from("platform_admins")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+  const isPlatformAdmin = Boolean(platformAdminRow?.user_id) || isProtectedSuperAdminEmail(user.email);
 
   if (raw === null || raw === "") {
-    const tenant = await getTenantContext();
-    if (!tenant.ok) {
-      return NextResponse.json({ ok: false, error: tenant.error }, { status: tenant.status });
-    }
-    if (!tenant.isPlatformAdmin) {
+    if (!isPlatformAdmin) {
       return NextResponse.json({ ok: false, error: "company_not_allowed" }, { status: 403 });
     }
     const { error: updateError } = await admin.from("profiles").update({ active_company_id: null }).eq("id", user.id);
@@ -43,7 +47,15 @@ export async function PATCH(request: Request) {
       actor_email: user.email ?? null,
       metadata: { source: "api/me/active-company" },
     });
-    return NextResponse.json({ ok: true, active_company_id: null });
+    const response = NextResponse.json({ ok: true, active_company_id: null });
+    response.cookies.set(PLATFORM_CONTEXT_COOKIE, "", {
+      path: "/",
+      maxAge: 0,
+      sameSite: "lax",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+    });
+    return response;
   }
 
   const companyId = typeof raw === "string" ? raw.trim() : "";
@@ -63,7 +75,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: false, error: membershipError.message }, { status: 400 });
   }
 
-  if (membership) {
+  if (membership && !isPlatformAdmin) {
     const { error: updateError } = await supabase.from("profiles").update({ active_company_id: companyId }).eq("id", user.id);
     if (updateError) {
       return NextResponse.json({ ok: false, error: updateError.message }, { status: 400 });
@@ -80,14 +92,6 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: true, active_company_id: companyId });
   }
 
-  const tenant = await getTenantContext();
-  if (!tenant.ok) {
-    return NextResponse.json({ ok: false, error: tenant.error }, { status: tenant.status });
-  }
-  if (!tenant.isPlatformAdmin) {
-    return NextResponse.json({ ok: false, error: "company_not_allowed" }, { status: 403 });
-  }
-
   const { data: companyRow, error: companyErr } = await admin.from("companies").select("id").eq("id", companyId).maybeSingle();
   if (companyErr) {
     return NextResponse.json({ ok: false, error: companyErr.message }, { status: 400 });
@@ -95,8 +99,11 @@ export async function PATCH(request: Request) {
   if (!companyRow) {
     return NextResponse.json({ ok: false, error: "company_not_found" }, { status: 404 });
   }
+  if (!isPlatformAdmin) {
+    return NextResponse.json({ ok: false, error: "company_not_allowed" }, { status: 403 });
+  }
 
-  const { error: updateError } = await admin.from("profiles").update({ active_company_id: companyId }).eq("id", user.id);
+  const { error: updateError } = await admin.from("profiles").update({ active_company_id: null }).eq("id", user.id);
   if (updateError) {
     return NextResponse.json({ ok: false, error: updateError.message }, { status: 400 });
   }
@@ -108,8 +115,15 @@ export async function PATCH(request: Request) {
     actor_user_id: user.id,
     actor_email: user.email ?? null,
     actor_company_id: companyId,
-    metadata: { source: "api/me/active-company", mode: "platform_override" },
+    metadata: { source: "api/me/active-company", mode: membership ? "platform_membership_temp" : "platform_override_temp" },
   });
 
-  return NextResponse.json({ ok: true, active_company_id: companyId });
+  const response = NextResponse.json({ ok: true, active_company_id: companyId });
+  response.cookies.set(PLATFORM_CONTEXT_COOKIE, companyId, {
+    path: "/",
+    sameSite: "lax",
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  });
+  return response;
 }

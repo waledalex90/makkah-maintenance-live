@@ -15,9 +15,11 @@ type DashboardTopbarProps = {
   platformContextSelectValue?: string;
   showCompanySwitcher?: boolean;
   showReturnToPlatform?: boolean;
+  showClearCacheReset?: boolean;
   switchingCompany?: boolean;
   onChangeCompany?: (companyId: string) => void;
   onReturnToPlatform?: () => void;
+  onClearCacheReset?: () => void;
   onOpenMobileNav: () => void;
   onToggleSidebar: () => void;
   sidebarCollapsed: boolean;
@@ -34,9 +36,11 @@ export function DashboardTopbar({
   platformContextSelectValue = "__platform__",
   showCompanySwitcher = false,
   showReturnToPlatform = false,
+  showClearCacheReset = false,
   switchingCompany = false,
   onChangeCompany,
   onReturnToPlatform,
+  onClearCacheReset,
   onOpenMobileNav,
   onToggleSidebar,
   sidebarCollapsed,
@@ -125,6 +129,15 @@ export function DashboardTopbar({
               العودة للوحة المنصة
             </button>
           ) : null}
+          {showClearCacheReset && onClearCacheReset ? (
+            <button
+              type="button"
+              onClick={onClearCacheReset}
+              className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-900 hover:bg-rose-100"
+            >
+              Clear Cache &amp; Reset
+            </button>
+          ) : null}
           {platformMode ? (
             <span className="text-xs font-semibold text-indigo-700">Platform Mode</span>
           ) : (
@@ -175,6 +188,15 @@ export function DashboardTopbar({
             className="mt-2 h-9 w-full rounded-lg border border-indigo-200 bg-indigo-50 px-2 text-xs font-semibold text-indigo-900 disabled:opacity-50"
           >
             العودة للوحة المنصة
+          </button>
+        ) : null}
+        {showClearCacheReset && onClearCacheReset ? (
+          <button
+            type="button"
+            onClick={onClearCacheReset}
+            className="mt-2 h-9 w-full rounded-lg border border-rose-200 bg-rose-50 px-2 text-xs font-semibold text-rose-900"
+          >
+            Clear Cache &amp; Reset
           </button>
         ) : null}
         {!platformMode ? (

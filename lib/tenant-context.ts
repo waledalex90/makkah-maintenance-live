@@ -1,6 +1,8 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
 import { recordSecurityEvent } from "@/lib/security-events";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
+import { PLATFORM_CONTEXT_COOKIE } from "@/lib/platform-context";
 
 export type TenantContext =
   | {
@@ -17,6 +19,7 @@ export type TenantContext =
 
 export async function getTenantContext(): Promise<TenantContext> {
   const supabase = await createSupabaseServerClient();
+  const cookieStore = await cookies();
   const {
     data: { user },
     error: userError,
@@ -70,8 +73,11 @@ export async function getTenantContext(): Promise<TenantContext> {
     return { ok: false, status: 400, error: platformError.message };
   }
 
-  const activeCompanyId = profile.active_company_id ?? profile.company_id ?? null;
   const isPlatformAdmin = Boolean(platformAdmin?.user_id) || isProtectedSuperAdminEmail(user.email);
+  const tempPlatformCompanyId = cookieStore.get(PLATFORM_CONTEXT_COOKIE)?.value?.trim() || null;
+  const activeCompanyId = isPlatformAdmin
+    ? (tempPlatformCompanyId || null)
+    : (profile.active_company_id ?? profile.company_id ?? null);
 
   if (!isPlatformAdmin && !activeCompanyId) {
     await recordSecurityEvent({

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { mergeRoleAndUserOverrides, sanitizePermissionPayload } from "@/lib/rbac-roles";
 import { effectivePermissions } from "@/lib/permissions";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
+import { PLATFORM_CONTEXT_COOKIE } from "@/lib/platform-context";
 
 type MembershipRole = {
   role_key: string;
@@ -30,6 +32,7 @@ type MembershipRow = {
 
 export async function GET() {
   const supabase = await createSupabaseServerClient();
+  const cookieStore = await cookies();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -84,8 +87,10 @@ export async function GET() {
   });
 
   const isPlatformAdmin = Boolean(platformAdminRow?.user_id) || isProtectedSuperAdminEmail(user.email);
+  const isProtectedSuperAdmin = isProtectedSuperAdminEmail(user.email);
+  const tempPlatformCompanyId = cookieStore.get(PLATFORM_CONTEXT_COOKIE)?.value?.trim() || null;
 
-  let activeCompanyId: string | null = profile.active_company_id ?? null;
+  let activeCompanyId: string | null = isPlatformAdmin ? tempPlatformCompanyId : (profile.active_company_id ?? null);
   if (activeCompanyId === null && membershipsList.length > 0 && !isPlatformAdmin) {
     activeCompanyId = membershipsList[0].company_id;
   }
@@ -145,6 +150,7 @@ export async function GET() {
     active_membership: activeMembership,
     memberships: membershipsList,
     is_platform_admin: isPlatformAdmin,
+    is_protected_super_admin: isProtectedSuperAdmin,
     platform_company_options,
   });
 }

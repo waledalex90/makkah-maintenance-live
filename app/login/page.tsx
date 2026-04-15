@@ -8,6 +8,7 @@ import { mapAuthErrorToArabic } from "@/lib/auth-error-messages-ar";
 import { signOutCurrentSessionOnly } from "@/lib/auth-sign-out";
 import { postLoginHrefForProfile } from "@/lib/post-login-redirect";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
+import { clearPlatformClientContext } from "@/lib/platform-context";
 import {
   AUTH_EMAIL_DOMAIN,
   parseUsernameOrEmailLocalPart,
@@ -80,6 +81,7 @@ export default function LoginPage() {
     event.preventDefault();
     setLoading(true);
     setError(null);
+    clearPlatformClientContext();
 
     try {
       let authEmail: string;
@@ -172,7 +174,9 @@ export default function LoginPage() {
       const isPlatformAdminLogin = Boolean(platformAdminRow?.user_id) || isProtectedSuperAdminEmail(data.user.email);
 
       if (isPlatformAdminLogin) {
+        clearPlatformClientContext();
         await supabase.from("profiles").update({ active_company_id: null }).eq("id", userId);
+        await fetch("/api/me/reset-context", { method: "POST" });
         setLoading(false);
         router.replace("/dashboard/admin/platform");
         router.refresh();

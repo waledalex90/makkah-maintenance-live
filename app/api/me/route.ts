@@ -83,8 +83,7 @@ export async function GET() {
     };
   });
 
-  const isPlatformAdmin =
-    Boolean(platformAdminRow?.user_id) || (Boolean(platformAdminError) && isProtectedSuperAdminEmail(user.email));
+  const isPlatformAdmin = Boolean(platformAdminRow?.user_id) || isProtectedSuperAdminEmail(user.email);
 
   let activeCompanyId: string | null = profile.active_company_id ?? null;
   if (activeCompanyId === null && membershipsList.length > 0 && !isPlatformAdmin) {

@@ -11,6 +11,8 @@ type MiddlewareProfile = {
   role_id?: string | null;
   permissions?: Record<string, unknown> | null;
   access_work_list?: boolean | null;
+  active_company_id?: string | null;
+  company_id?: string | null;
   roles?: { permissions?: Record<string, unknown> | null } | { permissions?: Record<string, unknown> | null }[] | null;
 };
 
@@ -43,6 +45,22 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isAuthPage = path === "/login";
   const isProtectedPath = path.startsWith("/dashboard") || path.startsWith("/tasks");
+  const currentNotice = request.nextUrl.searchParams.get("notice");
+
+  let isPlatformAdminSession = false;
+  if (user) {
+    if (isProtectedSuperAdminEmail(user.email)) {
+      isPlatformAdminSession = true;
+    } else {
+      const { data: platformAdminRow } = await supabase
+        .from("platform_admins")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .maybeSingle();
+      isPlatformAdminSession = Boolean(platformAdminRow?.user_id);
+    }
+  }
 
   if (!user && isProtectedPath) {
     const url = request.nextUrl.clone();
@@ -50,8 +68,34 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  if (user && isProtectedPath && !isPlatformAdminSession) {
+    const { data: statusProfile } = await supabase
+      .from("profiles")
+      .select("active_company_id, company_id")
+      .eq("id", user.id)
+      .maybeSingle();
+    const activeCompanyId = statusProfile?.active_company_id ?? statusProfile?.company_id ?? null;
+    if (activeCompanyId) {
+      const { data: companyStatusRow } = await supabase
+        .from("companies")
+        .select("status")
+        .eq("id", activeCompanyId)
+        .maybeSingle();
+      if (companyStatusRow?.status === "suspended") {
+        const suspendedUrl = request.nextUrl.clone();
+        suspendedUrl.pathname = "/login";
+        suspendedUrl.searchParams.set("notice", "company_suspended");
+        return NextResponse.redirect(suspendedUrl);
+      }
+    }
+  }
+
   if (user && isAuthPage) {
-    if (isProtectedSuperAdminEmail(user.email)) {
+    if (currentNotice === "company_suspended") {
+      return supabaseResponse;
+    }
+
+    if (isPlatformAdminSession) {
       const adminUrl = request.nextUrl.clone();
       adminUrl.pathname = "/dashboard/admin/platform";
       return NextResponse.redirect(adminUrl);
@@ -85,7 +129,7 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (user && path.startsWith("/dashboard")) {
-    if (isProtectedSuperAdminEmail(user.email) && path === "/dashboard") {
+    if (isPlatformAdminSession && path === "/dashboard") {
       const adminUrl = request.nextUrl.clone();
       adminUrl.pathname = "/dashboard/admin/platform";
       return NextResponse.redirect(adminUrl);

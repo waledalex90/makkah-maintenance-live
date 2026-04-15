@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, LogIn } from "lucide-react";
+import { Pencil, LogIn, RotateCcw, PauseCircle, Search, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
@@ -60,6 +60,10 @@ export function PlatformCompaniesContent() {
   });
 
   const [editing, setEditing] = useState<CompanyRow | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | string>("all");
+  const [subscriptionFilter, setSubscriptionFilter] = useState<"all" | string>("all");
+  const [membersFilter, setMembersFilter] = useState<"all" | "0" | "1-5" | "6-20" | "21+">("all");
   const [form, setForm] = useState({
     name: "",
     subscription_plan: "",
@@ -133,7 +137,45 @@ export function PlatformCompaniesContent() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const quickSubscriptionMutation = useMutation({
+    mutationFn: async (payload: { companyId: string; action: "renew" | "suspend" }) => {
+      const res = await fetch(`/api/platform/companies/${payload.companyId}/subscription-actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: payload.action }),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok) throw new Error(json.error ?? "فشل العملية");
+    },
+    onSuccess: (_, vars) => {
+      toast.success(vars.action === "renew" ? "تم تجديد الاشتراك بنجاح." : "تم تعليق الشركة والاشتراك.");
+      void queryClient.invalidateQueries({ queryKey: ["platform-companies"] });
+      void queryClient.invalidateQueries({ queryKey: ["platform-overview"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const companies = query.data ?? [];
+  const filteredCompanies = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return companies.filter((company) => {
+      if (statusFilter !== "all" && company.status !== statusFilter) return false;
+      if (subscriptionFilter !== "all" && (company.subscription_status ?? "active") !== subscriptionFilter) return false;
+      if (membersFilter !== "all") {
+        const n = company.active_members;
+        if (membersFilter === "0" && n !== 0) return false;
+        if (membersFilter === "1-5" && (n < 1 || n > 5)) return false;
+        if (membersFilter === "6-20" && (n < 6 || n > 20)) return false;
+        if (membersFilter === "21+" && n < 21) return false;
+      }
+      if (!term) return true;
+      return (
+        company.name.toLowerCase().includes(term) ||
+        company.slug.toLowerCase().includes(term) ||
+        company.subscription_plan.toLowerCase().includes(term)
+      );
+    });
+  }, [companies, membersFilter, search, statusFilter, subscriptionFilter]);
 
   return (
     <section className="rounded-xl border border-slate-200 bg-slate-100 p-4" dir="rtl" lang="ar">
@@ -153,8 +195,65 @@ export function PlatformCompaniesContent() {
         </a>
       </div>
 
+      <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="pointer-events-none absolute right-2 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              className="h-9 w-full rounded-md border border-slate-200 pr-8 pl-2 text-sm"
+              placeholder="بحث بالاسم أو slug أو الباقة..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="inline-flex items-center gap-1 text-xs text-slate-500">
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            فلاتر
+          </div>
+          <select
+            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs"
+            value={subscriptionFilter}
+            onChange={(e) => setSubscriptionFilter(e.target.value)}
+          >
+            <option value="all">كل حالات الاشتراك</option>
+            {SUB_STATUSES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <select
+            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="all">كل أنشطة الشركات</option>
+            {COMPANY_STATUSES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <select
+            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs"
+            value={membersFilter}
+            onChange={(e) => setMembersFilter(e.target.value as typeof membersFilter)}
+          >
+            <option value="all">كل أحجام الفرق</option>
+            <option value="0">بدون موظفين</option>
+            <option value="1-5">1-5 موظفين</option>
+            <option value="6-20">6-20 موظف</option>
+            <option value="21+">21+ موظف</option>
+          </select>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          المعروض: <span className="font-semibold text-slate-700">{filteredCompanies.length}</span> من{" "}
+          <span className="font-semibold text-slate-700">{companies.length}</span>
+        </p>
+      </div>
+
       <div className="mt-4 overflow-auto rounded-lg border border-slate-200 bg-white">
-        <table className="min-w-[1100px] w-full text-right text-sm">
+        <table className="min-w-[1240px] w-full text-right text-sm">
           <thead className="bg-slate-50 text-slate-700">
             <tr>
               <th className="px-3 py-2">الشركة</th>
@@ -175,20 +274,24 @@ export function PlatformCompaniesContent() {
                   جاري التحميل...
                 </td>
               </tr>
-            ) : companies.length === 0 ? (
+            ) : filteredCompanies.length === 0 ? (
               <tr>
                 <td className="px-3 py-6 text-center text-slate-500" colSpan={9}>
-                  لا توجد شركات.
+                  لا توجد نتائج مطابقة للفلاتر الحالية.
                 </td>
               </tr>
             ) : (
-              companies.map((company) => (
+              filteredCompanies.map((company) => (
                 <tr key={company.id} className="border-t border-slate-100">
                   <td className="px-3 py-2 font-medium text-slate-900">{company.name}</td>
                   <td className="px-3 py-2 text-xs text-slate-600">{company.slug}</td>
                   <td className="px-3 py-2">{company.subscription_plan}</td>
-                  <td className="px-3 py-2">{company.status}</td>
-                  <td className="px-3 py-2 text-xs">{company.subscription_status ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    <StatusBadge value={company.status} type="company" />
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    <StatusBadge value={company.subscription_status ?? "active"} type="subscription" />
+                  </td>
                   <td className="px-3 py-2 text-xs text-slate-600">
                     {company.subscription_expires_at
                       ? new Date(company.subscription_expires_at).toLocaleString("ar-SA")
@@ -210,12 +313,30 @@ export function PlatformCompaniesContent() {
                       </button>
                       <button
                         type="button"
-                        disabled={enterCompany.isPending}
+                        disabled={enterCompany.isPending || quickSubscriptionMutation.isPending}
                         onClick={() => enterCompany.mutate(company.id)}
                         className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
                       >
                         <LogIn className="h-3.5 w-3.5" />
                         دخول
+                      </button>
+                      <button
+                        type="button"
+                        disabled={quickSubscriptionMutation.isPending}
+                        onClick={() => quickSubscriptionMutation.mutate({ companyId: company.id, action: "renew" })}
+                        className="inline-flex items-center gap-1 rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-900 hover:bg-sky-100 disabled:opacity-50"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        تجديد
+                      </button>
+                      <button
+                        type="button"
+                        disabled={quickSubscriptionMutation.isPending}
+                        onClick={() => quickSubscriptionMutation.mutate({ companyId: company.id, action: "suspend" })}
+                        className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        <PauseCircle className="h-3.5 w-3.5" />
+                        تعليق
                       </button>
                     </div>
                   </td>
@@ -332,4 +453,45 @@ export function PlatformCompaniesContent() {
       </Sheet>
     </section>
   );
+}
+
+function StatusBadge({ value, type }: { value: string; type: "company" | "subscription" }) {
+  const normalized = (value || "").toLowerCase();
+  let label = value;
+  let cls = "bg-slate-100 text-slate-700";
+
+  if (type === "company") {
+    if (normalized === "active") {
+      label = "Active";
+      cls = "bg-emerald-100 text-emerald-800";
+    } else if (normalized === "suspended") {
+      label = "Suspended";
+      cls = "bg-amber-100 text-amber-800";
+    } else if (normalized === "cancelled") {
+      label = "Cancelled";
+      cls = "bg-rose-100 text-rose-800";
+    } else if (normalized === "trial") {
+      label = "Trial";
+      cls = "bg-sky-100 text-sky-800";
+    }
+  } else {
+    if (normalized === "active") {
+      label = "Active";
+      cls = "bg-emerald-100 text-emerald-800";
+    } else if (normalized === "expired") {
+      label = "Expired";
+      cls = "bg-rose-100 text-rose-800";
+    } else if (normalized === "past_due") {
+      label = "Past Due";
+      cls = "bg-amber-100 text-amber-800";
+    } else if (normalized === "cancelled") {
+      label = "Cancelled";
+      cls = "bg-slate-200 text-slate-800";
+    } else if (normalized === "trial") {
+      label = "Trial";
+      cls = "bg-sky-100 text-sky-800";
+    }
+  }
+
+  return <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{label}</span>;
 }

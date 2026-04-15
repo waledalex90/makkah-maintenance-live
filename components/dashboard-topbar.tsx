@@ -14,8 +14,10 @@ type DashboardTopbarProps = {
   /** قيمة خيار «المنصة بدون شركة» في القائمة */
   platformContextSelectValue?: string;
   showCompanySwitcher?: boolean;
+  showReturnToPlatform?: boolean;
   switchingCompany?: boolean;
   onChangeCompany?: (companyId: string) => void;
+  onReturnToPlatform?: () => void;
   onOpenMobileNav: () => void;
   onToggleSidebar: () => void;
   sidebarCollapsed: boolean;
@@ -31,8 +33,10 @@ export function DashboardTopbar({
   activeCompanyId = null,
   platformContextSelectValue = "__platform__",
   showCompanySwitcher = false,
+  showReturnToPlatform = false,
   switchingCompany = false,
   onChangeCompany,
+  onReturnToPlatform,
   onOpenMobileNav,
   onToggleSidebar,
   sidebarCollapsed,
@@ -111,6 +115,16 @@ export function DashboardTopbar({
               ))}
             </select>
           ) : null}
+          {showReturnToPlatform && onReturnToPlatform ? (
+            <button
+              type="button"
+              onClick={onReturnToPlatform}
+              disabled={switchingCompany}
+              className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-900 hover:bg-indigo-100 disabled:opacity-50"
+            >
+              العودة للوحة المنصة
+            </button>
+          ) : null}
           {platformMode ? (
             <span className="text-xs font-semibold text-indigo-700">Platform Mode</span>
           ) : (
@@ -152,6 +166,16 @@ export function DashboardTopbar({
               ))}
             </select>
           </div>
+        ) : null}
+        {showReturnToPlatform && onReturnToPlatform ? (
+          <button
+            type="button"
+            onClick={onReturnToPlatform}
+            disabled={switchingCompany}
+            className="mt-2 h-9 w-full rounded-lg border border-indigo-200 bg-indigo-50 px-2 text-xs font-semibold text-indigo-900 disabled:opacity-50"
+          >
+            العودة للوحة المنصة
+          </button>
         ) : null}
         {!platformMode ? (
           <div className="mt-1 rounded-xl border border-slate-200 bg-slate-100 px-2 py-1 text-center text-[11px] text-amber-500">

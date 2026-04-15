@@ -200,23 +200,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           activeCompanyId={me?.ok ? me.profile.active_company_id ?? null : null}
           platformContextSelectValue={PLATFORM_CONTEXT_SWITCH_VALUE}
           showCompanySwitcher={showCompanySwitcher}
+          showReturnToPlatform={Boolean(me?.ok && me.is_platform_admin && me.profile.active_company_id)}
           switchingCompany={switchingCompany}
           onChangeCompany={handleChangeCompany}
+          onReturnToPlatform={() => void backToPlatform()}
           onOpenMobileNav={() => setMobileSidebarOpen(true)}
           onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
           sidebarCollapsed={sidebarCollapsed}
         />
         {me?.ok && me.is_platform_admin && me.profile.active_company_id ? (
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-950">
-            <span>وضع التينانت: أنت تعرض بيانات شركة بصلاحيات مدير من المنصة.</span>
-            <button
-              type="button"
-              disabled={switchingCompany}
-              onClick={() => void backToPlatform()}
-              className="shrink-0 rounded-md bg-indigo-900 px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50"
-            >
-              العودة للمنصة
-            </button>
+          <div className="mb-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-950">
+            وضع التينانت: أنت تعرض بيانات شركة بصلاحيات مدير من المنصة.
           </div>
         ) : null}
         <div className="min-h-0 pt-2 md:pt-3">

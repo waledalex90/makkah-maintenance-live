@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { mapAuthErrorToArabic } from "@/lib/auth-error-messages-ar";
 import { signOutCurrentSessionOnly } from "@/lib/auth-sign-out";
 import { postLoginHrefForProfile } from "@/lib/post-login-redirect";
+import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 import {
   AUTH_EMAIL_DOMAIN,
   parseUsernameOrEmailLocalPart,
@@ -161,6 +162,14 @@ export default function LoginPage() {
       }
 
       await logInfo("Login profile ok", { userId, role: profileRow.role });
+
+      if (isProtectedSuperAdminEmail(data.user.email)) {
+        await supabase.from("profiles").update({ active_company_id: null }).eq("id", userId);
+        setLoading(false);
+        router.replace("/dashboard/admin/platform");
+        router.refresh();
+        return;
+      }
 
       const { data: membershipsData, error: membershipsError } = await supabase
         .from("company_memberships")

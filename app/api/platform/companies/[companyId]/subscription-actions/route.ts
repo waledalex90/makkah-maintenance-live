@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth-guards";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { recordSecurityEvent } from "@/lib/security-events";
 
 type ActionPayload = {
   action?: "renew" | "suspend";
@@ -9,6 +11,11 @@ type ActionPayload = {
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export async function POST(request: Request, context: { params: Promise<{ companyId: string }> }) {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const access = await requirePlatformAdmin();
   if (!access.ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: access.status });
@@ -50,6 +57,15 @@ export async function POST(request: Request, context: { params: Promise<{ compan
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 400 });
     }
+    await recordSecurityEvent({
+      event_type: "platform_company_suspend",
+      status_code: 200,
+      message: "Platform admin suspended company subscription.",
+      actor_user_id: user?.id ?? null,
+      actor_email: user?.email ?? null,
+      actor_company_id: companyId,
+      metadata: { source: "platform/subscription-actions", action: "suspend" },
+    });
     return NextResponse.json({ ok: true, action: "suspend", company: updated });
   }
 
@@ -73,6 +89,15 @@ export async function POST(request: Request, context: { params: Promise<{ compan
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 400 });
     }
+    await recordSecurityEvent({
+      event_type: "platform_company_renew",
+      status_code: 200,
+      message: "Platform admin renewed company subscription.",
+      actor_user_id: user?.id ?? null,
+      actor_email: user?.email ?? null,
+      actor_company_id: companyId,
+      metadata: { source: "platform/subscription-actions", action: "renew", next_expiry: nextExpiry },
+    });
     return NextResponse.json({ ok: true, action: "renew", company: updated });
   }
 

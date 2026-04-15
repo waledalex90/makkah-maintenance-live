@@ -5,9 +5,12 @@ import { createCompanyNotification, notifyCompanyBillingManagers } from "@/lib/i
 
 function hasCronAccess(request: Request) {
   const secret = process.env.BILLING_CRON_SECRET;
-  if (!secret) return false;
   const incoming = request.headers.get("x-billing-cron-secret");
-  return Boolean(incoming) && incoming === secret;
+  const authHeader = request.headers.get("authorization");
+  const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : null;
+  const bySecret = Boolean(secret) && ((Boolean(incoming) && incoming === secret) || (Boolean(bearer) && bearer === secret));
+  const byVercelCron = Boolean(request.headers.get("x-vercel-cron"));
+  return bySecret || byVercelCron;
 }
 
 export async function POST(request: Request) {

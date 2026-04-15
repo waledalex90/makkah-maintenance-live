@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/tenant-context";
+import { recordSecurityEvent } from "@/lib/security-events";
 
 type ActiveCompanyPayload = {
   company_id?: string | null;
@@ -34,6 +35,14 @@ export async function PATCH(request: Request) {
     if (updateError) {
       return NextResponse.json({ ok: false, error: updateError.message }, { status: 400 });
     }
+    await recordSecurityEvent({
+      event_type: "platform_mode_return",
+      status_code: 200,
+      message: "Platform admin returned to command center.",
+      actor_user_id: user.id,
+      actor_email: user.email ?? null,
+      metadata: { source: "api/me/active-company" },
+    });
     return NextResponse.json({ ok: true, active_company_id: null });
   }
 
@@ -59,6 +68,15 @@ export async function PATCH(request: Request) {
     if (updateError) {
       return NextResponse.json({ ok: false, error: updateError.message }, { status: 400 });
     }
+    await recordSecurityEvent({
+      event_type: "tenant_context_switch",
+      status_code: 200,
+      message: "User switched active tenant context via own membership.",
+      actor_user_id: user.id,
+      actor_email: user.email ?? null,
+      actor_company_id: companyId,
+      metadata: { source: "api/me/active-company", mode: "membership" },
+    });
     return NextResponse.json({ ok: true, active_company_id: companyId });
   }
 
@@ -82,6 +100,16 @@ export async function PATCH(request: Request) {
   if (updateError) {
     return NextResponse.json({ ok: false, error: updateError.message }, { status: 400 });
   }
+
+  await recordSecurityEvent({
+    event_type: "platform_god_mode_enter",
+    status_code: 200,
+    message: "Platform admin entered tenant context without direct membership.",
+    actor_user_id: user.id,
+    actor_email: user.email ?? null,
+    actor_company_id: companyId,
+    metadata: { source: "api/me/active-company", mode: "platform_override" },
+  });
 
   return NextResponse.json({ ok: true, active_company_id: companyId });
 }

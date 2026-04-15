@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/platform/subscriptions/scan-expiry",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/platform/invoices/generate",
+      "schedule": "0 2 1 * *"
+    }
+  ]
+}

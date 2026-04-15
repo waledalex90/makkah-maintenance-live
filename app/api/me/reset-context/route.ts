@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
-import { PLATFORM_CONTEXT_COOKIE } from "@/lib/platform-context";
+import { PLATFORM_CONTEXT_COOKIE, PLATFORM_GOD_MODE_COOKIE } from "@/lib/platform-context";
 
 export async function POST() {
   const supabase = await createSupabaseServerClient();
@@ -29,6 +29,13 @@ export async function POST() {
 
   const response = NextResponse.json({ ok: true, active_company_id: null });
   response.cookies.set(PLATFORM_CONTEXT_COOKIE, "", {
+    path: "/",
+    maxAge: 0,
+    sameSite: "lax",
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  });
+  response.cookies.set(PLATFORM_GOD_MODE_COOKIE, "", {
     path: "/",
     maxAge: 0,
     sameSite: "lax",

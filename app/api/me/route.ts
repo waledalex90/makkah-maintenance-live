@@ -5,7 +5,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { mergeRoleAndUserOverrides, sanitizePermissionPayload } from "@/lib/rbac-roles";
 import { effectivePermissions } from "@/lib/permissions";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
-import { PLATFORM_CONTEXT_COOKIE } from "@/lib/platform-context";
+import { PLATFORM_CONTEXT_COOKIE, PLATFORM_GOD_MODE_COOKIE } from "@/lib/platform-context";
 
 type MembershipRole = {
   role_key: string;
@@ -88,9 +88,10 @@ export async function GET() {
 
   const isPlatformAdmin = Boolean(platformAdminRow?.user_id) || isProtectedSuperAdminEmail(user.email);
   const isProtectedSuperAdmin = isProtectedSuperAdminEmail(user.email);
+  const isGodMode = cookieStore.get(PLATFORM_GOD_MODE_COOKIE)?.value === "1";
   const tempPlatformCompanyId = cookieStore.get(PLATFORM_CONTEXT_COOKIE)?.value?.trim() || null;
 
-  let activeCompanyId: string | null = isPlatformAdmin ? tempPlatformCompanyId : (profile.active_company_id ?? null);
+  let activeCompanyId: string | null = isPlatformAdmin && isGodMode ? tempPlatformCompanyId : null;
   if (activeCompanyId === null && membershipsList.length > 0 && !isPlatformAdmin) {
     activeCompanyId = membershipsList[0].company_id;
   }
@@ -151,6 +152,7 @@ export async function GET() {
     memberships: membershipsList,
     is_platform_admin: isPlatformAdmin,
     is_protected_super_admin: isProtectedSuperAdmin,
+    is_god_mode: isGodMode,
     platform_company_options,
   });
 }

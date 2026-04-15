@@ -77,6 +77,34 @@ export default function LoginPage() {
     }
   }, []);
 
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!session?.user) return;
+      if (isProtectedSuperAdminEmail(session.user.email)) {
+        try {
+          window.localStorage.clear();
+          window.sessionStorage.clear();
+        } catch {
+          // ignore
+        }
+        return;
+      }
+      try {
+        const res = await fetch("/api/me", { cache: "no-store" });
+        const json = (await res.json()) as { ok?: boolean; is_platform_admin?: boolean };
+        if (json.ok && json.is_platform_admin) {
+          window.localStorage.clear();
+          window.sessionStorage.clear();
+        }
+      } catch {
+        // ignore
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
@@ -175,6 +203,12 @@ export default function LoginPage() {
 
       if (isPlatformAdminLogin) {
         clearPlatformClientContext();
+        try {
+          window.localStorage.clear();
+          window.sessionStorage.clear();
+        } catch {
+          // ignore
+        }
         await supabase.from("profiles").update({ active_company_id: null }).eq("id", userId);
         await fetch("/api/me/reset-context", { method: "POST" });
         setLoading(false);

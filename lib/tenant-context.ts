@@ -2,7 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
 import { recordSecurityEvent } from "@/lib/security-events";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
-import { PLATFORM_CONTEXT_COOKIE } from "@/lib/platform-context";
+import { PLATFORM_CONTEXT_COOKIE, PLATFORM_GOD_MODE_COOKIE } from "@/lib/platform-context";
 
 export type TenantContext =
   | {
@@ -74,9 +74,10 @@ export async function getTenantContext(): Promise<TenantContext> {
   }
 
   const isPlatformAdmin = Boolean(platformAdmin?.user_id) || isProtectedSuperAdminEmail(user.email);
+  const isGodMode = cookieStore.get(PLATFORM_GOD_MODE_COOKIE)?.value === "1";
   const tempPlatformCompanyId = cookieStore.get(PLATFORM_CONTEXT_COOKIE)?.value?.trim() || null;
   const activeCompanyId = isPlatformAdmin
-    ? (tempPlatformCompanyId || null)
+    ? (isGodMode ? (tempPlatformCompanyId || null) : null)
     : (profile.active_company_id ?? profile.company_id ?? null);
 
   if (!isPlatformAdmin && !activeCompanyId) {

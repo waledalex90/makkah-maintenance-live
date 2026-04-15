@@ -10,6 +10,8 @@ import { effectivePermissions } from "@/lib/permissions";
 import type { AppPermissionKey } from "@/lib/permissions";
 import { toast } from "sonner";
 import { clearPlatformClientContext } from "@/lib/platform-context";
+import { supabase } from "@/lib/supabase";
+import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 
 type MeResponse =
   | {
@@ -54,6 +56,7 @@ type MeResponse =
       }>;
       is_platform_admin?: boolean;
       is_protected_super_admin?: boolean;
+      is_god_mode?: boolean;
       platform_company_options?: Array<{ id: string; name: string }>;
     }
   | { ok: false; error: string };
@@ -97,7 +100,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   const fullName = me?.ok ? me.profile.full_name ?? "User" : "…";
   const role = me?.ok ? me.active_membership?.role_key ?? me.profile.role : "unknown";
-  const platformMode = Boolean(me?.ok && me.is_platform_admin && !me.profile.active_company_id);
+  const platformMode = Boolean(me?.ok && me.is_platform_admin && !me.is_god_mode);
+  const currentActiveCompanyId = me?.ok
+    ? (me.is_god_mode ? (me.active_membership?.company_id ?? null) : (me.profile.active_company_id ?? null))
+    : null;
   const companyName = me?.ok
     ? me.is_platform_admin && !me.profile.active_company_id
       ? "منصة التشغيل"
@@ -141,8 +147,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const handleChangeCompany = async (companyId: string) => {
     if (!me?.ok) return;
     const wantsPlatform = companyId === PLATFORM_CONTEXT_SWITCH_VALUE;
-    if (!wantsPlatform && (!companyId || companyId === me.profile.active_company_id)) return;
-    if (wantsPlatform && me.profile.active_company_id === null) return;
+    if (!wantsPlatform && (!companyId || companyId === currentActiveCompanyId)) return;
+    if (wantsPlatform && currentActiveCompanyId === null) return;
     setSwitchingCompany(true);
     try {
       const res = await fetch("/api/me/active-company", {
@@ -171,6 +177,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     try {
       await fetch("/api/me/reset-context", { method: "POST" });
       clearPlatformClientContext();
+      try {
+        window.localStorage.clear();
+        window.sessionStorage.clear();
+      } catch {
+        // ignore
+      }
       toast.success("تم تصفير الكاش والسياق بنجاح.");
       window.location.replace("/dashboard/admin/platform");
     } catch {
@@ -186,6 +198,34 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       document.body.style.overflow = prevOverflow;
     };
   }, [mobileSidebarOpen]);
+
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!session?.user) return;
+      const shouldClearByEmail = isProtectedSuperAdminEmail(session.user.email);
+      let shouldClearByRole = false;
+      if (!shouldClearByEmail) {
+        try {
+          const res = await fetch("/api/me", { cache: "no-store" });
+          const json = (await res.json()) as { ok?: boolean; is_platform_admin?: boolean };
+          shouldClearByRole = Boolean(json?.ok && json?.is_platform_admin);
+        } catch {
+          // ignore
+        }
+      }
+      if (shouldClearByEmail || shouldClearByRole) {
+        try {
+          window.localStorage.clear();
+          window.sessionStorage.clear();
+        } catch {
+          // ignore
+        }
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   return (
     <div className="flex min-h-dvh overflow-visible bg-[#f5f5ef] dark:bg-slate-950 md:flex-row-reverse">
@@ -210,10 +250,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           companyLogoUrl={companyLogoUrl}
           platformMode={platformMode}
           memberships={switcherOptions}
-          activeCompanyId={me?.ok ? me.profile.active_company_id ?? null : null}
+          activeCompanyId={currentActiveCompanyId}
           platformContextSelectValue={PLATFORM_CONTEXT_SWITCH_VALUE}
           showCompanySwitcher={showCompanySwitcher}
-          showReturnToPlatform={Boolean(me?.ok && me.is_platform_admin && me.profile.active_company_id)}
+          showReturnToPlatform={Boolean(me?.ok && me.is_platform_admin && me.is_god_mode)}
           showClearCacheReset={Boolean(me?.ok && me.is_protected_super_admin)}
           switchingCompany={switchingCompany}
           onChangeCompany={handleChangeCompany}

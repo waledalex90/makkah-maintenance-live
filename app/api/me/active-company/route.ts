@@ -3,7 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recordSecurityEvent } from "@/lib/security-events";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
-import { PLATFORM_CONTEXT_COOKIE } from "@/lib/platform-context";
+import { PLATFORM_CONTEXT_COOKIE, PLATFORM_GOD_MODE_COOKIE } from "@/lib/platform-context";
 
 type ActiveCompanyPayload = {
   company_id?: string | null;
@@ -49,6 +49,13 @@ export async function PATCH(request: Request) {
     });
     const response = NextResponse.json({ ok: true, active_company_id: null });
     response.cookies.set(PLATFORM_CONTEXT_COOKIE, "", {
+      path: "/",
+      maxAge: 0,
+      sameSite: "lax",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+    });
+    response.cookies.set(PLATFORM_GOD_MODE_COOKIE, "", {
       path: "/",
       maxAge: 0,
       sameSite: "lax",
@@ -120,6 +127,12 @@ export async function PATCH(request: Request) {
 
   const response = NextResponse.json({ ok: true, active_company_id: companyId });
   response.cookies.set(PLATFORM_CONTEXT_COOKIE, companyId, {
+    path: "/",
+    sameSite: "lax",
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  });
+  response.cookies.set(PLATFORM_GOD_MODE_COOKIE, "1", {
     path: "/",
     sameSite: "lax",
     httpOnly: true,

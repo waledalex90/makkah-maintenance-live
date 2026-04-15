@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import { canAccessDashboardPath } from "@/lib/permissions";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
-import { PLATFORM_CONTEXT_COOKIE } from "@/lib/platform-context";
+import { PLATFORM_CONTEXT_COOKIE, PLATFORM_GOD_MODE_COOKIE } from "@/lib/platform-context";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
@@ -46,6 +46,8 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isAuthPage = path === "/login";
   const isProtectedPath = path.startsWith("/dashboard") || path.startsWith("/tasks");
+  const isPlatformPage = path === "/dashboard/admin/platform";
+  const hasGodModeFlag = request.cookies.get(PLATFORM_GOD_MODE_COOKIE)?.value === "1";
 
   let isPlatformAdminSession = false;
   if (user) {
@@ -89,6 +91,50 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
+  if (user && isProtectedSuperAdminEmail(user.email) && !hasGodModeFlag) {
+    await supabase.from("profiles").update({ active_company_id: null }).eq("id", user.id);
+    supabaseResponse.cookies.set(PLATFORM_CONTEXT_COOKIE, "", {
+      path: "/",
+      maxAge: 0,
+      sameSite: "lax",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+    });
+    supabaseResponse.cookies.set(PLATFORM_GOD_MODE_COOKIE, "", {
+      path: "/",
+      maxAge: 0,
+      sameSite: "lax",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+    });
+  }
+
+  if (user && isProtectedPath && isProtectedSuperAdminEmail(user.email)) {
+    if (!hasGodModeFlag) {
+      await supabase.from("profiles").update({ active_company_id: null }).eq("id", user.id);
+      if (!isPlatformPage) {
+        const forceUrl = request.nextUrl.clone();
+        forceUrl.pathname = "/dashboard/admin/platform";
+        const response = NextResponse.redirect(forceUrl);
+        response.cookies.set(PLATFORM_CONTEXT_COOKIE, "", {
+          path: "/",
+          maxAge: 0,
+          sameSite: "lax",
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+        });
+        response.cookies.set(PLATFORM_GOD_MODE_COOKIE, "", {
+          path: "/",
+          maxAge: 0,
+          sameSite: "lax",
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+        });
+        return response;
+      }
+    }
+  }
+
   if (user && isAuthPage) {
     if (isPlatformAdminSession) {
       await supabase.from("profiles").update({ active_company_id: null }).eq("id", user.id);
@@ -96,6 +142,13 @@ export async function updateSession(request: NextRequest) {
       adminUrl.pathname = "/dashboard/admin/platform";
       const response = NextResponse.redirect(adminUrl);
       response.cookies.set(PLATFORM_CONTEXT_COOKIE, "", {
+        path: "/",
+        maxAge: 0,
+        sameSite: "lax",
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+      });
+      response.cookies.set(PLATFORM_GOD_MODE_COOKIE, "", {
         path: "/",
         maxAge: 0,
         sameSite: "lax",
@@ -140,7 +193,7 @@ export async function updateSession(request: NextRequest) {
       .maybeSingle();
 
     const typedProfile = (profile ?? null) as MiddlewareProfile | null;
-    if (isPlatformAdminSession && path === "/dashboard") {
+    if (isPlatformAdminSession && path === "/dashboard" && !hasGodModeFlag) {
       const adminUrl = request.nextUrl.clone();
       adminUrl.pathname = "/dashboard/admin/platform";
       return NextResponse.redirect(adminUrl);

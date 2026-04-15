@@ -95,6 +95,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   const fullName = me?.ok ? me.profile.full_name ?? "User" : "…";
   const role = me?.ok ? me.active_membership?.role_key ?? me.profile.role : "unknown";
+  const platformMode = Boolean(me?.ok && me.is_platform_admin && !me.profile.active_company_id);
   const companyName = me?.ok
     ? me.is_platform_admin && !me.profile.active_company_id
       ? "منصة التشغيل"
@@ -175,12 +176,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-dvh overflow-visible bg-[#f5f5ef] dark:bg-slate-950 md:flex-row-reverse">
-      <LiveLocationTracker />
+      {platformMode ? null : <LiveLocationTracker />}
       {me?.ok ? (
         <DashboardSidebar
           fullName={fullName}
           role={role}
           isPlatformAdmin={Boolean(me.is_platform_admin)}
+          platformMode={platformMode}
           permissions={permissions}
           collapsed={sidebarCollapsed}
           mobileOpen={mobileSidebarOpen}
@@ -193,6 +195,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           loading={!me}
           companyName={companyName}
           companyLogoUrl={companyLogoUrl}
+          platformMode={platformMode}
           memberships={switcherOptions}
           activeCompanyId={me?.ok ? me.profile.active_company_id ?? null : null}
           platformContextSelectValue={PLATFORM_CONTEXT_SWITCH_VALUE}
@@ -220,7 +223,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <PageTransition>{children}</PageTransition>
         </div>
       </main>
-      {me?.ok ? <DashboardBottomNav role={role} permissions={permissions} /> : null}
+      {me?.ok && !platformMode ? <DashboardBottomNav role={role} permissions={permissions} /> : null}
     </div>
   );
 }

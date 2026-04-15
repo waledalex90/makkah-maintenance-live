@@ -52,6 +52,30 @@ export async function GET() {
     totalActiveMembers = (memberships ?? []).length;
   }
 
+  let dueInvoices = 0;
+  let overdueInvoices = 0;
+  let dueInvoicesAmount = 0;
+  if (companyIds.length > 0) {
+    const nowIso = new Date().toISOString();
+    const { data: invoiceRows, error: invoiceErr } = await admin
+      .from("company_invoices")
+      .select("invoice_status, amount, due_at")
+      .in("company_id", companyIds)
+      .in("invoice_status", ["issued", "overdue"]);
+    if (invoiceErr) {
+      return NextResponse.json({ error: invoiceErr.message }, { status: 400 });
+    }
+    for (const inv of invoiceRows ?? []) {
+      const status = String(inv.invoice_status ?? "");
+      if (status === "overdue") {
+        overdueInvoices += 1;
+      } else if (status === "issued" && inv.due_at && inv.due_at <= nowIso) {
+        dueInvoices += 1;
+        dueInvoicesAmount += Number(inv.amount ?? 0);
+      }
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     totals: {
@@ -61,6 +85,9 @@ export async function GET() {
       expiring_subscriptions_14d: expiringWithin14d,
       subscription_status_expired: subscriptionExpiredCount,
       active_members_across_tenants: totalActiveMembers,
+      due_invoices: dueInvoices,
+      overdue_invoices: overdueInvoices,
+      due_invoices_amount: dueInvoicesAmount,
     },
   });
 }

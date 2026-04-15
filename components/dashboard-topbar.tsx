@@ -8,6 +8,7 @@ type DashboardTopbarProps = {
   loading?: boolean;
   companyName?: string;
   companyLogoUrl?: string | null;
+  platformMode?: boolean;
   memberships?: Array<{ company_id: string; company_name: string }>;
   activeCompanyId?: string | null;
   /** قيمة خيار «المنصة بدون شركة» في القائمة */
@@ -25,6 +26,7 @@ export function DashboardTopbar({
   loading = false,
   companyName,
   companyLogoUrl,
+  platformMode = false,
   memberships = [],
   activeCompanyId = null,
   platformContextSelectValue = "__platform__",
@@ -83,14 +85,14 @@ export function DashboardTopbar({
             ) : (
               <>
                 <p className="truncate text-sm font-semibold text-slate-900">{fullName}</p>
-                <p className="truncate text-[11px] text-amber-600">{companyName || "غرفة العمليات"}</p>
+                <p className="truncate text-[11px] text-amber-600">{platformMode ? "المركز الرئيسي للمنصة" : (companyName || "غرفة العمليات")}</p>
               </>
             )}
           </div>
         </div>
 
         <div className="hidden items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 md:flex">
-          {companyLogoUrl ? (
+          {!platformMode && companyLogoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={companyLogoUrl} alt={companyName || "company logo"} className="h-6 w-6 rounded-full border border-slate-200 bg-white object-cover" />
           ) : null}
@@ -109,16 +111,26 @@ export function DashboardTopbar({
               ))}
             </select>
           ) : null}
-          <span className="text-sm leading-none" aria-hidden="true">🕋</span>
-          <span className="text-xs font-semibold text-emerald-600">Live Makkah</span>
+          {platformMode ? (
+            <span className="text-xs font-semibold text-indigo-700">Platform Mode</span>
+          ) : (
+            <>
+              <span className="text-sm leading-none" aria-hidden="true">🕋</span>
+              <span className="text-xs font-semibold text-emerald-600">Live Makkah</span>
+            </>
+          )}
           <span className="text-xs text-slate-400">|</span>
           <span className="font-mono text-sm font-semibold text-slate-900">{makkahTime}</span>
-          <span className="text-xs text-slate-400">|</span>
-          <span className="text-xs text-amber-500">Temp 34C</span>
+          {!platformMode ? (
+            <>
+              <span className="text-xs text-slate-400">|</span>
+              <span className="text-xs text-amber-500">Temp 34C</span>
+            </>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-sm leading-none md:hidden" aria-hidden="true">🕋</span>
+          {!platformMode ? <span className="text-sm leading-none md:hidden" aria-hidden="true">🕋</span> : null}
           <div className="rounded-xl border border-slate-200 px-2 py-1 font-mono text-xs text-slate-900 md:hidden">
             {makkahTime}
           </div>
@@ -141,9 +153,11 @@ export function DashboardTopbar({
             </select>
           </div>
         ) : null}
-        <div className="mt-1 rounded-xl border border-slate-200 bg-slate-100 px-2 py-1 text-center text-[11px] text-amber-500">
-          Live Makkah Status - Temp 34C
-        </div>
+        {!platformMode ? (
+          <div className="mt-1 rounded-xl border border-slate-200 bg-slate-100 px-2 py-1 text-center text-[11px] text-amber-500">
+            Live Makkah Status - Temp 34C
+          </div>
+        ) : null}
       </div>
     </header>
   );

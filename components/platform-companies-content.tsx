@@ -318,7 +318,7 @@ export function PlatformCompaniesContent() {
                         className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
                       >
                         <LogIn className="h-3.5 w-3.5" />
-                        دخول
+                        تبديل للوضع التشغيلي
                       </button>
                       <button
                         type="button"

@@ -45,7 +45,6 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isAuthPage = path === "/login";
   const isProtectedPath = path.startsWith("/dashboard") || path.startsWith("/tasks");
-  const currentNotice = request.nextUrl.searchParams.get("notice");
 
   let isPlatformAdminSession = false;
   if (user) {
@@ -83,18 +82,13 @@ export async function updateSession(request: NextRequest) {
         .maybeSingle();
       if (companyStatusRow?.status === "suspended") {
         const suspendedUrl = request.nextUrl.clone();
-        suspendedUrl.pathname = "/login";
-        suspendedUrl.searchParams.set("notice", "company_suspended");
+        suspendedUrl.pathname = "/suspended";
         return NextResponse.redirect(suspendedUrl);
       }
     }
   }
 
   if (user && isAuthPage) {
-    if (currentNotice === "company_suspended") {
-      return supabaseResponse;
-    }
-
     if (isPlatformAdminSession) {
       const adminUrl = request.nextUrl.clone();
       adminUrl.pathname = "/dashboard/admin/platform";
@@ -129,19 +123,19 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (user && path.startsWith("/dashboard")) {
-    if (isPlatformAdminSession && path === "/dashboard") {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role, role_id, permissions, access_work_list, active_company_id, company_id, roles:role_id(permissions)")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    const typedProfile = (profile ?? null) as MiddlewareProfile | null;
+    if (isPlatformAdminSession && path === "/dashboard" && !typedProfile?.active_company_id) {
       const adminUrl = request.nextUrl.clone();
       adminUrl.pathname = "/dashboard/admin/platform";
       return NextResponse.redirect(adminUrl);
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role, role_id, permissions, access_work_list, roles:role_id(permissions)")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    const typedProfile = (profile ?? null) as MiddlewareProfile | null;
     if (typedProfile?.access_work_list || typedProfile?.role === "technician" || typedProfile?.role === "supervisor" || typedProfile?.role === "data_entry") {
       const url = request.nextUrl.clone();
       url.pathname = "/tasks/my-work";

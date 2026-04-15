@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth-guards";
-import { createCompanyNotification } from "@/lib/invoicing";
+import { createCompanyNotification, notifyCompanyBillingManagers } from "@/lib/invoicing";
 
 function hasCronAccess(request: Request) {
   const secret = process.env.BILLING_CRON_SECRET;
@@ -22,6 +22,7 @@ export async function POST(request: Request) {
   const admin = createSupabaseAdminClient();
   const now = new Date();
   const soon = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+  const overdueCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   const { data: companies, error } = await admin
     .from("companies")
@@ -33,6 +34,7 @@ export async function POST(request: Request) {
   }
 
   let notified = 0;
+  let overdueInvoices = 0;
   for (const c of companies ?? []) {
     const expiry = c.subscription_expires_at ? new Date(c.subscription_expires_at) : null;
     if (!expiry) continue;
@@ -58,6 +60,40 @@ export async function POST(request: Request) {
     notified += 1;
   }
 
-  return NextResponse.json({ ok: true, notified });
+  const { data: invoices, error: invoicesError } = await admin
+    .from("company_invoices")
+    .select("id, company_id, invoice_number, invoice_status, due_at")
+    .eq("invoice_status", "issued")
+    .not("due_at", "is", null)
+    .lte("due_at", overdueCutoff.toISOString());
+  if (invoicesError) {
+    return NextResponse.json({ error: invoicesError.message }, { status: 400 });
+  }
+
+  for (const inv of invoices ?? []) {
+    const { error: markError } = await admin
+      .from("company_invoices")
+      .update({ invoice_status: "overdue" })
+      .eq("id", inv.id)
+      .eq("invoice_status", "issued");
+    if (markError) {
+      return NextResponse.json({ error: markError.message }, { status: 400 });
+    }
+
+    await notifyCompanyBillingManagers(admin, {
+      companyId: inv.company_id as string,
+      type: "invoice_overdue",
+      title: "فاتورة متأخرة السداد",
+      body: `الفاتورة ${inv.invoice_number ?? inv.id} أصبحت متأخرة بعد تجاوز مهلة 24 ساعة من تاريخ الاستحقاق.`,
+      metadata: {
+        invoice_id: inv.id,
+        invoice_number: inv.invoice_number ?? null,
+        due_at: inv.due_at ?? null,
+      },
+    });
+    overdueInvoices += 1;
+  }
+
+  return NextResponse.json({ ok: true, notified, overdue_invoices: overdueInvoices });
 }
 

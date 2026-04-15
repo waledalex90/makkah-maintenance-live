@@ -12,6 +12,7 @@ type DashboardSidebarProps = {
   fullName: string;
   role: string;
   isPlatformAdmin?: boolean;
+  platformMode?: boolean;
   permissions: Record<AppPermissionKey, boolean>;
   collapsed: boolean;
   mobileOpen: boolean;
@@ -42,10 +43,18 @@ const NAV_DEF: NavItem[] = [
   { href: "/dashboard/settings", label: "الإعدادات", icon: Settings, perm: "view_settings" },
 ];
 
+const PLATFORM_NAV_DEF: NavItem[] = [
+  { href: "/dashboard/admin/platform", label: "لوحة المنصة", icon: Building2, perm: "manage_users", platformAdminOnly: true },
+  { href: "/dashboard/admin/companies", label: "إدارة الشركات", icon: Users, perm: "manage_users", platformAdminOnly: true },
+  { href: "/dashboard/admin/billing", label: "الفواتير", icon: BarChart3, perm: "manage_users", platformAdminOnly: true },
+  { href: "/dashboard/admin/platform-settings", label: "الإعدادات العالمية", icon: Settings, perm: "manage_users", platformAdminOnly: true },
+];
+
 export function DashboardSidebar({
   fullName,
   role,
   isPlatformAdmin = false,
+  platformMode = false,
   permissions,
   collapsed,
   mobileOpen,
@@ -69,7 +78,8 @@ export function DashboardSidebar({
                   ? "فني"
                   : role;
 
-  const navItems = NAV_DEF.filter(
+  const activeNav = platformMode ? PLATFORM_NAV_DEF : NAV_DEF;
+  const navItems = activeNav.filter(
     (item) =>
       permissions[item.perm] &&
       (!item.roles || item.roles.includes(role)) &&

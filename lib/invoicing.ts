@@ -33,6 +33,66 @@ export async function createCompanyNotification(
   });
 }
 
+type BillingManagerMembershipRow = {
+  user_id: string;
+  is_owner?: boolean | null;
+  roles?: { role_key?: string | null } | { role_key?: string | null }[] | null;
+};
+
+/**
+ * إشعار مديري الحساب/الدعم داخل الشركة.
+ * نستهدف المالك + أدوار الإدارة الشائعة في النظام.
+ */
+export async function notifyCompanyBillingManagers(
+  admin: AdminClient,
+  params: {
+    companyId: string;
+    type: string;
+    title: string;
+    body: string;
+    metadata?: Record<string, unknown>;
+  },
+) {
+  const { data: memberships, error } = await admin
+    .from("company_memberships")
+    .select("user_id, is_owner, roles:role_id(role_key)")
+    .eq("company_id", params.companyId)
+    .eq("status", "active");
+  if (error) return;
+
+  const managerRoles = new Set(["admin", "projects_director", "project_manager", "supervisor"]);
+  const targetUserIds = new Set<string>();
+  for (const row of (memberships ?? []) as BillingManagerMembershipRow[]) {
+    const roleData = Array.isArray(row.roles) ? row.roles[0] : row.roles;
+    const roleKey = (roleData?.role_key ?? "").toLowerCase();
+    if (row.is_owner || managerRoles.has(roleKey)) {
+      targetUserIds.add(row.user_id);
+    }
+  }
+
+  if (targetUserIds.size === 0) {
+    await createCompanyNotification(admin, {
+      companyId: params.companyId,
+      type: params.type,
+      title: params.title,
+      body: params.body,
+      metadata: params.metadata,
+    });
+    return;
+  }
+
+  await admin.from("company_notifications").insert(
+    Array.from(targetUserIds).map((userId) => ({
+      company_id: params.companyId,
+      user_id: userId,
+      notification_type: params.type,
+      title: params.title,
+      body: params.body,
+      metadata: params.metadata ?? {},
+    })),
+  );
+}
+
 export async function generateMonthlyInvoices(admin: AdminClient): Promise<{ generated: number; skipped: number }> {
   const start = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const end = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1);

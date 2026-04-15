@@ -163,7 +163,15 @@ export default function LoginPage() {
 
       await logInfo("Login profile ok", { userId, role: profileRow.role });
 
-      if (isProtectedSuperAdminEmail(data.user.email)) {
+      const { data: platformAdminRow } = await supabase
+        .from("platform_admins")
+        .select("user_id")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .maybeSingle();
+      const isPlatformAdminLogin = Boolean(platformAdminRow?.user_id) || isProtectedSuperAdminEmail(data.user.email);
+
+      if (isPlatformAdminLogin) {
         await supabase.from("profiles").update({ active_company_id: null }).eq("id", userId);
         setLoading(false);
         router.replace("/dashboard/admin/platform");

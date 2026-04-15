@@ -90,9 +90,7 @@ export async function updateSession(request: NextRequest) {
 
   if (user && isAuthPage) {
     if (isPlatformAdminSession) {
-      if (isProtectedSuperAdminEmail(user.email)) {
-        await supabase.from("profiles").update({ active_company_id: null }).eq("id", user.id);
-      }
+      await supabase.from("profiles").update({ active_company_id: null }).eq("id", user.id);
       const adminUrl = request.nextUrl.clone();
       adminUrl.pathname = "/dashboard/admin/platform";
       return NextResponse.redirect(adminUrl);

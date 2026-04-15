@@ -10,6 +10,9 @@ type DashboardTopbarProps = {
   companyLogoUrl?: string | null;
   memberships?: Array<{ company_id: string; company_name: string }>;
   activeCompanyId?: string | null;
+  /** قيمة خيار «المنصة بدون شركة» في القائمة */
+  platformContextSelectValue?: string;
+  showCompanySwitcher?: boolean;
   switchingCompany?: boolean;
   onChangeCompany?: (companyId: string) => void;
   onOpenMobileNav: () => void;
@@ -24,6 +27,8 @@ export function DashboardTopbar({
   companyLogoUrl,
   memberships = [],
   activeCompanyId = null,
+  platformContextSelectValue = "__platform__",
+  showCompanySwitcher = false,
   switchingCompany = false,
   onChangeCompany,
   onOpenMobileNav,
@@ -89,12 +94,13 @@ export function DashboardTopbar({
             // eslint-disable-next-line @next/next/no-img-element
             <img src={companyLogoUrl} alt={companyName || "company logo"} className="h-6 w-6 rounded-full border border-slate-200 bg-white object-cover" />
           ) : null}
-          {memberships.length > 1 && onChangeCompany ? (
+          {showCompanySwitcher && onChangeCompany ? (
             <select
-              className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700"
-              value={activeCompanyId ?? ""}
+              className="h-8 max-w-[200px] rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700"
+              value={activeCompanyId ?? platformContextSelectValue}
               disabled={switchingCompany}
               onChange={(e) => onChangeCompany(e.target.value)}
+              title="الشركة النشطة أو المنصة"
             >
               {memberships.map((m) => (
                 <option key={m.company_id} value={m.company_id}>
@@ -119,6 +125,22 @@ export function DashboardTopbar({
         </div>
       </div>
       <div className="md:hidden">
+        {showCompanySwitcher && onChangeCompany ? (
+          <div className="mt-2">
+            <select
+              className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-800"
+              value={activeCompanyId ?? platformContextSelectValue}
+              disabled={switchingCompany}
+              onChange={(e) => onChangeCompany(e.target.value)}
+            >
+              {memberships.map((m) => (
+                <option key={m.company_id} value={m.company_id}>
+                  {m.company_name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
         <div className="mt-1 rounded-xl border border-slate-200 bg-slate-100 px-2 py-1 text-center text-[11px] text-amber-500">
           Live Makkah Status - Temp 34C
         </div>

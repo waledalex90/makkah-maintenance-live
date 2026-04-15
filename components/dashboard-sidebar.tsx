@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, LayoutDashboard, ListTodo, MapPinned, Settings, Ticket, Users, X } from "lucide-react";
+import { BarChart3, Building2, LayoutDashboard, ListTodo, MapPinned, Settings, Ticket, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "@/components/logout-button";
 import { LogoutIconButton } from "@/components/logout-icon-button";
@@ -29,6 +29,7 @@ type NavItem = {
 };
 
 const NAV_DEF: NavItem[] = [
+  { href: "/dashboard/admin/platform", label: "لوحة المنصة", icon: Building2, perm: "manage_users", platformAdminOnly: true },
   { href: "/dashboard/map", label: "الخريطة", icon: MapPinned, perm: "view_map" },
   { href: "/dashboard", label: "لوحة التحكم", icon: LayoutDashboard, perm: "view_dashboard" },
   { href: "/dashboard/tickets", label: "البلاغات", icon: Ticket, perm: "view_tickets" },

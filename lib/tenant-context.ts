@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordSecurityEvent } from "@/lib/security-events";
+import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 
 export type TenantContext =
   | {
@@ -56,7 +57,7 @@ export async function getTenantContext(): Promise<TenantContext> {
     .eq("is_active", true)
     .maybeSingle();
 
-  if (platformError) {
+  if (platformError && !isProtectedSuperAdminEmail(user.email)) {
     await recordSecurityEvent({
       event_type: "tenant_guard_reject",
       status_code: 400,
@@ -70,7 +71,7 @@ export async function getTenantContext(): Promise<TenantContext> {
   }
 
   const activeCompanyId = profile.active_company_id ?? profile.company_id ?? null;
-  const isPlatformAdmin = Boolean(platformAdmin?.user_id);
+  const isPlatformAdmin = Boolean(platformAdmin?.user_id) || isProtectedSuperAdminEmail(user.email);
 
   if (!isPlatformAdmin && !activeCompanyId) {
     await recordSecurityEvent({

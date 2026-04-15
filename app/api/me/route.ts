@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { mergeRoleAndUserOverrides, sanitizePermissionPayload } from "@/lib/rbac-roles";
 import { effectivePermissions } from "@/lib/permissions";
+import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 
 type MembershipRole = {
   role_key: string;
@@ -56,7 +58,7 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: membershipsError.message }, { status: 400 });
   }
 
-  const { data: platformAdminRow } = await supabase
+  const { data: platformAdminRow, error: platformAdminError } = await supabase
     .from("platform_admins")
     .select("user_id")
     .eq("user_id", user.id)
@@ -81,8 +83,58 @@ export async function GET() {
     };
   });
 
-  const activeCompanyId = profile.active_company_id ?? membershipsList[0]?.company_id ?? null;
-  const activeMembership = membershipsList.find((m) => m.company_id === activeCompanyId) ?? membershipsList[0] ?? null;
+  const isPlatformAdmin =
+    Boolean(platformAdminRow?.user_id) || (Boolean(platformAdminError) && isProtectedSuperAdminEmail(user.email));
+
+  let activeCompanyId: string | null = profile.active_company_id ?? null;
+  if (activeCompanyId === null && membershipsList.length > 0 && !isPlatformAdmin) {
+    activeCompanyId = membershipsList[0].company_id;
+  }
+
+  let activeMembership =
+    activeCompanyId !== null ? (membershipsList.find((m) => m.company_id === activeCompanyId) ?? null) : null;
+
+  if (!activeMembership && activeCompanyId !== null && membershipsList.length > 0 && !isPlatformAdmin) {
+    activeMembership = membershipsList[0];
+    activeCompanyId = activeMembership.company_id;
+  }
+
+  if (isPlatformAdmin && activeCompanyId && !activeMembership) {
+    const admin = createSupabaseAdminClient();
+    const { data: companyFetch } = await admin
+      .from("companies")
+      .select("id, name, slug, company_logo_url, subscription_plan, status")
+      .eq("id", activeCompanyId)
+      .maybeSingle();
+    if (companyFetch) {
+      activeMembership = {
+        company_id: activeCompanyId,
+        role_id: profile.role_id,
+        role_key: profile.role ?? "admin",
+        role_display_name: "دخول من المنصة",
+        effective_permissions: effectivePermissions("admin", null),
+        is_owner: true,
+        company: {
+          id: companyFetch.id,
+          name: companyFetch.name,
+          slug: companyFetch.slug,
+          company_logo_url: companyFetch.company_logo_url,
+          subscription_plan: companyFetch.subscription_plan,
+          status: companyFetch.status,
+        },
+      };
+    }
+  }
+
+  let platform_company_options: { id: string; name: string }[] | undefined;
+  if (isPlatformAdmin) {
+    const admin = createSupabaseAdminClient();
+    const { data: rows } = await admin.from("companies").select("id, name").order("name");
+    platform_company_options = (rows ?? []).map((r) => ({
+      id: r.id as string,
+      name: (r.name as string) ?? "",
+    }));
+  }
 
   return NextResponse.json({
     ok: true,
@@ -93,7 +145,8 @@ export async function GET() {
     active_company: activeMembership?.company ?? null,
     active_membership: activeMembership,
     memberships: membershipsList,
-    is_platform_admin: Boolean(platformAdminRow?.user_id),
+    is_platform_admin: isPlatformAdmin,
+    platform_company_options,
   });
 }
 

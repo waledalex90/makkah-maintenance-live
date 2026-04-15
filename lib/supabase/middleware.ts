@@ -53,7 +53,7 @@ export async function updateSession(request: NextRequest) {
   if (user && isAuthPage) {
     if (isProtectedSuperAdminEmail(user.email)) {
       const adminUrl = request.nextUrl.clone();
-      adminUrl.pathname = "/dashboard/admin/companies";
+      adminUrl.pathname = "/dashboard/admin/platform";
       return NextResponse.redirect(adminUrl);
     }
 
@@ -87,7 +87,7 @@ export async function updateSession(request: NextRequest) {
   if (user && path.startsWith("/dashboard")) {
     if (isProtectedSuperAdminEmail(user.email) && path === "/dashboard") {
       const adminUrl = request.nextUrl.clone();
-      adminUrl.pathname = "/dashboard/admin/companies";
+      adminUrl.pathname = "/dashboard/admin/platform";
       return NextResponse.redirect(adminUrl);
     }
 

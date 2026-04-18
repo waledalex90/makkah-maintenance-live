@@ -1,3 +1,13 @@
+# Platform Hourly Billing Scan — triggers the deployed API route that scans subscriptions/invoices.
+#
+# Required GitHub Actions secrets (Repository → Settings → Secrets and variables → Actions):
+#   PLATFORM_SCAN_URL     Full POST URL, e.g.
+#                         https://<your-app>.vercel.app/api/platform/subscriptions/scan-expiry
+#   BILLING_CRON_SECRET   Must match the Vercel (or host) env var BILLING_CRON_SECRET exactly.
+#                         This is NOT SUPABASE_SERVICE_ROLE_KEY.
+#
+# The route validates: Authorization: Bearer <secret> OR header x-billing-cron-secret OR x-vercel-cron.
+
 name: Platform Hourly Billing Scan
 
 on:
@@ -9,19 +19,121 @@ jobs:
   run-scan:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger subscription/invoice scan
+      - name: Verify secrets and target URL shape
         env:
           SCAN_URL: ${{ secrets.PLATFORM_SCAN_URL }}
           BILLING_CRON_SECRET: ${{ secrets.BILLING_CRON_SECRET }}
         run: |
-          if [ -z "$SCAN_URL" ]; then
-            echo "Missing secret PLATFORM_SCAN_URL"
+          set -euo pipefail
+          echo "::group::Secrets (values are never printed)"
+          if [ -z "${SCAN_URL:-}" ]; then
+            echo "::error::Missing repository secret PLATFORM_SCAN_URL"
             exit 1
           fi
-          if [ -z "$BILLING_CRON_SECRET" ]; then
-            echo "Missing secret BILLING_CRON_SECRET"
+          if [ -z "${BILLING_CRON_SECRET:-}" ]; then
+            echo "::error::Missing repository secret BILLING_CRON_SECRET"
             exit 1
           fi
-          curl -f -sS -X POST "$SCAN_URL" \
-            -H "Authorization: Bearer $BILLING_CRON_SECRET" \
-            -H "Content-Type: application/json"
+          echo "PLATFORM_SCAN_URL: set (length ${#SCAN_URL})"
+          echo "BILLING_CRON_SECRET: set (length ${#BILLING_CRON_SECRET})"
+          case "$SCAN_URL" in
+            https://*) ;;
+            http://*) echo "::warning::PLATFORM_SCAN_URL uses HTTP; prefer HTTPS" ;;
+            *) echo "::error::PLATFORM_SCAN_URL must be an absolute http(s) URL"; exit 1 ;;
+          esac
+          echo "::endgroup::"
+
+      - name: Connection test (origin reachable)
+        env:
+          SCAN_URL: ${{ secrets.PLATFORM_SCAN_URL }}
+        run: |
+          set -euo pipefail
+          ORIGIN="$(printf '%s' "$SCAN_URL" | sed -E 's#(https?://[^/]+).*#\1#')"
+          echo "::group::Reachability GET $ORIGIN/"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 20 --max-time 40 "$ORIGIN/" || printf '000')"
+          echo "HTTP status: $code"
+          case "$code" in
+            2*|3*|404|405|401|302|301)
+              echo "Origin responded (code explains app routing, not necessarily failure)."
+              ;;
+            000)
+              echo "::error::Could not connect (timeout/DNS/TLS). Check deployment URL and Vercel project."
+              exit 1
+              ;;
+            *)
+              echo "::warning::Unexpected HTTP $code from origin — continuing to POST anyway."
+              ;;
+          esac
+          echo "::endgroup::"
+
+      - name: Trigger subscription/invoice scan (with debug metadata)
+        env:
+          SCAN_URL: ${{ secrets.PLATFORM_SCAN_URL }}
+          BILLING_CRON_SECRET: ${{ secrets.BILLING_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          echo "::group::POST scan endpoint"
+          body_file="$(mktemp)"
+          hdr_file="$(mktemp)"
+          trap 'rm -f "$body_file" "$hdr_file"' EXIT
+
+          # Do not use curl -f: always log HTTP status + body for 4xx/5xx.
+          set +e
+          curl_metrics="$(
+            curl -sS \
+              --connect-timeout 30 \
+              --max-time 120 \
+              -D "$hdr_file" \
+              -o "$body_file" \
+              -w '%{http_code} %{time_total}' \
+              -X POST "$SCAN_URL" \
+              -H "Authorization: Bearer ${BILLING_CRON_SECRET}" \
+              -H "Content-Type: application/json" \
+              -d '{}'
+          )"
+          curl_exit=$?
+          set -e
+
+          if [ "$curl_exit" -ne 0 ]; then
+            echo "::error::curl failed (exit $curl_exit): network/DNS/TLS/refused or timeout before HTTP response."
+            echo "--- stderr context: check Connectivity / URL above ---"
+            exit 1
+          fi
+
+          http_code="$(printf '%s' "$curl_metrics" | awk '{print $1}')"
+          time_s="$(printf '%s' "$curl_metrics" | awk '{print $2}')"
+
+          if ! printf '%s' "$http_code" | grep -Eq '^[0-9]{3}$'; then
+            echo "::error::Unexpected curl -w output: $curl_metrics"
+            exit 1
+          fi
+
+          echo "HTTP status: $http_code  total_time_s: ${time_s:-unknown}"
+
+          echo "--- response headers (Authorization redacted) ---"
+          sed 's/[Aa]uthorization:.*/Authorization: ***redacted***/' "$hdr_file" || true
+
+          echo "--- response body (first 8k) ---"
+          head -c 8192 "$body_file" || true
+          echo
+          echo "::endgroup::"
+
+          case "$http_code" in
+            2*) echo "Scan request succeeded." ;;
+            401|403)
+              echo "::error::Unauthorized/Forbidden ($http_code). BILLING_CRON_SECRET in GitHub must match BILLING_CRON_SECRET on the server."
+              exit 1
+              ;;
+            404)
+              echo "::error::Not Found (404). Wrong PLATFORM_SCAN_URL or route/deployment missing."
+              exit 1
+              ;;
+            408|504|524)
+              echo "::error::Timeout ($http_code). App cold start or upstream slow."
+              exit 1
+              ;;
+            *)
+              echo "::error::Scan request failed with HTTP $http_code"
+              exit 1
+              ;;
+          esac

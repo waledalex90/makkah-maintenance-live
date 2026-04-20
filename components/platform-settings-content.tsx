@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { RotateCcw, Save } from "lucide-react";
+import { AlertTriangle, RotateCcw, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,8 @@ import type { GlobalSettingRow } from "@/lib/settings-keys";
 import { SETTINGS_KEYS } from "@/lib/settings-keys";
 import { DEFAULT_TICKETING_SETTINGS, RESOLVED_TICKETING_SETTINGS_QUERY_KEY } from "@/lib/resolved-settings";
 import { resetGlobalSettingsToDefaultsAction, updateGlobalSettingAction } from "@/app/dashboard/admin/platform-settings/actions";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { PLATFORM_PURGE_CONFIRMATION_PHRASE } from "@/lib/platform-purge";
 
 type Props = {
   initialRows: GlobalSettingRow[];
@@ -44,6 +46,9 @@ export function PlatformSettingsContent({ initialRows }: Props) {
   const [warnPercent, setWarnPercent] = useState(String(Math.round(initialWarnRatio * 100)));
   const [completionMin, setCompletionMin] = useState(String(initialCompletion));
   const [sound, setSound] = useState(initialSound);
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [purgePhrase, setPurgePhrase] = useState("");
+  const [purging, setPurging] = useState(false);
 
   const invalidateResolved = () => {
     void queryClient.invalidateQueries({ queryKey: [...RESOLVED_TICKETING_SETTINGS_QUERY_KEY] });
@@ -92,6 +97,37 @@ export function PlatformSettingsContent({ initialRows }: Props) {
   const onToggleSound = (checked: boolean) => {
     setSound(checked);
     saveKey(SETTINGS_KEYS.ENABLE_SOUND_ALERTS, checked ? "true" : "false");
+  };
+
+  const runPlatformPurge = async () => {
+    if (purgePhrase !== PLATFORM_PURGE_CONFIRMATION_PHRASE) {
+      toast.error("اكتب عبارة التأكيد حرفياً كما هي.");
+      return;
+    }
+    setPurging(true);
+    try {
+      const res = await fetch("/api/platform/purge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmationPhrase: purgePhrase }),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string; auth_delete_errors?: string[] };
+      if (!res.ok) {
+        toast.error(json.error === "phrase_mismatch" ? "عبارة التأكيد غير صحيحة." : (json.error ?? "تعذر التنفيذ."));
+        return;
+      }
+      if (json.auth_delete_errors?.length) {
+        console.warn("[platform-purge] auth delete warnings", json.auth_delete_errors);
+      }
+      toast.success("تم تطهير المنصة. جاري تحديث الواجهة…");
+      setPurgeOpen(false);
+      setPurgePhrase("");
+      window.location.assign("/dashboard/admin/companies");
+    } catch {
+      toast.error("تعذر الاتصال بالخادم.");
+    } finally {
+      setPurging(false);
+    }
   };
 
   const onReset = () => {
@@ -227,6 +263,72 @@ export function PlatformSettingsContent({ initialRows }: Props) {
           </div>
         </CardContent>
       </Card>
+
+      <Card className="border-red-200 bg-red-50/40">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-red-900">
+            <AlertTriangle className="h-5 w-5 shrink-0" />
+            تطهير المنصة (Platform Purge)
+          </CardTitle>
+          <CardDescription className="text-red-800/90">
+            حذف جميع الشركات والبلاغات والمرفقات والسجلات والمستخدمين باستثناء حسابك كمدير منصة. لا يمكن التراجع. نفّذ فقط على بيئة
+            تطوير أو قبل التشغيل الفعلي.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            type="button"
+            variant="outline"
+            className="border-red-300 bg-white text-red-800 hover:bg-red-50"
+            disabled={pending || purging}
+            onClick={() => setPurgeOpen(true)}
+          >
+            <Trash2 className="h-4 w-4" />
+            فتح تأكيد التطهير
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Sheet open={purgeOpen} onOpenChange={setPurgeOpen}>
+        <SheetContent className="overflow-y-auto" dir="rtl">
+          <SheetHeader>
+            <SheetTitle className="text-red-900">تأكيد تطهير المنصة</SheetTitle>
+            <SheetDescription className="text-slate-700">
+              سيتم حذف كل الشركات وبياناتها، وحذف جميع حسابات المستخدمين من المصادقة ما عدا حسابك الحالي. للمتابعة اكتب بالضبط:
+              <span className="mt-2 block rounded-md bg-slate-100 px-2 py-1 font-mono text-sm" dir="ltr">
+                {PLATFORM_PURGE_CONFIRMATION_PHRASE}
+              </span>
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="purge_phrase">عبارة التأكيد</Label>
+              <Input
+                id="purge_phrase"
+                dir="rtl"
+                autoComplete="off"
+                value={purgePhrase}
+                onChange={(e) => setPurgePhrase(e.target.value)}
+                placeholder={PLATFORM_PURGE_CONFIRMATION_PHRASE}
+                className="font-mono"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                className="bg-red-700 text-white hover:bg-red-800"
+                disabled={purging || purgePhrase !== PLATFORM_PURGE_CONFIRMATION_PHRASE}
+                onClick={() => void runPlatformPurge()}
+              >
+                {purging ? "جاري التنفيذ…" : "تنفيذ التطهير نهائياً"}
+              </Button>
+              <Button type="button" variant="outline" disabled={purging} onClick={() => setPurgeOpen(false)}>
+                إلغاء
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

@@ -76,12 +76,14 @@ export function DashboardSidebar({
                   : role;
 
   const filterNav = (def: NavItem[]) =>
-    def.filter(
-      (item) =>
-        permissions[item.perm] &&
+    def.filter((item) => {
+      const permOk = item.platformAdminOnly && isPlatformAdmin ? true : permissions[item.perm];
+      return (
+        permOk &&
         (!item.roles || item.roles.includes(role)) &&
-        (!item.platformAdminOnly || isPlatformAdmin),
-    );
+        (!item.platformAdminOnly || isPlatformAdmin)
+      );
+    });
 
   const operationalItems = filterNav(OPERATIONAL_NAV_DEF);
   const platformItems = filterNav(PLATFORM_NAV_DEF);

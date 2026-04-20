@@ -131,6 +131,17 @@ export async function GET() {
     }
   }
 
+  /** معاينة من المنصة: يجب أن تُعرض كل روابط المنصة حتى لو وُجدت عضوية «عادية» بنفس الشركة بصلاحيات أقل */
+  if (isPlatformAdmin && isGodMode && activeMembership) {
+    activeMembership = {
+      ...activeMembership,
+      role_key: "admin",
+      role_display_name: "دخول من المنصة",
+      effective_permissions: effectivePermissions("admin", null),
+      is_owner: true,
+    };
+  }
+
   let platform_company_options: { id: string; name: string }[] | undefined;
   if (isPlatformAdmin) {
     const admin = createSupabaseAdminClient();

@@ -25,10 +25,24 @@ set display_name = excluded.display_name,
     max_zones = excluded.max_zones,
     is_active = excluded.is_active;
 
-alter table public.companies
-  add constraint companies_subscription_plan_fk
-  foreign key (subscription_plan)
-  references public.subscription_plans(plan_key);
+do $fk$
+begin
+  if not exists (
+    select 1
+    from pg_constraint c
+    join pg_class t on c.conrelid = t.oid
+    join pg_namespace n on t.relnamespace = n.oid
+    where c.conname = 'companies_subscription_plan_fk'
+      and n.nspname = 'public'
+      and t.relname = 'companies'
+  ) then
+    alter table public.companies
+      add constraint companies_subscription_plan_fk
+      foreign key (subscription_plan)
+      references public.subscription_plans(plan_key);
+  end if;
+end
+$fk$;
 
 create table if not exists public.company_invoices (
   id uuid primary key default gen_random_uuid(),

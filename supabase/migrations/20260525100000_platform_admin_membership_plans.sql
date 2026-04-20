@@ -70,7 +70,8 @@ begin
     return new;
   end if;
 
-  if coalesce(new.role, '') not in ('technician', 'engineer', 'supervisor') then
+  -- role من نوع app_role: لا تستخدم coalesce(..., '') لأن '' ليست قيمة تعداد صالحة
+  if new.role is null or new.role::text not in ('technician', 'engineer', 'supervisor') then
     return new;
   end if;
 
@@ -83,7 +84,7 @@ begin
   into v_count
   from public.profiles p
   where p.company_id = v_target_company
-    and p.role in ('technician', 'engineer', 'supervisor')
+    and p.role::text in ('technician', 'engineer', 'supervisor')
     and p.id <> new.id
     and not exists (
       select 1 from public.platform_admins pa where pa.user_id = p.id and pa.is_active = true

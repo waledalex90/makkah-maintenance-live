@@ -87,7 +87,7 @@ begin
     return new;
   end if;
 
-  if coalesce(new.role, '') not in ('technician', 'engineer', 'supervisor') then
+  if new.role is null or new.role::text not in ('technician', 'engineer', 'supervisor') then
     return new;
   end if;
 
@@ -100,7 +100,7 @@ begin
   into v_count
   from public.profiles p
   where p.company_id = v_target_company
-    and p.role in ('technician', 'engineer', 'supervisor')
+    and p.role::text in ('technician', 'engineer', 'supervisor')
     and p.id <> new.id;
 
   if (v_count + 1) > v_limit then

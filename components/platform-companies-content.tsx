@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, LogIn, RotateCcw, PauseCircle, Search, SlidersHorizontal } from "lucide-react";
+import { Pencil, LogIn, Plus, RotateCcw, PauseCircle, Search, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
@@ -64,6 +64,15 @@ export function PlatformCompaniesContent() {
   const [statusFilter, setStatusFilter] = useState<"all" | string>("all");
   const [subscriptionFilter, setSubscriptionFilter] = useState<"all" | string>("all");
   const [membersFilter, setMembersFilter] = useState<"all" | "0" | "1-5" | "6-20" | "21+">("all");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    name: "",
+    slug: "",
+    subscription_plan: "basic",
+    status: "trial",
+    subscription_status: "trial",
+    billing_email: "",
+  });
   const [form, setForm] = useState({
     name: "",
     subscription_plan: "",
@@ -87,6 +96,42 @@ export function PlatformCompaniesContent() {
       billing_email: editing.billing_email ?? "",
     });
   }, [editing]);
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const payload: Record<string, unknown> = {
+        name: createForm.name.trim(),
+        subscription_plan: createForm.subscription_plan,
+        status: createForm.status,
+        subscription_status: createForm.subscription_status,
+        billing_email: createForm.billing_email.trim() || null,
+      };
+      const slug = createForm.slug.trim();
+      if (slug) payload.slug = slug;
+      const res = await fetch("/api/platform/companies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok) throw new Error(json.error ?? "فشل إنشاء الشركة");
+    },
+    onSuccess: () => {
+      toast.success("تم إنشاء الشركة.");
+      setCreateOpen(false);
+      setCreateForm({
+        name: "",
+        slug: "",
+        subscription_plan: "basic",
+        status: "trial",
+        subscription_status: "trial",
+        billing_email: "",
+      });
+      void queryClient.invalidateQueries({ queryKey: ["platform-companies"] });
+      void queryClient.invalidateQueries({ queryKey: ["platform-overview"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -187,12 +232,22 @@ export function PlatformCompaniesContent() {
             لفتح التينانت في الواجهة الرئيسية (صلاحيات مدير من المنصة).
           </p>
         </div>
-        <a
-          href="/dashboard/admin/platform"
-          className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
-        >
-          ← العودة للوحة المنصة
-        </a>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            إضافة شركة
+          </button>
+          <a
+            href="/dashboard/admin/platform"
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
+          >
+            ← العودة للوحة المنصة
+          </a>
+        </div>
       </div>
 
       <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
@@ -346,6 +401,116 @@ export function PlatformCompaniesContent() {
           </tbody>
         </table>
       </div>
+
+      <Sheet open={createOpen} onOpenChange={setCreateOpen}>
+        <SheetContent className="overflow-y-auto" dir="rtl">
+          <SheetHeader>
+            <SheetTitle>شركة جديدة</SheetTitle>
+            <SheetDescription>
+              بعد الإنشاء، اربط كل مستخدم بالشركة من «إدارة الفريق والصلاحيات» بعد الدخول إلى سياق تلك الشركة (زر «تبديل للوضع التشغيلي»). النظام يعرف انتماء المستخدم عبر عضوية نشطة في الشركة وليس بالاسم فقط.
+            </SheetDescription>
+          </SheetHeader>
+          <form
+            className="mt-6 space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              createMutation.mutate();
+            }}
+          >
+            <label className="block text-xs font-medium text-slate-700">
+              الاسم
+              <input
+                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                value={createForm.name}
+                onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+                required
+                placeholder="اسم المنشأة"
+              />
+            </label>
+            <label className="block text-xs font-medium text-slate-700">
+              Slug (اختياري، إنجليزي)
+              <input
+                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                value={createForm.slug}
+                onChange={(e) => setCreateForm((f) => ({ ...f, slug: e.target.value }))}
+                placeholder="يُولَّد تلقائياً إن وُجد تعارض أو اسم عربي"
+              />
+            </label>
+            <label className="block text-xs font-medium text-slate-700">
+              الباقة
+              <select
+                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                value={createForm.subscription_plan}
+                onChange={(e) => setCreateForm((f) => ({ ...f, subscription_plan: e.target.value }))}
+              >
+                {(plansQuery.data ?? []).length > 0 ? (
+                  (plansQuery.data ?? []).map((p) => (
+                    <option key={p.plan_key} value={p.plan_key}>
+                      {p.display_name} ({p.plan_key})
+                    </option>
+                  ))
+                ) : (
+                  <option value="basic">basic</option>
+                )}
+              </select>
+            </label>
+            <label className="block text-xs font-medium text-slate-700">
+              حالة الشركة
+              <select
+                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                value={createForm.status}
+                onChange={(e) => setCreateForm((f) => ({ ...f, status: e.target.value }))}
+              >
+                {COMPANY_STATUSES.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs font-medium text-slate-700">
+              حالة الاشتراك
+              <select
+                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                value={createForm.subscription_status}
+                onChange={(e) => setCreateForm((f) => ({ ...f, subscription_status: e.target.value }))}
+              >
+                {SUB_STATUSES.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs font-medium text-slate-700">
+              بريد الفوترة (اختياري)
+              <input
+                type="email"
+                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                value={createForm.billing_email}
+                onChange={(e) => setCreateForm((f) => ({ ...f, billing_email: e.target.value }))}
+                placeholder="billing@company.com"
+              />
+            </label>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="submit"
+                disabled={createMutation.isPending}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {createMutation.isPending ? "جاري الإنشاء…" : "إنشاء"}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm"
+                onClick={() => setCreateOpen(false)}
+              >
+                إلغاء
+              </button>
+            </div>
+          </form>
+        </SheetContent>
+      </Sheet>
 
       <Sheet open={editing !== null} onOpenChange={(o) => !o && setEditing(null)}>
         <SheetContent className="overflow-y-auto" dir="rtl">

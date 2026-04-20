@@ -131,6 +131,10 @@ export function requiredPermissionForPath(pathname: string): AppPermissionKey | 
   if (pathname.startsWith("/dashboard/reports")) return "view_reports";
   if (pathname.startsWith("/dashboard/admin/zones")) return "manage_zones";
   if (pathname.startsWith("/dashboard/admin/users")) return "manage_users";
+  if (pathname.startsWith("/dashboard/admin/platform")) return "manage_users";
+  if (pathname.startsWith("/dashboard/admin/companies")) return "manage_users";
+  if (pathname.startsWith("/dashboard/admin/billing")) return "manage_users";
+  if (pathname.startsWith("/dashboard/admin/monitoring")) return "manage_users";
   if (pathname.startsWith("/dashboard/tickets")) return "view_tickets";
   if (pathname.startsWith("/dashboard/tasks")) return "view_tickets";
   if (pathname.startsWith("/dashboard/settings")) return "view_settings";

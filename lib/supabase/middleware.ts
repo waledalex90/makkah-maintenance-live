@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { canAccessDashboardPath } from "@/lib/permissions";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 import { PLATFORM_CONTEXT_COOKIE, PLATFORM_GOD_MODE_COOKIE } from "@/lib/platform-context";
+import { isPlatformConsolePath } from "@/lib/platform-console-paths";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
@@ -46,7 +47,7 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isAuthPage = path === "/login";
   const isProtectedPath = path.startsWith("/dashboard") || path.startsWith("/tasks");
-  const isPlatformPage = path === "/dashboard/admin/platform";
+  const isPlatformConsole = isPlatformConsolePath(path);
   const hasGodModeFlag = request.cookies.get(PLATFORM_GOD_MODE_COOKIE)?.value === "1";
 
   let isPlatformAdminSession = false;
@@ -112,7 +113,7 @@ export async function updateSession(request: NextRequest) {
   if (user && isProtectedPath && isProtectedSuperAdminEmail(user.email)) {
     if (!hasGodModeFlag) {
       await supabase.from("profiles").update({ active_company_id: null }).eq("id", user.id);
-      if (!isPlatformPage) {
+      if (!isPlatformConsole) {
         const forceUrl = request.nextUrl.clone();
         forceUrl.pathname = "/dashboard/admin/platform";
         const response = NextResponse.redirect(forceUrl);

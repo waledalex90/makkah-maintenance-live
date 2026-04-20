@@ -241,20 +241,37 @@ export function OperationsRoomZoneGrid({
                     </button>
                   </div>
                   <div>
-                    <p className="text-[9px] text-orange-300">أوشك إنجاز</p>
+                    <p
+                      className={cn(
+                        "text-[8px] font-medium leading-tight",
+                        hasPickupLate ? "text-amber-100" : "text-amber-700",
+                      )}
+                      title="Completion Warning"
+                    >
+                      إنجاز أوشك على التأخير
+                    </p>
                     <button
                       type="button"
-                      className="mt-0.5 w-full rounded-md bg-orange-400/90 py-1.5 text-sm font-bold text-orange-950 hover:bg-orange-400"
+                      className={cn(
+                        "mt-0.5 w-full rounded-md border py-1.5 text-sm font-bold",
+                        hasPickupLate
+                          ? "border-amber-300/60 bg-amber-400/25 text-amber-50"
+                          : "border-amber-400 bg-gradient-to-b from-amber-100 to-amber-200 text-amber-950 hover:from-amber-50",
+                      )}
+                      title="Completion Warning"
                       onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "completion_warning" }))}
                     >
                       {s.completion_warning}
                     </button>
                   </div>
                   <div>
-                    <p className="text-[9px] text-red-200">متأخّر إنجاز</p>
+                    <p className={cn("text-[9px] font-medium", hasPickupLate ? "text-orange-200" : "text-red-700")} title="Completion Late">
+                      إنجاز متأخر
+                    </p>
                     <button
                       type="button"
-                      className="mt-0.5 w-full rounded-md bg-gradient-to-br from-orange-400 to-red-500 py-1.5 text-sm font-black text-white shadow-[0_0_14px_rgba(251,146,60,0.7)] hover:brightness-110"
+                      className="mt-0.5 w-full rounded-md bg-gradient-to-br from-orange-500 to-red-600 py-1.5 text-sm font-black text-white shadow-[0_0_16px_rgba(251,146,60,0.85)] hover:brightness-110"
+                      title="Completion Late"
                       onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "completion_late" }))}
                     >
                       {s.completion_late}

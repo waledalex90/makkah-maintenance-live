@@ -116,8 +116,8 @@ export function PlatformSettingsContent({ initialRows }: Props) {
         <div>
           <h1 className="text-xl font-semibold text-slate-900">الإعدادات العالمية</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-600">
-            قيم افتراضية للمنصة؛ يمكن لكل شركة لاحقاً تجاوزها من إعدادات الشركة.             أي حفظ لمهلة الاستلام أو الإنجاز أو لنسبة «أوشك على التأخير» يُحدّث مصفوفة المناطق وتنبيهات غرفة العمليات فوراً
-            (بعد الضغط على حفظ).
+            قيم افتراضية للمنصة؛ يمكن لكل شركة لاحقاً تجاوزها من إعدادات الشركة. أي حفظ لمهلة الاستلام أو الإنجاز أو لنسبة «أوشك على
+            التأخير» يُحدّث الكاش (`resolved-ticketing-settings`) ومصفوفة المناطق في غرفة العمليات فوراً بعد «حفظ».
           </p>
         </div>
         <Button type="button" variant="outline" className="gap-2" disabled={pending} onClick={onReset}>
@@ -196,7 +196,12 @@ export function PlatformSettingsContent({ initialRows }: Props) {
                 value={completionMin}
                 onChange={(e) => setCompletionMin(e.target.value)}
                 className="max-w-xs"
+                aria-describedby="completion_deadline_help"
               />
+              <p id="completion_deadline_help" className="text-[11px] text-slate-600">
+                تُحسب المهلة من لحظة «استلام البلاغ» (received) حتى إتمامه (إغلاق)، وتُستخدم مع نسبة التحذير لعرض «إنجاز أوشك» و«إنجاز
+                متأخر» في كروت المناطق.
+              </p>
             </div>
             <Button type="button" className="gap-2 sm:w-fit" disabled={pending} onClick={onSaveCompletion}>
               <Save className="h-4 w-4" />

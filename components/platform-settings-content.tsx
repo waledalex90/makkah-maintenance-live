@@ -12,7 +12,7 @@ import type { GlobalSettingRow } from "@/lib/settings-keys";
 import { SETTINGS_KEYS } from "@/lib/settings-keys";
 import { DEFAULT_TICKETING_SETTINGS, RESOLVED_TICKETING_SETTINGS_QUERY_KEY } from "@/lib/resolved-settings";
 import { resetGlobalSettingsToDefaultsAction, updateGlobalSettingAction } from "@/app/dashboard/admin/platform-settings/actions";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PLATFORM_PURGE_CONFIRMATION_PHRASE } from "@/lib/platform-purge";
 
 type Props = {
@@ -99,9 +99,9 @@ export function PlatformSettingsContent({ initialRows }: Props) {
     saveKey(SETTINGS_KEYS.ENABLE_SOUND_ALERTS, checked ? "true" : "false");
   };
 
-  const runPlatformPurge = async (databaseOnly: boolean) => {
+  const runPlatformPurge = async () => {
     if (purgePhrase !== PLATFORM_PURGE_CONFIRMATION_PHRASE) {
-      toast.error("اكتب عبارة التأكيد حرفياً كما هي.");
+      toast.error(`اكتب كلمة التأكيد بالضبط: ${PLATFORM_PURGE_CONFIRMATION_PHRASE}`);
       return;
     }
     setPurging(true);
@@ -109,24 +109,20 @@ export function PlatformSettingsContent({ initialRows }: Props) {
       const res = await fetch("/api/platform/purge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmationPhrase: purgePhrase, databaseOnly }),
+        body: JSON.stringify({ confirmationPhrase: purgePhrase, databaseOnly: true }),
       });
       const json = (await res.json()) as { ok?: boolean; error?: string; auth_delete_errors?: string[]; database_only?: boolean };
       if (!res.ok) {
-        toast.error(json.error === "phrase_mismatch" ? "عبارة التأكيد غير صحيحة." : (json.error ?? "تعذر التنفيذ."));
+        toast.error(json.error === "phrase_mismatch" ? "كلمة التأكيد غير صحيحة." : (json.error ?? "تعذر التنفيذ."));
         return;
       }
       if (json.auth_delete_errors?.length) {
         console.warn("[platform-purge] auth delete warnings", json.auth_delete_errors);
       }
-      toast.success(
-        json.database_only
-          ? "تم تطهير قاعدة البيانات (الشركات والبيانات التشغيلية). حسابات المصادقة بقيت كما هي."
-          : "تم تطهير المنصة بالكامل. جاري تحديث الواجهة…",
-      );
+      toast.success("تم التطهير. جاري تحديث الصفحة…");
       setPurgeOpen(false);
       setPurgePhrase("");
-      window.location.assign("/dashboard/admin/companies");
+      window.location.reload();
     } catch {
       toast.error("تعذر الاتصال بالخادم.");
     } finally {
@@ -272,79 +268,79 @@ export function PlatformSettingsContent({ initialRows }: Props) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-red-900">
             <AlertTriangle className="h-5 w-5 shrink-0" />
-            تطهير المنصة (Platform Purge)
+            تطهير المنصة
           </CardTitle>
           <CardDescription className="text-red-800/90">
-            يمكنك أولاً تطهير قاعدة البيانات فقط (حذف الشركات وبياناتها) مع الإبقاء على حسابات المصادقة للتجربة، أو لاحقاً التطهير
-            الكامل بما فيه حذف باقي مستخدمي Auth — صارم ولا يمكن التراجع.
+            يمسح الشركات وبياناتها التشغيلية عبر الخادم (دالة <span dir="ltr">platform_purge_tenant_data</span>) دون الحاجة لـ SQL. في
+            وضع التجربة يُبقى حسابات المصادقة؛ للصارمية الكاملة لاحقاً يمكن إضافة حذف المستخدمين من Auth بشكل منفصل.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Button
             type="button"
-            variant="outline"
-            className="border-red-300 bg-white text-red-800 hover:bg-red-50"
+            className="h-12 min-w-[220px] bg-red-700 px-6 text-base font-semibold text-white shadow-md hover:bg-red-800"
             disabled={pending || purging}
             onClick={() => setPurgeOpen(true)}
           >
-            <Trash2 className="h-4 w-4" />
-            فتح تأكيد التطهير
+            <Trash2 className="h-5 w-5" aria-hidden />
+            تطهير المنصة
           </Button>
         </CardContent>
       </Card>
 
-      <Sheet open={purgeOpen} onOpenChange={setPurgeOpen}>
-        <SheetContent className="overflow-y-auto" dir="rtl">
-          <SheetHeader>
-            <SheetTitle className="text-red-900">تأكيد تطهير المنصة</SheetTitle>
-            <SheetDescription className="text-slate-700">
-              اختر أدناه: إما تطهير قاعدة البيانات فقط (مرونة — تبقى حسابات Auth)، أو التطهير الكامل (يحذف كل مستخدمي المصادقة ما عدا
-              حسابك). للمتابعة اكتب بالضبط:
-              <span className="mt-2 block rounded-md bg-slate-100 px-2 py-1 font-mono text-sm" dir="ltr">
+      <Dialog
+        open={purgeOpen}
+        onOpenChange={(open) => {
+          setPurgeOpen(open);
+          if (!open) setPurgePhrase("");
+        }}
+      >
+        <DialogContent className="dir-rtl" dir="rtl" lang="ar">
+          <DialogHeader>
+            <DialogTitle className="text-red-900">تأكيد التطهير</DialogTitle>
+            <DialogDescription className="text-slate-700">
+              سيتم تنفيذ التطهير فوراً من التطبيق. للمتابعة اكتب كلمة واحدة فقط بالضبط:
+              <span className="mt-2 block rounded-md bg-slate-100 px-3 py-2 text-center font-mono text-lg font-bold tracking-wide" dir="rtl">
                 {PLATFORM_PURGE_CONFIRMATION_PHRASE}
               </span>
-            </SheetDescription>
-          </SheetHeader>
-          <div className="mt-6 space-y-4">
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="purge_phrase">عبارة التأكيد</Label>
+              <Label htmlFor="purge_phrase">كلمة التأكيد</Label>
               <Input
                 id="purge_phrase"
                 dir="rtl"
                 autoComplete="off"
+                autoFocus
                 value={purgePhrase}
                 onChange={(e) => setPurgePhrase(e.target.value)}
                 placeholder={PLATFORM_PURGE_CONFIRMATION_PHRASE}
-                className="font-mono"
+                className="text-center font-mono text-lg"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && purgePhrase === PLATFORM_PURGE_CONFIRMATION_PHRASE && !purging) {
+                    e.preventDefault();
+                    void runPlatformPurge();
+                  }
+                }}
               />
             </div>
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-amber-400 bg-amber-50 text-amber-950 hover:bg-amber-100"
-                  disabled={purging || purgePhrase !== PLATFORM_PURGE_CONFIRMATION_PHRASE}
-                  onClick={() => void runPlatformPurge(true)}
-                >
-                  {purging ? "جاري التنفيذ…" : "تطهير قاعدة البيانات فقط (مرونة)"}
-                </Button>
-                <Button
-                  type="button"
-                  className="bg-red-700 text-white hover:bg-red-800"
-                  disabled={purging || purgePhrase !== PLATFORM_PURGE_CONFIRMATION_PHRASE}
-                  onClick={() => void runPlatformPurge(false)}
-                >
-                  {purging ? "جاري التنفيذ…" : "تطهير كامل + حذف مستخدمي Auth (صارم)"}
-                </Button>
-              </div>
-              <Button type="button" variant="outline" size="sm" className="self-start" disabled={purging} onClick={() => setPurgeOpen(false)}>
+            <div className="flex flex-wrap gap-2 justify-end">
+              <Button type="button" variant="outline" disabled={purging} onClick={() => setPurgeOpen(false)}>
                 إلغاء
+              </Button>
+              <Button
+                type="button"
+                className="bg-red-700 text-white hover:bg-red-800"
+                disabled={purging || purgePhrase !== PLATFORM_PURGE_CONFIRMATION_PHRASE}
+                onClick={() => void runPlatformPurge()}
+              >
+                {purging ? "جاري التنفيذ…" : "تنفيذ التطهير الآن"}
               </Button>
             </div>
           </div>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -86,7 +86,7 @@ export function computeZoneHeatMap(
   return map;
 }
 
-/** فئات Tailwind للخلفية حسب أسوأ ترتيب */
+/** فئات Tailwind للخلفية حسب أسوأ ترتيب (صفوف مدمجة) */
 export function zoneHeatRowClass(heat: ZoneHeatSummary): string {
   const r = heat.worstRank;
   if (r >= 100) return "border-red-950 bg-red-950 text-white shadow-md shadow-red-950/30";
@@ -99,4 +99,30 @@ export function zoneHeatRowClass(heat: ZoneHeatSummary): string {
   if (r >= 50) return "border-red-300 bg-red-100 text-red-950 shadow-sm";
   if (r >= 8) return "border-emerald-200 bg-emerald-50/95 text-emerald-950";
   return "border-slate-200/90 bg-white text-slate-900 shadow-sm";
+}
+
+/** إطار بطاقة نظيف: اللون يُعرَض فقط في الإطار والشريط السفلي */
+export function zoneHeatCardBorderClass(heat: ZoneHeatSummary): string {
+  const r = heat.worstRank;
+  if (r >= 100) return "border-red-950";
+  if (r >= 90) return "border-orange-500";
+  if (r >= 60) return "border-amber-400";
+  if (r >= 50) return "border-red-300";
+  if (r >= 8) return "border-emerald-300";
+  return "border-slate-200";
+}
+
+/** شريط ملون سفلي حسب أسوأ حالة (نفس تدرجات الـ heat map) */
+export function zoneHeatStripClass(heat: ZoneHeatSummary): string {
+  const r = heat.worstRank;
+  if (r >= 100) return "bg-red-950";
+  if (r >= 90) {
+    return heat.pulse
+      ? "bg-gradient-to-l from-orange-600 to-red-700 animate-pulse shadow-[0_0_12px_rgba(251,146,60,0.65)]"
+      : "bg-gradient-to-l from-orange-600 to-red-700";
+  }
+  if (r >= 60) return "bg-gradient-to-l from-amber-300 via-amber-400 to-orange-500";
+  if (r >= 50) return "bg-red-300";
+  if (r >= 8) return "bg-emerald-500";
+  return "bg-slate-200";
 }

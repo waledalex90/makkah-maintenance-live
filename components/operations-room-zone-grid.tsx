@@ -2,22 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  ChevronLeft,
-  CircleAlert,
-  Flame,
-  Loader2,
-  MapPin,
-  ShieldCheck,
-} from "lucide-react";
+import { AlertTriangle, CircleAlert, Clock, Cog, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { applyTicketDashboardFilters, type DashboardBaseFilters } from "@/lib/admin-dashboard-filters";
 import { arabicErrorMessage } from "@/lib/arabic-errors";
 import type { ZoneOpsCounts } from "@/lib/operations-room-utils";
-import { ZONE_HEAT, zoneHeatRowClass, type ZoneHeatSummary } from "@/lib/zone-heat-map";
+import {
+  ZONE_HEAT,
+  zoneHeatCardBorderClass,
+  zoneHeatStripClass,
+  type ZoneHeatSummary,
+} from "@/lib/zone-heat-map";
 import { mapLegacyStatus, statusLabelAr } from "@/lib/ticket-status";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 
@@ -57,16 +55,6 @@ function emptyStats(): ZoneOpsCounts {
 
 function emptyHeat(): ZoneHeatSummary {
   return { worstRank: 0, redBadgeCount: 0, yellowBadgeCount: 0, pulse: false };
-}
-
-function WorstStateIcon({ heat }: { heat: ZoneHeatSummary }) {
-  const r = heat.worstRank;
-  if (r >= 100) return <CircleAlert className="h-4 w-4 shrink-0 opacity-95" aria-hidden />;
-  if (r >= 90)
-    return <Flame className={cn("h-4 w-4 shrink-0", heat.pulse && "animate-pulse")} aria-hidden />;
-  if (r >= 50) return <AlertTriangle className="h-4 w-4 shrink-0 opacity-90" aria-hidden />;
-  if (r >= 8) return <ShieldCheck className="h-4 w-4 shrink-0 opacity-90" aria-hidden />;
-  return <MapPin className="h-4 w-4 shrink-0 opacity-55" aria-hidden />;
 }
 
 function ZoneDrilldownSheet(props: {
@@ -226,78 +214,84 @@ export function OperationsRoomZoneGrid({
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-slate-900">مصفوفة المناطق</h2>
-        <p className="text-[11px] text-slate-500">
-          ترتيب حسب الخطورة — تحديث كل ~45 ثانية
-        </p>
+        <p className="text-[11px] text-slate-500">ترتيب حسب الخطورة — تحديث كل ~45 ثانية</p>
       </div>
-      <div className="grid gap-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {sortedZones.map((zone) => {
           const s = zoneStats.get(zone.id) ?? emptyStats();
           const heat = zoneHeat.get(zone.id) ?? emptyHeat();
           const pollingAlert = alertZoneIds.has(zone.id);
-          const rowClass = zoneHeatRowClass(heat);
-          const openTotal =
-            s.pickup_active +
-            s.pickup_warning +
-            s.pickup_late +
-            s.completion_active +
-            s.completion_warning +
-            s.completion_late;
+          const borderClass = zoneHeatCardBorderClass(heat);
+          const stripClass = zoneHeatStripClass(heat);
+
+          const pickupTotal = s.pickup_active + s.pickup_warning + s.pickup_late;
+          const completionTotal = s.completion_active + s.completion_warning + s.completion_late;
 
           return (
             <button
               key={zone.id}
               type="button"
               onClick={() => openDrilldown(zone)}
-              className={cn(
-                "relative flex w-full items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-right transition-colors duration-300",
-                rowClass,
-              )}
+              className="w-full text-right transition hover:opacity-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
             >
-              {pollingAlert ? (
-                <span
-                  className="absolute left-2 top-2 h-2 w-2 rounded-full bg-red-600 shadow-sm ring-2 ring-white"
-                  title="تنبيه مراقبة"
-                  aria-hidden
-                />
-              ) : null}
-              <WorstStateIcon heat={heat} />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="truncate font-semibold leading-tight">{zone.name}</span>
-                  {heat.redBadgeCount > 0 ? (
-                    <span
-                      className="inline-flex items-center gap-0.5 rounded-full bg-red-600/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-red-950"
-                      title="بلاغات خطرة"
-                    >
-                      <span className="sr-only">خطورة</span>
-                      <CircleAlert className="h-3 w-3 text-red-700" aria-hidden />
-                      {heat.redBadgeCount}
-                    </span>
-                  ) : null}
-                  {heat.yellowBadgeCount > 0 ? (
-                    <span
-                      className="inline-flex items-center gap-0.5 rounded-full bg-amber-400/35 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-amber-950"
-                      title="بلاغات أوشكت"
-                    >
-                      <span className="sr-only">تنبيه</span>
-                      <AlertTriangle className="h-3 w-3 text-amber-800" aria-hidden />
-                      {heat.yellowBadgeCount}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-              <span
+              <Card
                 className={cn(
-                  "shrink-0 tabular-nums text-xs font-medium opacity-80",
-                  heat.worstRank >= 100 && "text-white/90",
-                  heat.worstRank >= 90 && heat.worstRank < 100 && "text-white/90",
+                  "relative overflow-hidden border-2 bg-white shadow-sm transition-shadow hover:shadow-md",
+                  borderClass,
                 )}
-                title="إجمالي غير المنتهي"
               >
-                {openTotal}
-              </span>
-              <ChevronLeft className="h-4 w-4 shrink-0 opacity-50" aria-hidden />
+                {pollingAlert ? (
+                  <span
+                    className="absolute left-3 top-3 z-10 h-2 w-2 rounded-full bg-red-600 shadow-sm ring-2 ring-white"
+                    title="تنبيه مراقبة"
+                    aria-hidden
+                  />
+                ) : null}
+                <CardHeader className="space-y-2 pb-2 pt-4">
+                  <div className="flex items-start justify-between gap-2 pr-1">
+                    <CardTitle className="text-base font-semibold leading-snug text-slate-900">
+                      {zone.name}
+                    </CardTitle>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                      {heat.redBadgeCount > 0 ? (
+                        <span
+                          className="inline-flex items-center gap-0.5 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-red-800 ring-1 ring-red-200/80"
+                          title="بلاغات خطرة"
+                        >
+                          <CircleAlert className="h-3 w-3" aria-hidden />
+                          {heat.redBadgeCount}
+                        </span>
+                      ) : null}
+                      {heat.yellowBadgeCount > 0 ? (
+                        <span
+                          className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-amber-900 ring-1 ring-amber-200/80"
+                          title="بلاغات أوشكت"
+                        >
+                          <AlertTriangle className="h-3 w-3" aria-hidden />
+                          {heat.yellowBadgeCount}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pb-3 pt-0">
+                  <div className="flex items-stretch justify-between gap-3 px-1">
+                    <div className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-slate-50/90 py-3">
+                      <Clock className="h-7 w-7 shrink-0 text-slate-500" strokeWidth={2} aria-hidden />
+                      <span className="text-2xl font-bold tabular-nums tracking-tight text-slate-900">
+                        {pickupTotal}
+                      </span>
+                    </div>
+                    <div className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-slate-50/90 py-3">
+                      <Cog className="h-7 w-7 shrink-0 text-slate-500" strokeWidth={2} aria-hidden />
+                      <span className="text-2xl font-bold tabular-nums tracking-tight text-slate-900">
+                        {completionTotal}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+                <div className={cn("h-2 w-full rounded-b-xl", stripClass)} aria-hidden />
+              </Card>
             </button>
           );
         })}
@@ -307,7 +301,7 @@ export function OperationsRoomZoneGrid({
         استلام: 0–{ZONE_HEAT.pickupSafeMax} د افتراضي · {ZONE_HEAT.pickupSafeMax}–{ZONE_HEAT.pickupWarnMax} د أحمر
         فاتح · ≥{ZONE_HEAT.pickupWarnMax} د أحمر غامق. إنجاز: 0–{ZONE_HEAT.completionSafeMax} د أخضر ·{" "}
         {ZONE_HEAT.completionSafeMax}–{ZONE_HEAT.completionWarnMax} د تدرج · ≥{ZONE_HEAT.completionWarnMax} د خطر
-        (نبض).
+        (نبض). اللون في الإطار والشريط السفلي فقط.
       </p>
 
       <ZoneDrilldownSheet

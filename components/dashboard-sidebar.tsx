@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Building2, LayoutDashboard, ListTodo, MapPinned, Settings, Shield, Ticket, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { UpFlowLogo } from "@/components/upflow-logo";
+import { ASSET_VERSION } from "@/lib/asset-version";
 import { LogoutButton } from "@/components/logout-button";
 import { LogoutIconButton } from "@/components/logout-icon-button";
 import type { AppPermissionKey } from "@/lib/permissions";
@@ -43,8 +43,10 @@ const OPERATIONAL_NAV_DEF: NavItem[] = [
   { href: "/dashboard/settings", label: "الإعدادات", icon: Settings, perm: "view_settings" },
 ];
 
+const PLATFORM_DASHBOARD_HREF = "/dashboard/admin/platform";
+
 const PLATFORM_NAV_DEF: NavItem[] = [
-  { href: "/dashboard/admin/platform", label: "UP FLOW — لوحة المنصة", icon: Building2, perm: "manage_users", platformAdminOnly: true },
+  { href: PLATFORM_DASHBOARD_HREF, label: "UP FLOW — لوحة المنصة", icon: Building2, perm: "manage_users", platformAdminOnly: true },
   { href: "/dashboard/admin/companies", label: "إدارة الشركات", icon: Users, perm: "manage_users", platformAdminOnly: true },
   { href: "/dashboard/admin/billing", label: "الفواتير", icon: BarChart3, perm: "manage_users", platformAdminOnly: true },
   { href: "/dashboard/admin/monitoring", label: "الأمان", icon: Shield, perm: "manage_users", platformAdminOnly: true },
@@ -115,6 +117,7 @@ export function DashboardSidebar({
             const Icon = item.icon;
             const hrefPath = item.href.split("?")[0];
             const active = pathname === hrefPath;
+            const usePlatformMark = item.href === PLATFORM_DASHBOARD_HREF && item.platformAdminOnly;
 
             return (
               <Link
@@ -131,12 +134,25 @@ export function DashboardSidebar({
                     : "text-slate-700 hover:bg-slate-100",
                 )}
               >
-                <Icon
-                  className={cn(
-                    "h-5 w-5 shrink-0 transition-colors duration-300 ease-in-out",
-                    active ? "text-[color:var(--brand-accent)]" : "text-slate-600",
-                  )}
-                />
+                {usePlatformMark ? (
+                  <span className="relative h-6 w-6 shrink-0 overflow-hidden rounded-md">
+                    <img
+                      src={`/icons/upflow-app-icon.svg?v=${ASSET_VERSION}`}
+                      alt=""
+                      className="h-6 w-6 object-contain"
+                      width={24}
+                      height={24}
+                      decoding="async"
+                    />
+                  </span>
+                ) : (
+                  <Icon
+                    className={cn(
+                      "h-5 w-5 shrink-0 transition-colors duration-300 ease-in-out",
+                      active ? "text-[color:var(--brand-accent)]" : "text-slate-600",
+                    )}
+                  />
+                )}
                 {!isCollapsed ? <span>{item.label}</span> : null}
               </Link>
             );
@@ -169,10 +185,17 @@ export function DashboardSidebar({
           )}
         >
           <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <UpFlowLogo className="h-7 w-7 shrink-0 text-[color:var(--brand-primary)]" />
+            <div className="flex min-w-0 items-center gap-3">
+              <img
+                src={`/icons/upflow-app-icon.svg?v=${ASSET_VERSION}`}
+                alt=""
+                width={56}
+                height={56}
+                className="h-14 w-14 shrink-0 object-contain drop-shadow-sm"
+                decoding="async"
+              />
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">UP FLOW</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">UP FLOW</p>
                 <p className="truncate text-sm font-bold text-slate-900">القائمة</p>
               </div>
             </div>
@@ -206,12 +229,22 @@ export function DashboardSidebar({
         dir="rtl"
         lang="ar"
       >
-        <div className={cn("mb-4 flex items-center gap-2", collapsed && "justify-center")}>
-          <UpFlowLogo className={cn("shrink-0 text-[color:var(--brand-primary)]", collapsed ? "h-8 w-8" : "h-7 w-7")} />
+        <div className={cn("mb-4 flex items-center gap-3", collapsed && "justify-center")}>
+          <img
+            src={`/icons/upflow-app-icon.svg?v=${ASSET_VERSION}`}
+            alt=""
+            width={collapsed ? 44 : 56}
+            height={collapsed ? 44 : 56}
+            className={cn(
+              "shrink-0 object-contain drop-shadow-sm",
+              collapsed ? "h-11 w-11" : "h-14 w-14",
+            )}
+            decoding="async"
+          />
           {!collapsed ? (
             <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">UP FLOW</p>
-              <p className="truncate text-sm font-bold text-slate-900">منصة التشغيل</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">UP FLOW</p>
+              <p className="truncate text-base font-bold text-slate-900">منصة التشغيل</p>
             </div>
           ) : null}
         </div>

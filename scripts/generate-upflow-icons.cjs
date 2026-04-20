@@ -40,6 +40,12 @@ async function main() {
 
   fs.unlinkSync(path.join(pub, "_favicon-16.png"));
   fs.unlinkSync(path.join(pub, "_favicon-32.png"));
+
+  const appDir = path.join(root, "app");
+  fs.copyFileSync(path.join(pub, "favicon-v2.ico"), path.join(appDir, "favicon.ico"));
+  fs.copyFileSync(path.join(pub, "android-chrome-512x512.png"), path.join(appDir, "icon.png"));
+  fs.copyFileSync(path.join(pub, "apple-touch-icon.png"), path.join(appDir, "apple-icon.png"));
+  console.log("wrote app/favicon.ico, app/icon.png, app/apple-icon.png (Next.js metadata)");
 }
 
 main().catch((e) => {

@@ -3,13 +3,13 @@
  * ملاحظة: إغلاق المتصفح بالكامل (Hard Close) يوقف التنفيذ على معظم الأنظمة؛
  * الإشعارات الفورية تعمل عند إعادة الفتح أو مع إبقاء المتصفح في الخلفية.
  */
-const CACHE_NAME = "makkah-ops-v6-upflow";
+const CACHE_NAME = "makkah-ops-v7-upflow";
 const STATIC_ASSETS = [
-  "/manifest.webmanifest?v=3",
-  "/icons/icon-192.png?v=3",
-  "/icons/icon-512.png?v=3",
-  "/android-chrome-192x192.png?v=3",
-  "/android-chrome-512x512.png?v=3",
+  "/manifest.webmanifest?v=4",
+  "/icons/icon-192.png?v=4",
+  "/icons/icon-512.png?v=4",
+  "/android-chrome-192x192.png?v=4",
+  "/android-chrome-512x512.png?v=4",
 ];
 
 self.addEventListener("install", (event) => {

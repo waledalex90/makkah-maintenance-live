@@ -12,10 +12,10 @@ const v = `?v=${ASSET_VERSION}`;
 export const metadata: Metadata = {
   title: "UP FLOW",
   description: "منصة تشغيل ميداني متعددة للشركات — بلاغات، خريطة، فريق.",
+  /** manifest + أيقونات PNG تبقى مع ?v= للكاش؛ favicon/icon/apple من app/ (ملفات Next). */
   manifest: `/manifest.webmanifest${v}`,
   icons: {
     icon: [
-      { url: `/favicon-v2.ico${v}`, sizes: "32x32" },
       { url: `/android-chrome-192x192.png${v}`, sizes: "192x192", type: "image/png" },
       { url: `/android-chrome-512x512.png${v}`, sizes: "512x512", type: "image/png" },
     ],

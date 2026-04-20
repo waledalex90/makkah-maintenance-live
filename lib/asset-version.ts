@@ -1,4 +1,4 @@
 /**
  * ارفع الرقم عند تغيير الأيقونات/اللوجو لإجبار المتصفحات على جلب الأصول الجديدة.
  */
-export const ASSET_VERSION = "3";
+export const ASSET_VERSION = "4";

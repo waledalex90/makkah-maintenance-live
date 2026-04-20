@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TicketMediaDropzone } from "@/components/ticket-media-dropzone";
 import { arabicErrorMessage } from "@/lib/arabic-errors";
+import { companyIdFromZoneId } from "@/lib/ticket-create-company";
 import type { TicketStatus } from "@/lib/ticket-status";
 
 type ZoneRow = {
@@ -60,7 +61,13 @@ export function TicketCreateForm({ role: _role, onCreated, onCancel }: TicketCre
     void loadData();
   }, []);
 
-  const uploadOne = async (file: File, ticketId: string, userId: string, sortOrder: number) => {
+  const uploadOne = async (
+    file: File,
+    ticketId: string,
+    userId: string,
+    sortOrder: number,
+    companyId: string,
+  ) => {
     const isVideo = file.type.startsWith("video/");
     if (isVideo && file.size > MAX_VIDEO_BYTES) {
       toast.error(`الفيديو كبير جداً: ${file.name}`);
@@ -87,6 +94,7 @@ export function TicketCreateForm({ role: _role, onCreated, onCancel }: TicketCre
     const { data: publicData } = supabase.storage.from("tickets").getPublicUrl(filePath);
     await supabase.from("ticket_attachments").insert({
       ticket_id: ticketId,
+      company_id: companyId,
       uploaded_by: userId,
       file_url: publicData.publicUrl,
       file_type: isVideo ? "video" : "image",
@@ -109,8 +117,18 @@ export function TicketCreateForm({ role: _role, onCreated, onCancel }: TicketCre
     }
 
     setCreating(true);
+    const { companyId, error: zoneCompanyErr } = await companyIdFromZoneId(supabase, zoneId);
+    if (zoneCompanyErr || !companyId) {
+      toast.error(
+        arabicErrorMessage(zoneCompanyErr ?? "تعذر ربط البلاغ بالشركة. تأكد من اختيار منطقة صالحة."),
+      );
+      setCreating(false);
+      return;
+    }
+
     const locationValue = title.trim();
     const insertPayload = {
+      company_id: companyId,
       title: title.trim(),
       description: description.trim(),
       external_ticket_number: externalTicketNumber.trim(),
@@ -142,7 +160,7 @@ export function TicketCreateForm({ role: _role, onCreated, onCancel }: TicketCre
     if (attachments.length > 0) {
       let sortOrder = 0;
       for (const file of attachments) {
-        await uploadOne(file, ticketData.id, user.id, sortOrder);
+        await uploadOne(file, ticketData.id, user.id, sortOrder, companyId);
         sortOrder += 1;
       }
     }

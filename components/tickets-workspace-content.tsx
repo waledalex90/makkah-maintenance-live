@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TicketMediaDropzone } from "@/components/ticket-media-dropzone";
 import { Skeleton } from "@/components/ui/skeleton";
 import { arabicErrorMessage } from "@/lib/arabic-errors";
+import { companyIdFromZoneId } from "@/lib/ticket-create-company";
 import { type TicketStatus, statusBadgeVariant, statusLabelAr } from "@/lib/ticket-status";
 
 type TicketRow = {
@@ -137,7 +138,13 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     setAttachments([]);
   };
 
-  const uploadOne = async (file: File, ticketId: string, userId: string, sortOrder: number) => {
+  const uploadOne = async (
+    file: File,
+    ticketId: string,
+    userId: string,
+    sortOrder: number,
+    companyId: string,
+  ) => {
     const isVideo = file.type.startsWith("video/");
     if (isVideo && file.size > MAX_VIDEO_BYTES) {
       toast.error(`الفيديو كبير جداً: ${file.name}`);
@@ -164,6 +171,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     const { data: publicData } = supabase.storage.from("tickets").getPublicUrl(filePath);
     await supabase.from("ticket_attachments").insert({
       ticket_id: ticketId,
+      company_id: companyId,
       uploaded_by: userId,
       file_url: publicData.publicUrl,
       file_type: isVideo ? "video" : "image",
@@ -183,9 +191,19 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     }
 
     setCreating(true);
+    const { companyId, error: zoneCompanyErr } = await companyIdFromZoneId(supabase, zoneId);
+    if (zoneCompanyErr || !companyId) {
+      toast.error(
+        arabicErrorMessage(zoneCompanyErr ?? "تعذر ربط البلاغ بالشركة. تأكد من اختيار منطقة صالحة."),
+      );
+      setCreating(false);
+      return;
+    }
+
     const locationValue = title.trim();
 
     const insertPayload = {
+      company_id: companyId,
       title: title.trim(),
       description: description.trim(),
       external_ticket_number: externalTicketNumber.trim(),
@@ -217,7 +235,7 @@ export function TicketsWorkspaceContent({ role }: TicketsWorkspaceContentProps) 
     if (attachments.length > 0) {
       let sortOrder = 0;
       for (const file of attachments) {
-        await uploadOne(file, ticketData.id, myUserId, sortOrder);
+        await uploadOne(file, ticketData.id, myUserId, sortOrder, companyId);
         sortOrder += 1;
       }
     }

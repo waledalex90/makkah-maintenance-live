@@ -16,8 +16,8 @@ export const metadata: Metadata = {
   manifest: `/manifest.webmanifest${v}`,
   icons: {
     icon: [
-      { url: `/android-chrome-192x192.png${v}`, sizes: "192x192", type: "image/png" },
-      { url: `/android-chrome-512x512.png${v}`, sizes: "512x512", type: "image/png" },
+      { url: `/upflow-pwa-192.png${v}`, sizes: "192x192", type: "image/png" },
+      { url: `/upflow-pwa-512.png${v}`, sizes: "512x512", type: "image/png" },
     ],
     apple: [{ url: `/apple-touch-icon.png${v}`, sizes: "180x180", type: "image/png" }],
   },

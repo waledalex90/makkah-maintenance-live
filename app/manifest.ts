@@ -8,7 +8,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "UP FLOW",
     short_name: "UP FLOW",
     description: "UP FLOW — منصة تشغيل ميداني متعددة للشركات",
-    id: "/",
+    id: "upflow-platform-pwa",
     categories: ["business", "productivity"],
     start_url: "/",
     scope: "/",
@@ -26,19 +26,19 @@ export default function manifest(): MetadataRoute.Manifest {
     dir: "rtl",
     icons: [
       {
-        src: `/android-chrome-192x192.png${v}`,
+        src: `/upflow-pwa-192.png${v}`,
         sizes: "192x192",
         type: "image/png",
         purpose: "any maskable" as unknown as "any",
       },
       {
-        src: `/android-chrome-512x512.png${v}`,
+        src: `/upflow-pwa-512.png${v}`,
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: `/android-chrome-512x512.png${v}`,
+        src: `/upflow-pwa-512.png${v}`,
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",

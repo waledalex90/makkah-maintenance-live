@@ -35,6 +35,8 @@ async function main() {
   const icoBuf = await toIco([buf16, buf32]);
   fs.writeFileSync(path.join(pub, "favicon.ico"), icoBuf);
   console.log("wrote", path.relative(root, path.join(pub, "favicon.ico")));
+  fs.copyFileSync(path.join(pub, "favicon.ico"), path.join(pub, "favicon-v2.ico"));
+  console.log("wrote", path.relative(root, path.join(pub, "favicon-v2.ico")));
 
   fs.unlinkSync(path.join(pub, "_favicon-16.png"));
   fs.unlinkSync(path.join(pub, "_favicon-32.png"));

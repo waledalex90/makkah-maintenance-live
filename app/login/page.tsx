@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -19,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ASSET_VERSION } from "@/lib/asset-version";
 
 type LoginMembershipRow = {
   company_id: string;
@@ -317,21 +317,28 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-slate-100 p-4">
-      <Card className="w-full max-w-md">
+    <main className="relative flex min-h-screen items-center justify-center bg-gradient-to-b from-slate-100 to-slate-200/90 p-4">
+      <Card className="w-full max-w-md border-slate-200 shadow-lg">
         <CardHeader>
-          <div className="mb-3 flex justify-center">
-            <Image
-              src="/icons/logo.webp"
-              alt="شعار الشركة"
-              width={220}
-              height={88}
-              priority
-              className="h-20 w-auto object-contain"
+          <div className="mb-2 flex flex-col items-center gap-3">
+            <img
+              src={`/icons/upflow-app-icon.svg?v=${ASSET_VERSION}`}
+              alt="UP FLOW"
+              width={112}
+              height={112}
+              className="h-28 w-28 select-none"
+              decoding="async"
+              fetchPriority="high"
             />
+            <div className="text-center">
+              <p className="text-xl font-bold tracking-tight text-[#1e3a5f]">UP FLOW</p>
+              <p className="text-xs font-medium text-slate-500">Operations Control</p>
+            </div>
           </div>
-          <CardTitle>بوابة عمليات عزام الشريف</CardTitle>
-          <CardDescription>سجّل الدخول باسم المستخدم وكلمة المرور المعتمدة لدى الإدارة.</CardDescription>
+          <CardTitle className="text-center text-lg">بوابة المنصة</CardTitle>
+          <CardDescription className="text-center">
+            سجّل الدخول باسم المستخدم وكلمة المرور المعتمدة. بعد الدخول تظهر هوية شركتك داخل لوحة التشغيل.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={onSubmit}>
@@ -374,13 +381,17 @@ export default function LoginPage() {
               {resetSending ? "جاري إرسال الرابط..." : "نسيت كلمة المرور؟"}
             </button>
 
-            <Button type="submit" className="w-full bg-green-700 text-white hover:bg-green-800 dark:bg-green-600 dark:hover:bg-green-500" disabled={loading}>
+            <Button
+              type="submit"
+              className="w-full bg-[#1e3a5f] text-white hover:bg-[#152a45] dark:bg-[#1e3a5f] dark:hover:bg-[#254a75]"
+              disabled={loading}
+            >
               {loading ? "جاري تسجيل الدخول..." : "دخول"}
             </Button>
           </form>
         </CardContent>
       </Card>
-      <p className="absolute bottom-3 text-[10px] font-medium text-slate-600 dark:text-slate-400">v1.0.5 - Azzam Live</p>
+      <p className="absolute bottom-3 text-[10px] font-medium text-slate-500">UP FLOW · v1.0.5</p>
       {pendingLogin ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <Card className="w-full max-w-md">

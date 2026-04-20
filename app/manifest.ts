@@ -1,4 +1,7 @@
 import type { MetadataRoute } from "next";
+import { ASSET_VERSION } from "@/lib/asset-version";
+
+const v = `?v=${ASSET_VERSION}`;
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -23,19 +26,19 @@ export default function manifest(): MetadataRoute.Manifest {
     dir: "rtl",
     icons: [
       {
-        src: "/android-chrome-192x192.png",
+        src: `/android-chrome-192x192.png${v}`,
         sizes: "192x192",
         type: "image/png",
         purpose: "any maskable" as unknown as "any",
       },
       {
-        src: "/android-chrome-512x512.png",
+        src: `/android-chrome-512x512.png${v}`,
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/android-chrome-512x512.png",
+        src: `/android-chrome-512x512.png${v}`,
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",

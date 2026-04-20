@@ -19,12 +19,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  let body: { confirmationPhrase?: string };
+  let body: { confirmationPhrase?: string; databaseOnly?: boolean };
   try {
-    body = (await request.json()) as { confirmationPhrase?: string };
+    body = (await request.json()) as { confirmationPhrase?: string; databaseOnly?: boolean };
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
+
+  const databaseOnly = body.databaseOnly === true;
 
   if (body.confirmationPhrase !== PLATFORM_PURGE_CONFIRMATION_PHRASE) {
     await recordSecurityEvent({
@@ -56,36 +58,45 @@ export async function POST(request: Request) {
   }
 
   const deleteErrors: string[] = [];
-  let page = 1;
-  const perPage = 200;
-  for (;;) {
-    const { data: listData, error: listErr } = await admin.auth.admin.listUsers({ page, perPage });
-    if (listErr) {
-      deleteErrors.push(listErr.message);
-      break;
+  if (!databaseOnly) {
+    let page = 1;
+    const perPage = 200;
+    for (;;) {
+      const { data: listData, error: listErr } = await admin.auth.admin.listUsers({ page, perPage });
+      if (listErr) {
+        deleteErrors.push(listErr.message);
+        break;
+      }
+      const batch = listData?.users ?? [];
+      for (const u of batch) {
+        if (u.id === user.id) continue;
+        const { error: delErr } = await admin.auth.admin.deleteUser(u.id);
+        if (delErr) deleteErrors.push(`${u.id}: ${delErr.message}`);
+      }
+      if (batch.length < perPage) break;
+      page += 1;
     }
-    const batch = listData?.users ?? [];
-    for (const u of batch) {
-      if (u.id === user.id) continue;
-      const { error: delErr } = await admin.auth.admin.deleteUser(u.id);
-      if (delErr) deleteErrors.push(`${u.id}: ${delErr.message}`);
-    }
-    if (batch.length < perPage) break;
-    page += 1;
   }
 
   await recordSecurityEvent({
     event_type: "platform_purge_completed",
     status_code: 200,
-    message: "Platform purge completed (DB + auth users except actor).",
+    message: databaseOnly
+      ? "Platform purge completed (database only; auth users kept)."
+      : "Platform purge completed (DB + auth users except actor).",
     actor_user_id: user.id,
     actor_email: user.email,
-    metadata: { rpc: rpcData, auth_delete_errors: deleteErrors.length ? deleteErrors : null },
+    metadata: {
+      database_only: databaseOnly,
+      rpc: rpcData,
+      auth_delete_errors: databaseOnly ? null : deleteErrors.length ? deleteErrors : null,
+    },
   });
 
   return NextResponse.json({
     ok: true,
     result: rpcData,
-    auth_delete_errors: deleteErrors.length ? deleteErrors : undefined,
+    database_only: databaseOnly,
+    auth_delete_errors: databaseOnly ? undefined : deleteErrors.length ? deleteErrors : undefined,
   });
 }

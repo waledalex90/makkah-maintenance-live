@@ -12,6 +12,8 @@ type DashboardSidebarProps = {
   fullName: string;
   role: string;
   isPlatformAdmin?: boolean;
+  /** وضع معاينة شركة من المنصة (god mode) — تُعرض كل روابط التشغيل للدعم */
+  isGodMode?: boolean;
   platformMode?: boolean;
   permissions: Record<AppPermissionKey, boolean>;
   collapsed: boolean;
@@ -51,6 +53,7 @@ export function DashboardSidebar({
   fullName,
   role,
   isPlatformAdmin = false,
+  isGodMode = false,
   platformMode = false,
   permissions,
   collapsed,
@@ -75,14 +78,15 @@ export function DashboardSidebar({
                   ? "فني"
                   : role;
 
+  const supportPreview = Boolean(isGodMode && isPlatformAdmin);
+
   const filterNav = (def: NavItem[]) =>
     def.filter((item) => {
-      const permOk = item.platformAdminOnly && isPlatformAdmin ? true : permissions[item.perm];
-      return (
-        permOk &&
-        (!item.roles || item.roles.includes(role)) &&
-        (!item.platformAdminOnly || isPlatformAdmin)
-      );
+      const permOk = item.platformAdminOnly
+        ? Boolean(isPlatformAdmin)
+        : Boolean(permissions[item.perm]) || supportPreview;
+      const roleOk = !item.roles || item.roles.includes(role) || supportPreview;
+      return permOk && roleOk;
     });
 
   const operationalItems = filterNav(OPERATIONAL_NAV_DEF);

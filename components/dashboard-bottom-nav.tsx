@@ -11,6 +11,8 @@ import type { AppPermissionKey } from "@/lib/permissions";
 type DashboardBottomNavProps = {
   role: string;
   permissions: Record<AppPermissionKey, boolean>;
+  isGodMode?: boolean;
+  isPlatformAdmin?: boolean;
 };
 
 const MOBILE_NAV: Array<{
@@ -27,13 +29,21 @@ const MOBILE_NAV: Array<{
   { href: "/dashboard/settings", label: "الإعدادات", icon: Settings, perm: "view_settings" },
 ];
 
-export function DashboardBottomNav({ role, permissions }: DashboardBottomNavProps) {
+export function DashboardBottomNav({
+  role,
+  permissions,
+  isGodMode = false,
+  isPlatformAdmin = false,
+}: DashboardBottomNavProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
-  const filtered = MOBILE_NAV.filter(
-    (item) => permissions[item.perm] && (!item.roles || item.roles.includes(role)),
-  );
+  const supportPreview = Boolean(isGodMode && isPlatformAdmin);
+  const filtered = MOBILE_NAV.filter((item) => {
+    const permOk = Boolean(permissions[item.perm]) || supportPreview;
+    const roleOk = !item.roles || item.roles.includes(role) || supportPreview;
+    return permOk && roleOk;
+  });
 
   const onLogout = async () => {
     setLoggingOut(true);

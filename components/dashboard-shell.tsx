@@ -235,6 +235,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           fullName={fullName}
           role={role}
           isPlatformAdmin={Boolean(me.is_platform_admin)}
+          isGodMode={Boolean(me.is_god_mode)}
           platformMode={platformMode}
           permissions={permissions}
           collapsed={sidebarCollapsed}
@@ -265,14 +266,21 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         />
         {me?.ok && me.is_platform_admin && (me.is_god_mode || me.profile.active_company_id) ? (
           <div className="mb-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-950">
-            وضع معاينة الشركة: أنت تعرض بيانات شركة بصلاحيات مدير المنصة. روابط «لوحة المنصة» و«إدارة الشركات» و«الفواتير» موجودة في القائمة الجانبية تحت عنوان «إدارة المنصة»، أو استخدم «العودة للوحة المنصة» أعلاه للخروج من المعاينة.
+            وضع معاينة الشركة: يمكنك الوصول من القائمة الجانبية إلى كل شاشات التشغيل (البلاغات، الخريطة، الفريق، المناطق، …) وإلى «إدارة المنصة» للفواتير والشركات. للخروج من المعاينة استخدم «العودة للوحة المنصة» أعلاه.
           </div>
         ) : null}
         <div className="min-h-0 pt-2 md:pt-3">
           <PageTransition>{children}</PageTransition>
         </div>
       </main>
-      {me?.ok && !platformMode ? <DashboardBottomNav role={role} permissions={permissions} /> : null}
+      {me?.ok && !platformMode ? (
+        <DashboardBottomNav
+          role={role}
+          permissions={permissions}
+          isGodMode={Boolean(me.is_god_mode)}
+          isPlatformAdmin={Boolean(me.is_platform_admin)}
+        />
+      ) : null}
     </div>
   );
 }

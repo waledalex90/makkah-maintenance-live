@@ -263,9 +263,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
           sidebarCollapsed={sidebarCollapsed}
         />
-        {me?.ok && me.is_platform_admin && me.profile.active_company_id ? (
+        {me?.ok && me.is_platform_admin && (me.is_god_mode || me.profile.active_company_id) ? (
           <div className="mb-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-950">
-            وضع التينانت: أنت تعرض بيانات شركة بصلاحيات مدير من المنصة.
+            وضع معاينة الشركة: أنت تعرض بيانات شركة بصلاحيات مدير المنصة. روابط «لوحة المنصة» و«إدارة الشركات» و«الفواتير» موجودة في القائمة الجانبية تحت عنوان «إدارة المنصة»، أو استخدم «العودة للوحة المنصة» أعلاه للخروج من المعاينة.
           </div>
         ) : null}
         <div className="min-h-0 pt-2 md:pt-3">

@@ -75,41 +75,62 @@ export function DashboardSidebar({
                   ? "فني"
                   : role;
 
-  const activeNav = platformMode ? PLATFORM_NAV_DEF : OPERATIONAL_NAV_DEF;
-  const navItems = activeNav.filter(
-    (item) =>
-      permissions[item.perm] &&
-      (!item.roles || item.roles.includes(role)) &&
-      (!item.platformAdminOnly || isPlatformAdmin),
-  );
+  const filterNav = (def: NavItem[]) =>
+    def.filter(
+      (item) =>
+        permissions[item.perm] &&
+        (!item.roles || item.roles.includes(role)) &&
+        (!item.platformAdminOnly || isPlatformAdmin),
+    );
+
+  const operationalItems = filterNav(OPERATIONAL_NAV_DEF);
+  const platformItems = filterNav(PLATFORM_NAV_DEF);
+
+  /** وضع المنصة فقط: روابط المنصة. وضع معاينة شركة + مدير منصة: تشغيل + منصة معاً */
+  const navSections: { title: string | null; items: NavItem[] }[] = platformMode
+    ? [{ title: null, items: platformItems }]
+    : isPlatformAdmin
+      ? [
+          { title: null, items: operationalItems },
+          { title: "إدارة المنصة", items: platformItems },
+        ]
+      : [{ title: null, items: operationalItems }];
 
   const navList = (isCollapsed: boolean, onNavigate?: () => void) => (
     <nav className={cn("mt-6 space-y-2", isCollapsed ? "mt-4" : "mt-6")}>
-      {navItems.map((item) => {
-        const Icon = item.icon;
-        const hrefPath = item.href.split("?")[0];
-        const active = pathname === hrefPath;
+      {navSections.map((section) => (
+        <div key={section.title ?? "main"} className="space-y-2">
+          {section.title && !isCollapsed ? (
+            <p className="px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{section.title}</p>
+          ) : null}
+          {section.title && isCollapsed ? <div className="mx-auto my-2 h-px w-8 bg-slate-200" aria-hidden /> : null}
+          {section.items.map((item) => {
+            const Icon = item.icon;
+            const hrefPath = item.href.split("?")[0];
+            const active = pathname === hrefPath;
 
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            prefetch={item.href.includes("/dashboard/map") ? false : true}
-            onClick={onNavigate}
-            title={item.label}
-            className={cn(
-              "flex min-h-12 items-center rounded-xl px-3 py-3 text-sm font-medium transition duration-300 ease-in-out",
-              isCollapsed ? "justify-center px-2" : "gap-2",
-              active
-                ? "border-s border-amber-500 bg-slate-100 text-slate-900"
-                : "text-slate-700 hover:bg-slate-100",
-            )}
-          >
-            <Icon className={cn("h-5 w-5 shrink-0 transition-colors duration-300 ease-in-out", active ? "text-amber-500" : "text-slate-600")} />
-            {!isCollapsed ? <span>{item.label}</span> : null}
-          </Link>
-        );
-      })}
+            return (
+              <Link
+                key={`${section.title ?? "main"}-${item.href}`}
+                href={item.href}
+                prefetch={item.href.includes("/dashboard/map") ? false : true}
+                onClick={onNavigate}
+                title={item.label}
+                className={cn(
+                  "flex min-h-12 items-center rounded-xl px-3 py-3 text-sm font-medium transition duration-300 ease-in-out",
+                  isCollapsed ? "justify-center px-2" : "gap-2",
+                  active
+                    ? "border-s border-amber-500 bg-slate-100 text-slate-900"
+                    : "text-slate-700 hover:bg-slate-100",
+                )}
+              >
+                <Icon className={cn("h-5 w-5 shrink-0 transition-colors duration-300 ease-in-out", active ? "text-amber-500" : "text-slate-600")} />
+                {!isCollapsed ? <span>{item.label}</span> : null}
+              </Link>
+            );
+          })}
+        </div>
+      ))}
     </nav>
   );
 

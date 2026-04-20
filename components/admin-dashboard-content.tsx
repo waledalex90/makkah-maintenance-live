@@ -44,6 +44,7 @@ import {
 import { OperationsRoomZoneGrid } from "@/components/operations-room-zone-grid";
 import { aggregateTicketsByZone, playOperationsAlertSound } from "@/lib/operations-room-utils";
 import { computeZoneHeatMap } from "@/lib/zone-heat-map";
+import { hardDeleteTicketViaApi } from "@/lib/ticket-hard-delete";
 import {
   DEFAULT_TICKETING_SETTINGS,
   RESOLVED_TICKETING_SETTINGS_QUERY_KEY,
@@ -886,19 +887,18 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     setSelectedTicket(null);
 
     try {
-      const res = await fetch(`/api/admin/tickets/${ticketId}`, { method: "DELETE" });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) {
+      const result = await hardDeleteTicketViaApi(ticketId);
+      if (!result.ok) {
         await invalidateAllTicketDashboardQueries();
-        toast.error(data.error ?? "تعذر حذف البلاغ.");
+        toast.error(result.error);
         return;
       }
 
       await invalidateAllTicketDashboardQueries();
       toast.success("تم حذف البلاغ نهائياً من النظام.");
-    } catch {
+    } catch (err) {
       await invalidateAllTicketDashboardQueries();
-      toast.error("تعذر حذف البلاغ.");
+      toast.error(err instanceof Error ? err.message : "تعذر حذف البلاغ.");
     } finally {
       setTicketDeleting(false);
     }

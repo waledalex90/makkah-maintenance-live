@@ -1,22 +1,46 @@
 "use client";
 
-import { useMemo } from "react";
-import { useRouter } from "next/navigation";
-import { Clock, MapPin } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  ChevronLeft,
+  CircleAlert,
+  Flame,
+  Loader2,
+  MapPin,
+  ShieldCheck,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { buildTicketsFilteredHref, type ZoneOpsCounts } from "@/lib/operations-room-utils";
+import { supabase } from "@/lib/supabase";
+import { applyTicketDashboardFilters, type DashboardBaseFilters } from "@/lib/admin-dashboard-filters";
+import { arabicErrorMessage } from "@/lib/arabic-errors";
+import type { ZoneOpsCounts } from "@/lib/operations-room-utils";
+import { ZONE_HEAT, zoneHeatRowClass, type ZoneHeatSummary } from "@/lib/zone-heat-map";
+import { mapLegacyStatus, statusLabelAr } from "@/lib/ticket-status";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Input } from "@/components/ui/input";
 
 type Zone = { id: string; name: string };
+
+type DrillTicketRow = {
+  id: string;
+  ticket_number: number | null;
+  external_ticket_number: string | null;
+  status: string;
+  created_at: string;
+  received_at: string | null;
+  title: string | null;
+};
 
 type OperationsRoomZoneGridProps = {
   zones: Zone[];
   zoneStats: Map<string, ZoneOpsCounts>;
+  zoneHeat: Map<string, ZoneHeatSummary>;
+  baseFilters: DashboardBaseFilters;
   alertZoneIds: Set<string>;
   loading?: boolean;
-  pickupThresholdMinutes: number;
-  completionDeadlineMinutes: number;
-  warningRatio: number;
+  onOpenTicket: (ticketId: string) => void;
 };
 
 function emptyStats(): ZoneOpsCounts {
@@ -31,38 +55,153 @@ function emptyStats(): ZoneOpsCounts {
   };
 }
 
-/** أولوية العرض: متأخر استلام → متأخر إنجاز → تحذيرات */
-function zonePriority(s: ZoneOpsCounts): number {
-  if (s.pickup_late > 0) return 8;
-  if (s.completion_late > 0) return 7;
-  if (s.pickup_warning > 0) return 4;
-  if (s.completion_warning > 0) return 3;
-  return 0;
+function emptyHeat(): ZoneHeatSummary {
+  return { worstRank: 0, redBadgeCount: 0, yellowBadgeCount: 0, pulse: false };
+}
+
+function WorstStateIcon({ heat }: { heat: ZoneHeatSummary }) {
+  const r = heat.worstRank;
+  if (r >= 100) return <CircleAlert className="h-4 w-4 shrink-0 opacity-95" aria-hidden />;
+  if (r >= 90)
+    return <Flame className={cn("h-4 w-4 shrink-0", heat.pulse && "animate-pulse")} aria-hidden />;
+  if (r >= 50) return <AlertTriangle className="h-4 w-4 shrink-0 opacity-90" aria-hidden />;
+  if (r >= 8) return <ShieldCheck className="h-4 w-4 shrink-0 opacity-90" aria-hidden />;
+  return <MapPin className="h-4 w-4 shrink-0 opacity-55" aria-hidden />;
+}
+
+function ZoneDrilldownSheet(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  zoneId: string | null;
+  zoneName: string;
+  baseFilters: DashboardBaseFilters;
+  onOpenTicket: (ticketId: string) => void;
+}) {
+  const { open, onOpenChange, zoneId, zoneName, baseFilters, onOpenTicket } = props;
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    if (!open) setQ("");
+  }, [open]);
+
+  const ticketsQuery = useQuery({
+    queryKey: ["operations-zone-drilldown", zoneId, baseFilters],
+    enabled: open && !!zoneId,
+    queryFn: async () => {
+      const zid = zoneId!;
+      const query = applyTicketDashboardFilters(
+        supabase
+          .from("tickets")
+          .select("id, ticket_number, external_ticket_number, status, created_at, received_at, title")
+          .eq("zone_id", zid)
+          .or("status.eq.not_received,status.eq.received")
+          .order("created_at", { ascending: false })
+          .limit(400),
+        baseFilters,
+      );
+      const { data, error } = await query;
+      if (error) throw new Error(arabicErrorMessage(error.message));
+      return (data ?? []) as DrillTicketRow[];
+    },
+    staleTime: 15_000,
+  });
+
+  const filtered = useMemo(() => {
+    const rows = ticketsQuery.data ?? [];
+    const t = q.trim().toLowerCase();
+    if (!t) return rows;
+    return rows.filter((row) => {
+      const num = row.ticket_number != null ? String(row.ticket_number) : "";
+      const ext = (row.external_ticket_number ?? "").toLowerCase();
+      const title = (row.title ?? "").toLowerCase();
+      return num.includes(t) || ext.includes(t) || title.includes(t) || row.id.toLowerCase().includes(t);
+    });
+  }, [ticketsQuery.data, q]);
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        dir="rtl"
+        className="left-0 right-auto w-full max-w-lg overflow-y-auto border-l-0 border-r border-slate-200"
+      >
+        <SheetHeader className="text-right">
+          <SheetTitle className="text-right">بلاغات المنطقة</SheetTitle>
+          <SheetDescription className="text-right">
+            {zoneName} — اضغط على بلاغ لفتح التفاصيل أو استخدم البحث.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="mt-3 space-y-2">
+          <Input
+            dir="rtl"
+            placeholder="بحث برقم أو عنوان…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            className="text-right"
+          />
+          {ticketsQuery.isPending ? (
+            <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              جاري التحميل…
+            </div>
+          ) : ticketsQuery.isError ? (
+            <p className="text-sm text-red-600">تعذر تحميل البلاغات.</p>
+          ) : filtered.length === 0 ? (
+            <p className="text-sm text-slate-500">لا توجد بلاغات مطابقة.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {filtered.map((row) => (
+                <li key={row.id}>
+                  <button
+                    type="button"
+                    className="flex w-full flex-col gap-0.5 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-right text-sm transition hover:bg-white"
+                    onClick={() => {
+                      onOpenTicket(row.id);
+                      onOpenChange(false);
+                    }}
+                  >
+                    <span className="font-medium text-slate-900 line-clamp-2">
+                      {row.title?.trim() || "بدون عنوان"}
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      #{row.external_ticket_number ?? row.ticket_number ?? row.id.slice(0, 8)} ·{" "}
+                      {statusLabelAr(mapLegacyStatus(row.status) ?? "not_received")}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
 }
 
 export function OperationsRoomZoneGrid({
   zones,
   zoneStats,
+  zoneHeat,
+  baseFilters,
   alertZoneIds,
   loading,
-  pickupThresholdMinutes,
-  completionDeadlineMinutes,
-  warningRatio,
+  onOpenTicket,
 }: OperationsRoomZoneGridProps) {
-  const router = useRouter();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetZone, setSheetZone] = useState<{ id: string; name: string } | null>(null);
 
   const sortedZones = useMemo(() => {
     return [...zones].sort((a, b) => {
-      const sa = zoneStats.get(a.id) ?? emptyStats();
-      const sb = zoneStats.get(b.id) ?? emptyStats();
-      const d = zonePriority(sb) - zonePriority(sa);
+      const ha = zoneHeat.get(a.id) ?? emptyHeat();
+      const hb = zoneHeat.get(b.id) ?? emptyHeat();
+      const d = hb.worstRank - ha.worstRank;
       if (d !== 0) return d;
       return a.name.localeCompare(b.name, "ar");
     });
-  }, [zones, zoneStats]);
+  }, [zones, zoneHeat]);
 
-  const go = (href: string) => {
-    router.push(href);
+  const openDrilldown = (zone: Zone) => {
+    setSheetZone({ id: zone.id, name: zone.name });
+    setSheetOpen(true);
   };
 
   if (loading && zones.length === 0) {
@@ -85,226 +224,100 @@ export function OperationsRoomZoneGrid({
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-slate-900">مصفوفة المناطق</h2>
-        <p className="text-xs text-slate-500">
-          مساران: الاستلام (لم يُستلم) والإنجاز (تم الاستلام) — تتحدث كل ~45 ثانية
+        <p className="text-[11px] text-slate-500">
+          ترتيب حسب الخطورة — تحديث كل ~45 ثانية
         </p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid gap-2">
         {sortedZones.map((zone) => {
           const s = zoneStats.get(zone.id) ?? emptyStats();
+          const heat = zoneHeat.get(zone.id) ?? emptyHeat();
           const pollingAlert = alertZoneIds.has(zone.id);
-          const hasPickupLate = s.pickup_late > 0;
-          const hasPickupWarn = s.pickup_warning > 0;
-          const hasCompLate = s.completion_late > 0;
-          const hasCompWarn = s.completion_warning > 0;
-          const showCompletionClock = hasCompLate || hasCompWarn;
-
-          /* تدرج أصفر → أحمر داكن لمسار الاستلام عند التأخر */
-          const pickupGradient =
-            hasPickupLate &&
-            "border-red-950 bg-gradient-to-br from-amber-200/95 via-red-800/95 to-red-950 text-white shadow-lg";
-          const pickupAmberOnly =
-            !hasPickupLate && hasPickupWarn && "border-amber-500 bg-amber-50/95 shadow-sm";
-          /* إنجاز: متوهج عند التأخر، برتقالي عند التحذير */
-          const completionGlow =
-            hasCompLate &&
-            "shadow-[0_0_0_2px_rgba(220,38,38,0.9),0_0_26px_rgba(251,146,60,0.65)] ring-2 ring-red-500/90";
-          const completionWarnRing =
-            !hasCompLate && hasCompWarn && "ring-2 ring-orange-400 shadow-md shadow-orange-200/50";
+          const rowClass = zoneHeatRowClass(heat);
+          const openTotal =
+            s.pickup_active +
+            s.pickup_warning +
+            s.pickup_late +
+            s.completion_active +
+            s.completion_warning +
+            s.completion_late;
 
           return (
-            <Card
+            <button
               key={zone.id}
+              type="button"
+              onClick={() => openDrilldown(zone)}
               className={cn(
-                "relative overflow-hidden border-2 transition-colors duration-300",
-                pickupGradient || pickupAmberOnly || "border-slate-200 bg-white",
-                completionGlow,
-                completionWarnRing && !completionGlow,
-                !pickupGradient && !pickupAmberOnly && !completionGlow && !completionWarnRing && "border-slate-200",
+                "relative flex w-full items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-right transition-colors duration-300",
+                rowClass,
               )}
             >
               {pollingAlert ? (
                 <span
-                  className="absolute left-3 top-3 h-2.5 w-2.5 rounded-full bg-red-600 shadow-sm ring-2 ring-white"
+                  className="absolute left-2 top-2 h-2 w-2 rounded-full bg-red-600 shadow-sm ring-2 ring-white"
                   title="تنبيه مراقبة"
                   aria-hidden
                 />
               ) : null}
-              {showCompletionClock ? (
-                <span
-                  className={cn(
-                    "absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full",
-                    hasCompLate ? "bg-red-600/90 text-white shadow-[0_0_12px_rgba(248,113,113,0.9)]" : "bg-orange-500/90 text-white",
-                  )}
-                  title="تأخير أو تحذير في التنفيذ (بعد الاستلام)"
-                  aria-hidden
-                >
-                  <Clock className="h-4 w-4" strokeWidth={2.5} />
-                </span>
-              ) : null}
-              <CardHeader className="space-y-1 pb-2">
-                <div className="flex items-start gap-2 pr-8">
-                  <MapPin
-                    className={cn(
-                      "mt-0.5 h-4 w-4 shrink-0",
-                      hasPickupLate ? "text-red-200" : hasPickupWarn ? "text-amber-700" : hasCompLate ? "text-red-400" : "text-sky-600",
-                    )}
-                  />
-                  <CardTitle className={cn("text-base leading-snug", hasPickupLate && "text-white drop-shadow-sm")}>
-                    {zone.name}
-                  </CardTitle>
+              <WorstStateIcon heat={heat} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="truncate font-semibold leading-tight">{zone.name}</span>
+                  {heat.redBadgeCount > 0 ? (
+                    <span
+                      className="inline-flex items-center gap-0.5 rounded-full bg-red-600/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-red-950"
+                      title="بلاغات خطرة"
+                    >
+                      <span className="sr-only">خطورة</span>
+                      <CircleAlert className="h-3 w-3 text-red-700" aria-hidden />
+                      {heat.redBadgeCount}
+                    </span>
+                  ) : null}
+                  {heat.yellowBadgeCount > 0 ? (
+                    <span
+                      className="inline-flex items-center gap-0.5 rounded-full bg-amber-400/35 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-amber-950"
+                      title="بلاغات أوشكت"
+                    >
+                      <span className="sr-only">تنبيه</span>
+                      <AlertTriangle className="h-3 w-3 text-amber-800" aria-hidden />
+                      {heat.yellowBadgeCount}
+                    </span>
+                  ) : null}
                 </div>
-                <p className={cn("text-[10px] font-medium", hasPickupLate ? "text-amber-100" : "text-slate-500")}>
-                  مسار الاستلام
-                </p>
-              </CardHeader>
-              <CardContent className="grid grid-cols-3 gap-1.5 pt-0">
-                <div>
-                  <p className={cn("text-[9px] font-medium", hasPickupLate ? "text-amber-100" : "text-slate-500")}>
-                    نشطة
-                  </p>
-                  <button
-                    type="button"
-                    className={cn(
-                      "mt-0.5 w-full rounded-md py-1.5 text-sm font-bold hover:opacity-90",
-                      hasPickupLate
-                        ? "bg-white/15 text-white"
-                        : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
-                    )}
-                    onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "pickup_open" }))}
-                  >
-                    {s.pickup_active}
-                  </button>
-                </div>
-                <div>
-                  <p className={cn("text-[9px] font-medium", hasPickupLate ? "text-amber-100" : "text-amber-700")}>
-                    أوشك
-                  </p>
-                  <button
-                    type="button"
-                    className={cn(
-                      "mt-0.5 w-full rounded-md py-1.5 text-sm font-bold hover:opacity-90",
-                      hasPickupLate ? "bg-amber-500/30 text-white" : "bg-amber-100/90 text-amber-900 hover:bg-amber-200",
-                    )}
-                    onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "pickup_warning" }))}
-                  >
-                    {s.pickup_warning}
-                  </button>
-                </div>
-                <div>
-                  <p className={cn("text-[9px] font-medium", hasPickupLate ? "text-red-100" : "text-red-800")}>
-                    متأخّر
-                  </p>
-                  <button
-                    type="button"
-                    className={cn(
-                      "mt-0.5 w-full rounded-md py-1.5 text-base font-black hover:opacity-90",
-                      hasPickupLate ? "bg-red-950/80 text-white" : "bg-red-50 text-red-700 hover:bg-red-100",
-                    )}
-                    onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "late_pickup" }))}
-                  >
-                    {s.pickup_late}
-                  </button>
-                </div>
-              </CardContent>
-
-              <div
+              </div>
+              <span
                 className={cn(
-                  "border-t px-4 pb-3 pt-2",
-                  hasPickupLate ? "border-white/15 bg-black/15" : "border-slate-200/80",
+                  "shrink-0 tabular-nums text-xs font-medium opacity-80",
+                  heat.worstRank >= 100 && "text-white/90",
+                  heat.worstRank >= 90 && heat.worstRank < 100 && "text-white/90",
                 )}
+                title="إجمالي غير المنتهي"
               >
-                <p
-                  className={cn(
-                    "mb-1.5 text-[10px] font-medium",
-                    hasPickupLate ? "text-amber-100/90" : "text-slate-500",
-                  )}
-                >
-                  مسار الإنجاز
-                </p>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <div>
-                    <p className={cn("text-[9px]", hasPickupLate ? "text-sky-100" : "text-slate-500")}>قيد التنفيذ</p>
-                    <button
-                      type="button"
-                      className={cn(
-                        "mt-0.5 w-full rounded-md py-1.5 text-sm font-bold hover:opacity-95",
-                        hasPickupLate
-                          ? "bg-sky-500/25 text-white ring-1 ring-white/20"
-                          : "bg-sky-50 text-sky-900 hover:bg-sky-100",
-                      )}
-                      onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "completion_open" }))}
-                    >
-                      {s.completion_active}
-                    </button>
-                  </div>
-                  <div>
-                    <p
-                      className={cn(
-                        "text-[8px] font-medium leading-tight",
-                        hasPickupLate ? "text-amber-100" : "text-amber-700",
-                      )}
-                      title="Completion Warning"
-                    >
-                      إنجاز أوشك على التأخير
-                    </p>
-                    <button
-                      type="button"
-                      className={cn(
-                        "mt-0.5 w-full rounded-md border py-1.5 text-sm font-bold",
-                        hasPickupLate
-                          ? "border-amber-300/60 bg-amber-400/25 text-amber-50"
-                          : "border-amber-400 bg-gradient-to-b from-amber-100 to-amber-200 text-amber-950 hover:from-amber-50",
-                      )}
-                      title="Completion Warning"
-                      onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "completion_warning" }))}
-                    >
-                      {s.completion_warning}
-                    </button>
-                  </div>
-                  <div>
-                    <p className={cn("text-[9px] font-medium", hasPickupLate ? "text-orange-200" : "text-red-700")} title="Completion Late">
-                      إنجاز متأخر
-                    </p>
-                    <button
-                      type="button"
-                      className="mt-0.5 w-full rounded-md bg-gradient-to-br from-orange-500 to-red-600 py-1.5 text-sm font-black text-white shadow-[0_0_16px_rgba(251,146,60,0.85)] hover:brightness-110"
-                      title="Completion Late"
-                      onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "completion_late" }))}
-                    >
-                      {s.completion_late}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                className={cn("border-t px-4 pb-3", hasPickupLate ? "border-white/15" : "border-slate-200/80")}
-              >
-                <p className={cn("mb-1 text-[9px]", hasPickupLate ? "text-amber-100/80" : "text-slate-500")}>منتهية</p>
-                <button
-                  type="button"
-                  className={cn(
-                    "w-full rounded-md py-2 text-sm font-semibold",
-                    hasPickupLate
-                      ? "bg-white/10 text-white hover:bg-white/20"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200",
-                  )}
-                  onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "finished" }))}
-                >
-                  {s.finished}
-                </button>
-              </div>
-            </Card>
+                {openTotal}
+              </span>
+              <ChevronLeft className="h-4 w-4 shrink-0 opacity-50" aria-hidden />
+            </button>
           );
         })}
       </div>
-      <p className="mt-3 text-[11px] text-slate-500">
-        الاستلام: مهلة {pickupThresholdMinutes} دقيقة — «أوشك» بعد {Math.round(warningRatio * 100)}% من المهلة. الإنجاز: مهلة{" "}
-        {completionDeadlineMinutes} دقيقة منذ الاستلام — أحمر داكن = تأخير استلام؛ أحمر متوهج وساعة = تأخير إنجاز.
+
+      <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+        استلام: 0–{ZONE_HEAT.pickupSafeMax} د افتراضي · {ZONE_HEAT.pickupSafeMax}–{ZONE_HEAT.pickupWarnMax} د أحمر
+        فاتح · ≥{ZONE_HEAT.pickupWarnMax} د أحمر غامق. إنجاز: 0–{ZONE_HEAT.completionSafeMax} د أخضر ·{" "}
+        {ZONE_HEAT.completionSafeMax}–{ZONE_HEAT.completionWarnMax} د تدرج · ≥{ZONE_HEAT.completionWarnMax} د خطر
+        (نبض).
       </p>
+
+      <ZoneDrilldownSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        zoneId={sheetZone?.id ?? null}
+        zoneName={sheetZone?.name ?? ""}
+        baseFilters={baseFilters}
+        onOpenTicket={onOpenTicket}
+      />
     </section>
   );
 }

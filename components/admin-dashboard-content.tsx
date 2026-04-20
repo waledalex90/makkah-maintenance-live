@@ -43,6 +43,7 @@ import {
 } from "@/lib/saudi-time";
 import { OperationsRoomZoneGrid } from "@/components/operations-room-zone-grid";
 import { aggregateTicketsByZone, playOperationsAlertSound } from "@/lib/operations-room-utils";
+import { computeZoneHeatMap } from "@/lib/zone-heat-map";
 import {
   DEFAULT_TICKETING_SETTINGS,
   RESOLVED_TICKETING_SETTINGS_QUERY_KEY,
@@ -450,7 +451,11 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         from += pageSize;
         if (from > 100_000) break;
       }
-      return aggregateTicketsByZone(rows, zones.map((z) => z.id), nowMs, timing);
+      const zoneIds = zones.map((z) => z.id);
+      return {
+        stats: aggregateTicketsByZone(rows, zoneIds, nowMs, timing),
+        heat: computeZoneHeatMap(rows, zoneIds, nowMs),
+      };
     },
     enabled: !tableOnly && zones.length > 0,
     staleTime: 30_000,
@@ -627,7 +632,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     if (tableOnly || !statsQuery.data || !zoneOpsStatsQuery.data) return;
     const late = statsQuery.data.latePickup;
     const newN = statsQuery.data.notReceived;
-    const byZone = zoneOpsStatsQuery.data;
+    const byZone = zoneOpsStatsQuery.data.stats;
     const byZonePickupLate: Record<string, number> = {};
     const byZonePickupWarning: Record<string, number> = {};
     const byZoneCompletionLate: Record<string, number> = {};
@@ -1080,12 +1085,12 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       {!tableOnly ? (
         <OperationsRoomZoneGrid
           zones={zones}
-          zoneStats={zoneOpsStatsQuery.data ?? new Map()}
+          zoneStats={zoneOpsStatsQuery.data?.stats ?? new Map()}
+          zoneHeat={zoneOpsStatsQuery.data?.heat ?? new Map()}
+          baseFilters={baseFilters}
           alertZoneIds={alertZoneIds}
           loading={zoneOpsStatsQuery.isPending && !zoneOpsStatsQuery.data}
-          pickupThresholdMinutes={timing.pickup_threshold_minutes}
-          completionDeadlineMinutes={timing.completion_deadline_minutes}
-          warningRatio={timing.warning_percentage}
+          onOpenTicket={(id) => void openTicketById(id)}
         />
       ) : null}
 

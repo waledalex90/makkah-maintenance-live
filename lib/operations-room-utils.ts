@@ -2,6 +2,7 @@ import type { ResolvedTicketingSettings } from "@/lib/resolved-settings";
 
 /** صف يُجمع لكل منطقة — يحتاج received_at/updated_at لمسار الإنجاز */
 export type ZoneAggregationRow = {
+  id: string;
   zone_id: string | null;
   status: string;
   created_at: string;

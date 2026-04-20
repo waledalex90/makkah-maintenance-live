@@ -10,8 +10,9 @@ import { arabicErrorMessage } from "@/lib/arabic-errors";
 import type { ZoneOpsCounts } from "@/lib/operations-room-utils";
 import {
   ZONE_HEAT,
-  zoneHeatCardBorderClass,
-  zoneHeatStripClass,
+  zoneHeatCardFramePulseClass,
+  zoneHeatCardShellClass,
+  zoneHeatCardUseLightForeground,
   type ZoneHeatSummary,
 } from "@/lib/zone-heat-map";
 import { mapLegacyStatus, statusLabelAr } from "@/lib/ticket-status";
@@ -54,7 +55,24 @@ function emptyStats(): ZoneOpsCounts {
 }
 
 function emptyHeat(): ZoneHeatSummary {
-  return { worstRank: 0, redBadgeCount: 0, yellowBadgeCount: 0, pulse: false };
+  return {
+    worstRank: 0,
+    redBadgeCount: 0,
+    yellowBadgeCount: 0,
+    pulse: false,
+    worstTicketId: null,
+    highlightLane: null,
+  };
+}
+
+function counterHighlightClass(active: boolean, lightFg: boolean): string {
+  if (!active) return "";
+  return cn(
+    "rounded-xl px-2 py-1 shadow-lg",
+    lightFg
+      ? "bg-white text-slate-900 ring-2 ring-white/90"
+      : "bg-white text-slate-900 ring-2 ring-slate-900/15",
+  );
 }
 
 function ZoneDrilldownSheet(props: {
@@ -62,10 +80,11 @@ function ZoneDrilldownSheet(props: {
   onOpenChange: (open: boolean) => void;
   zoneId: string | null;
   zoneName: string;
+  priorityTicketId: string | null;
   baseFilters: DashboardBaseFilters;
   onOpenTicket: (ticketId: string) => void;
 }) {
-  const { open, onOpenChange, zoneId, zoneName, baseFilters, onOpenTicket } = props;
+  const { open, onOpenChange, zoneId, zoneName, priorityTicketId, baseFilters, onOpenTicket } = props;
   const [q, setQ] = useState("");
 
   useEffect(() => {
@@ -94,17 +113,32 @@ function ZoneDrilldownSheet(props: {
     staleTime: 15_000,
   });
 
-  const filtered = useMemo(() => {
+  const orderedRows = useMemo(() => {
     const rows = ticketsQuery.data ?? [];
+    if (!priorityTicketId) return rows;
+    const p = rows.find((r) => r.id === priorityTicketId);
+    const rest = rows.filter((r) => r.id !== priorityTicketId);
+    return p ? [p, ...rest] : rows;
+  }, [ticketsQuery.data, priorityTicketId]);
+
+  const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
-    if (!t) return rows;
-    return rows.filter((row) => {
-      const num = row.ticket_number != null ? String(row.ticket_number) : "";
-      const ext = (row.external_ticket_number ?? "").toLowerCase();
-      const title = (row.title ?? "").toLowerCase();
-      return num.includes(t) || ext.includes(t) || title.includes(t) || row.id.toLowerCase().includes(t);
-    });
-  }, [ticketsQuery.data, q]);
+    let rows = orderedRows;
+    if (t) {
+      rows = rows.filter((row) => {
+        const num = row.ticket_number != null ? String(row.ticket_number) : "";
+        const ext = (row.external_ticket_number ?? "").toLowerCase();
+        const title = (row.title ?? "").toLowerCase();
+        return num.includes(t) || ext.includes(t) || title.includes(t) || row.id.toLowerCase().includes(t);
+      });
+    }
+    if (!t && priorityTicketId) {
+      const p = rows.find((r) => r.id === priorityTicketId);
+      const rest = rows.filter((r) => r.id !== priorityTicketId);
+      return p ? [p, ...rest] : rows;
+    }
+    return rows;
+  }, [orderedRows, q, priorityTicketId]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -115,7 +149,7 @@ function ZoneDrilldownSheet(props: {
         <SheetHeader className="text-right">
           <SheetTitle className="text-right">بلاغات المنطقة</SheetTitle>
           <SheetDescription className="text-right">
-            {zoneName} — اضغط على بلاغ لفتح التفاصيل أو استخدم البحث.
+            {zoneName} — البلاغ الأكثر خطورة يظهر أولاً ومميزاً عند وجوده.
           </SheetDescription>
         </SheetHeader>
         <div className="mt-3 space-y-2">
@@ -137,26 +171,39 @@ function ZoneDrilldownSheet(props: {
             <p className="text-sm text-slate-500">لا توجد بلاغات مطابقة.</p>
           ) : (
             <ul className="space-y-1.5">
-              {filtered.map((row) => (
-                <li key={row.id}>
-                  <button
-                    type="button"
-                    className="flex w-full flex-col gap-0.5 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-right text-sm transition hover:bg-white"
-                    onClick={() => {
-                      onOpenTicket(row.id);
-                      onOpenChange(false);
-                    }}
-                  >
-                    <span className="font-medium text-slate-900 line-clamp-2">
-                      {row.title?.trim() || "بدون عنوان"}
-                    </span>
-                    <span className="text-[11px] text-slate-500">
-                      #{row.external_ticket_number ?? row.ticket_number ?? row.id.slice(0, 8)} ·{" "}
-                      {statusLabelAr(mapLegacyStatus(row.status) ?? "not_received")}
-                    </span>
-                  </button>
-                </li>
-              ))}
+              {filtered.map((row) => {
+                const isPriority = priorityTicketId != null && row.id === priorityTicketId;
+                return (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex w-full flex-col gap-0.5 rounded-lg border px-3 py-2 text-right text-sm transition",
+                        isPriority
+                          ? "border-amber-400 bg-amber-50 shadow-md ring-2 ring-amber-200/80 hover:bg-amber-50/90"
+                          : "border-slate-200 bg-slate-50/80 hover:bg-white",
+                      )}
+                      onClick={() => {
+                        onOpenTicket(row.id);
+                        onOpenChange(false);
+                      }}
+                    >
+                      <span className="font-medium text-slate-900 line-clamp-2">
+                        {row.title?.trim() || "بدون عنوان"}
+                        {isPriority ? (
+                          <span className="mr-2 inline-block rounded bg-amber-200/90 px-1.5 py-0.5 text-[10px] font-semibold text-amber-950">
+                            الأكثر خطورة
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        #{row.external_ticket_number ?? row.ticket_number ?? row.id.slice(0, 8)} ·{" "}
+                        {statusLabelAr(mapLegacyStatus(row.status) ?? "not_received")}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
@@ -175,7 +222,11 @@ export function OperationsRoomZoneGrid({
   onOpenTicket,
 }: OperationsRoomZoneGridProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [sheetZone, setSheetZone] = useState<{ id: string; name: string } | null>(null);
+  const [sheetZone, setSheetZone] = useState<{
+    id: string;
+    name: string;
+    priorityTicketId: string | null;
+  } | null>(null);
 
   const sortedZones = useMemo(() => {
     return [...zones].sort((a, b) => {
@@ -187,8 +238,12 @@ export function OperationsRoomZoneGrid({
     });
   }, [zones, zoneHeat]);
 
-  const openDrilldown = (zone: Zone) => {
-    setSheetZone({ id: zone.id, name: zone.name });
+  const openDrilldown = (zone: Zone, heat: ZoneHeatSummary) => {
+    setSheetZone({
+      id: zone.id,
+      name: zone.name,
+      priorityTicketId: heat.worstTicketId,
+    });
     setSheetOpen(true);
   };
 
@@ -221,41 +276,61 @@ export function OperationsRoomZoneGrid({
           const s = zoneStats.get(zone.id) ?? emptyStats();
           const heat = zoneHeat.get(zone.id) ?? emptyHeat();
           const pollingAlert = alertZoneIds.has(zone.id);
-          const borderClass = zoneHeatCardBorderClass(heat);
-          const stripClass = zoneHeatStripClass(heat);
+          const shellClass = zoneHeatCardShellClass(heat);
+          const pulseFrame = zoneHeatCardFramePulseClass(heat);
+          const lightFg = zoneHeatCardUseLightForeground(heat);
 
           const pickupTotal = s.pickup_active + s.pickup_warning + s.pickup_late;
           const completionTotal = s.completion_active + s.completion_warning + s.completion_late;
+
+          const highlightPickup =
+            heat.highlightLane === "pickup" && heat.worstRank >= 50 && heat.worstTicketId != null;
+          const highlightCompletion =
+            heat.highlightLane === "completion" && heat.worstRank >= 50 && heat.worstTicketId != null;
 
           return (
             <button
               key={zone.id}
               type="button"
-              onClick={() => openDrilldown(zone)}
+              onClick={() => openDrilldown(zone, heat)}
               className="w-full text-right transition hover:opacity-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
             >
               <Card
                 className={cn(
-                  "relative overflow-hidden border-2 bg-white shadow-sm transition-shadow hover:shadow-md",
-                  borderClass,
+                  "relative overflow-hidden border-2 shadow-sm transition-shadow hover:shadow-md",
+                  shellClass,
+                  pulseFrame,
                 )}
               >
                 {pollingAlert ? (
                   <span
-                    className="absolute left-3 top-3 z-10 h-2 w-2 rounded-full bg-red-600 shadow-sm ring-2 ring-white"
+                    className={cn(
+                      "absolute left-3 top-3 z-10 h-2 w-2 rounded-full bg-red-600 shadow-sm",
+                      lightFg ? "ring-2 ring-white" : "ring-2 ring-white",
+                    )}
                     title="تنبيه مراقبة"
                     aria-hidden
                   />
                 ) : null}
                 <CardHeader className="space-y-2 pb-2 pt-4">
                   <div className="flex items-start justify-between gap-2 pr-1">
-                    <CardTitle className="text-base font-semibold leading-snug text-slate-900">
+                    <CardTitle
+                      className={cn(
+                        "text-base font-semibold leading-snug",
+                        lightFg ? "text-white" : "text-inherit",
+                      )}
+                    >
                       {zone.name}
                     </CardTitle>
                     <div className="flex shrink-0 flex-wrap justify-end gap-1">
                       {heat.redBadgeCount > 0 ? (
                         <span
-                          className="inline-flex items-center gap-0.5 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-red-800 ring-1 ring-red-200/80"
+                          className={cn(
+                            "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ring-1",
+                            lightFg
+                              ? "bg-white/20 text-white ring-white/35"
+                              : "bg-red-50 text-red-800 ring-red-200/80",
+                          )}
                           title="بلاغات خطرة"
                         >
                           <CircleAlert className="h-3 w-3" aria-hidden />
@@ -264,7 +339,12 @@ export function OperationsRoomZoneGrid({
                       ) : null}
                       {heat.yellowBadgeCount > 0 ? (
                         <span
-                          className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-amber-900 ring-1 ring-amber-200/80"
+                          className={cn(
+                            "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ring-1",
+                            lightFg
+                              ? "bg-white/20 text-white ring-white/35"
+                              : "bg-amber-50 text-amber-900 ring-amber-200/80",
+                          )}
                           title="بلاغات أوشكت"
                         >
                           <AlertTriangle className="h-3 w-3" aria-hidden />
@@ -274,23 +354,60 @@ export function OperationsRoomZoneGrid({
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="pb-3 pt-0">
+                <CardContent className="pb-4 pt-0">
                   <div className="flex items-stretch justify-between gap-3 px-1">
-                    <div className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-slate-50/90 py-3">
-                      <Clock className="h-7 w-7 shrink-0 text-slate-500" strokeWidth={2} aria-hidden />
-                      <span className="text-2xl font-bold tabular-nums tracking-tight text-slate-900">
+                    <div
+                      className={cn(
+                        "flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl py-3",
+                        lightFg ? "bg-white/10" : "bg-black/[0.04]",
+                        counterHighlightClass(highlightPickup, lightFg),
+                      )}
+                    >
+                      <Clock
+                        className={cn(
+                          "h-7 w-7 shrink-0",
+                          lightFg ? "text-white/90" : "text-slate-500",
+                          highlightPickup && "text-slate-700",
+                        )}
+                        strokeWidth={2}
+                        aria-hidden
+                      />
+                      <span
+                        className={cn(
+                          "text-2xl font-bold tabular-nums tracking-tight",
+                          highlightPickup || !lightFg ? "text-slate-900" : "text-white",
+                        )}
+                      >
                         {pickupTotal}
                       </span>
                     </div>
-                    <div className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-slate-50/90 py-3">
-                      <Cog className="h-7 w-7 shrink-0 text-slate-500" strokeWidth={2} aria-hidden />
-                      <span className="text-2xl font-bold tabular-nums tracking-tight text-slate-900">
+                    <div
+                      className={cn(
+                        "flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl py-3",
+                        lightFg ? "bg-white/10" : "bg-black/[0.04]",
+                        counterHighlightClass(highlightCompletion, lightFg),
+                      )}
+                    >
+                      <Cog
+                        className={cn(
+                          "h-7 w-7 shrink-0",
+                          lightFg ? "text-white/90" : "text-slate-500",
+                          highlightCompletion && "text-slate-700",
+                        )}
+                        strokeWidth={2}
+                        aria-hidden
+                      />
+                      <span
+                        className={cn(
+                          "text-2xl font-bold tabular-nums tracking-tight",
+                          highlightCompletion || !lightFg ? "text-slate-900" : "text-white",
+                        )}
+                      >
                         {completionTotal}
                       </span>
                     </div>
                   </div>
                 </CardContent>
-                <div className={cn("h-2 w-full rounded-b-xl", stripClass)} aria-hidden />
               </Card>
             </button>
           );
@@ -301,7 +418,7 @@ export function OperationsRoomZoneGrid({
         استلام: 0–{ZONE_HEAT.pickupSafeMax} د افتراضي · {ZONE_HEAT.pickupSafeMax}–{ZONE_HEAT.pickupWarnMax} د أحمر
         فاتح · ≥{ZONE_HEAT.pickupWarnMax} د أحمر غامق. إنجاز: 0–{ZONE_HEAT.completionSafeMax} د أخضر ·{" "}
         {ZONE_HEAT.completionSafeMax}–{ZONE_HEAT.completionWarnMax} د تدرج · ≥{ZONE_HEAT.completionWarnMax} د خطر
-        (نبض). اللون في الإطار والشريط السفلي فقط.
+        (نبض على الإطار). العداد المُبرز يشير لمسار أسوأ بلاغ.
       </p>
 
       <ZoneDrilldownSheet
@@ -309,6 +426,7 @@ export function OperationsRoomZoneGrid({
         onOpenChange={setSheetOpen}
         zoneId={sheetZone?.id ?? null}
         zoneName={sheetZone?.name ?? ""}
+        priorityTicketId={sheetZone?.priorityTicketId ?? null}
         baseFilters={baseFilters}
         onOpenTicket={onOpenTicket}
       />

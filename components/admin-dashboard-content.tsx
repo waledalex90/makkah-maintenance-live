@@ -423,6 +423,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       const pageSize = 1000;
       let from = 0;
       const rows: {
+        id: string;
         zone_id: string | null;
         status: string;
         created_at: string;
@@ -433,13 +434,14 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         const q = applyTicketDashboardFilters(
           supabase
             .from("tickets")
-            .select("zone_id, status, created_at, received_at, updated_at")
+            .select("id, zone_id, status, created_at, received_at, updated_at")
             .range(from, from + pageSize - 1),
           bf,
         );
         const { data, error } = await q;
         if (error) throw new Error(arabicErrorMessage(error.message));
         const batch = (data ?? []) as {
+          id: string;
           zone_id: string | null;
           status: string;
           created_at: string;

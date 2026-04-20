@@ -2,9 +2,23 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, LogIn, Plus, RotateCcw, PauseCircle, Search, SlidersHorizontal } from "lucide-react";
+import {
+  Building2,
+  CalendarClock,
+  Layers,
+  LogIn,
+  Pencil,
+  PauseCircle,
+  Plus,
+  RotateCcw,
+  Search,
+  SlidersHorizontal,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 
 type CompanyRow = {
   id: string;
@@ -201,6 +215,12 @@ export function PlatformCompaniesContent() {
   });
 
   const companies = query.data ?? [];
+  const planDisplayMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of plansQuery.data ?? []) m.set(p.plan_key, p.display_name);
+    return m;
+  }, [plansQuery.data]);
+
   const filteredCompanies = useMemo(() => {
     const term = search.trim().toLowerCase();
     return companies.filter((company) => {
@@ -223,183 +243,216 @@ export function PlatformCompaniesContent() {
   }, [companies, membersFilter, search, statusFilter, subscriptionFilter]);
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-slate-100 p-4" dir="rtl" lang="ar">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">إدارة الشركات</h1>
-          <p className="mt-1 text-xs text-slate-600">
-            المستأجرون على المنصة: الباقة، حالة الحساب، حالة الاشتراك، وتاريخ الانتهاء. استخدم «دخول بيانات الشركة»
-            لفتح التينانت في الواجهة الرئيسية (صلاحيات مدير من المنصة).
+    <section className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 to-slate-100/80 pb-12 pt-2" dir="rtl" lang="ar">
+      {/* رأس الصفحة */}
+      <div className="mx-auto max-w-[1600px] px-4 sm:px-6">
+        <div className="flex flex-col gap-4 pb-6 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-slate-500">
+              <Building2 className="h-5 w-5 text-slate-400" aria-hidden />
+              <span className="text-xs font-medium uppercase tracking-wide">لوحة إدارية</span>
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">متجر الشركات</h1>
+            <p className="max-w-xl text-sm leading-relaxed text-slate-600">
+              استعرض المستأجرين، صِفْ الباقات والاشتراكات، وانتقل إلى سياق أي شركة للتشغيل — واجهة نظيفة وبطاقات
+              واضحة.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-slate-900/15 transition hover:bg-slate-800"
+            >
+              <Plus className="h-4 w-4" />
+              إضافة شركة
+            </button>
+            <a
+              href="/dashboard/admin/platform"
+              className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+            >
+              العودة للوحة المنصة
+            </a>
+          </div>
+        </div>
+
+        {/* شريط أدوات — فلاتر مضغوطة */}
+        <div className="sticky top-2 z-20 rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm shadow-slate-200/50 backdrop-blur-md sm:px-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
+            <div className="relative min-w-0 flex-1 lg:max-w-md">
+              <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 pr-10 pl-3 text-sm outline-none ring-slate-300 transition placeholder:text-slate-400 focus:border-slate-300 focus:bg-white focus:ring-2"
+                placeholder="بحث بالاسم، الـ slug، أو الباقة…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-label="بحث في الشركات"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2 lg:gap-2.5">
+              <span className="hidden items-center gap-1.5 text-xs font-medium text-slate-500 sm:inline-flex">
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                تصفية
+              </span>
+              <select
+                className="h-9 min-w-[130px] flex-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-800 shadow-sm sm:flex-none sm:min-w-[140px]"
+                value={subscriptionFilter}
+                onChange={(e) => setSubscriptionFilter(e.target.value)}
+                aria-label="حالة الاشتراك"
+              >
+                <option value="all">كل الاشتراكات</option>
+                {SUB_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="h-9 min-w-[130px] flex-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-800 shadow-sm sm:flex-none sm:min-w-[140px]"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                aria-label="نشاط الشركة"
+              >
+                <option value="all">كل الشركات</option>
+                {COMPANY_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="h-9 min-w-[120px] flex-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-800 shadow-sm sm:flex-none"
+                value={membersFilter}
+                onChange={(e) => setMembersFilter(e.target.value as typeof membersFilter)}
+                aria-label="حجم الفريق"
+              >
+                <option value="all">كل الأحجام</option>
+                <option value="0">بدون موظفين</option>
+                <option value="1-5">1–5</option>
+                <option value="6-20">6–20</option>
+                <option value="21+">21+</option>
+              </select>
+            </div>
+          </div>
+          <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">
+            المعروض{" "}
+            <span className="font-semibold text-slate-800">{filteredCompanies.length}</span> من{" "}
+            <span className="font-semibold text-slate-800">{companies.length}</span> شركة
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            إضافة شركة
-          </button>
-          <a
-            href="/dashboard/admin/platform"
-            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
-          >
-            ← العودة للوحة المنصة
-          </a>
-        </div>
-      </div>
 
-      <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[220px] flex-1">
-            <Search className="pointer-events-none absolute right-2 top-2.5 h-4 w-4 text-slate-400" />
-            <input
-              className="h-9 w-full rounded-md border border-slate-200 pr-8 pl-2 text-sm"
-              placeholder="بحث بالاسم أو slug أو الباقة..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <div className="inline-flex items-center gap-1 text-xs text-slate-500">
-            <SlidersHorizontal className="h-3.5 w-3.5" />
-            فلاتر
-          </div>
-          <select
-            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs"
-            value={subscriptionFilter}
-            onChange={(e) => setSubscriptionFilter(e.target.value)}
-          >
-            <option value="all">كل حالات الاشتراك</option>
-            {SUB_STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
+        {/* شبكة الكروت */}
+        {query.isLoading ? (
+          <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-64 animate-pulse rounded-2xl border border-slate-200/80 bg-white shadow-md"
+              />
             ))}
-          </select>
-          <select
-            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="all">كل أنشطة الشركات</option>
-            {COMPANY_STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-          <select
-            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs"
-            value={membersFilter}
-            onChange={(e) => setMembersFilter(e.target.value as typeof membersFilter)}
-          >
-            <option value="all">كل أحجام الفرق</option>
-            <option value="0">بدون موظفين</option>
-            <option value="1-5">1-5 موظفين</option>
-            <option value="6-20">6-20 موظف</option>
-            <option value="21+">21+ موظف</option>
-          </select>
-        </div>
-        <p className="mt-2 text-xs text-slate-500">
-          المعروض: <span className="font-semibold text-slate-700">{filteredCompanies.length}</span> من{" "}
-          <span className="font-semibold text-slate-700">{companies.length}</span>
-        </p>
-      </div>
-
-      <div className="mt-4 overflow-auto rounded-lg border border-slate-200 bg-white">
-        <table className="min-w-[1240px] w-full text-right text-sm">
-          <thead className="bg-slate-50 text-slate-700">
-            <tr>
-              <th className="px-3 py-2">الشركة</th>
-              <th className="px-3 py-2">Slug</th>
-              <th className="px-3 py-2">الباقة</th>
-              <th className="px-3 py-2">الحالة</th>
-              <th className="px-3 py-2">الاشتراك</th>
-              <th className="px-3 py-2">ينتهي</th>
-              <th className="px-3 py-2">الأعضاء النشطون</th>
-              <th className="px-3 py-2">تاريخ الإنشاء</th>
-              <th className="px-3 py-2 w-28">إجراءات</th>
-            </tr>
-          </thead>
-          <tbody>
-            {query.isLoading ? (
-              <tr>
-                <td className="px-3 py-6 text-center text-slate-500" colSpan={9}>
-                  جاري التحميل...
-                </td>
-              </tr>
-            ) : filteredCompanies.length === 0 ? (
-              <tr>
-                <td className="px-3 py-6 text-center text-slate-500" colSpan={9}>
-                  لا توجد نتائج مطابقة للفلاتر الحالية.
-                </td>
-              </tr>
-            ) : (
-              filteredCompanies.map((company) => (
-                <tr key={company.id} className="border-t border-slate-100">
-                  <td className="px-3 py-2 font-medium text-slate-900">{company.name}</td>
-                  <td className="px-3 py-2 text-xs text-slate-600">{company.slug}</td>
-                  <td className="px-3 py-2">{company.subscription_plan}</td>
-                  <td className="px-3 py-2">
-                    <StatusBadge value={company.status} type="company" />
-                  </td>
-                  <td className="px-3 py-2 text-xs">
-                    <StatusBadge value={company.subscription_status ?? "active"} type="subscription" />
-                  </td>
-                  <td className="px-3 py-2 text-xs text-slate-600">
-                    {company.subscription_expires_at
-                      ? new Date(company.subscription_expires_at).toLocaleString("ar-SA")
-                      : "—"}
-                  </td>
-                  <td className="px-3 py-2">{company.active_members}</td>
-                  <td className="px-3 py-2 text-xs text-slate-500">
-                    {new Date(company.created_at).toLocaleString("ar-SA")}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-wrap gap-1 justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setEditing(company)}
-                        className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs hover:bg-slate-50"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        تعديل
-                      </button>
+          </div>
+        ) : filteredCompanies.length === 0 ? (
+          <div className="mx-auto mt-16 max-w-md rounded-2xl border border-dashed border-slate-200 bg-white/80 px-6 py-14 text-center shadow-sm">
+            <Layers className="mx-auto h-10 w-10 text-slate-300" />
+            <p className="mt-4 text-sm font-medium text-slate-700">لا توجد شركات مطابقة</p>
+            <p className="mt-1 text-xs text-slate-500">جرّب تغيير البحث أو الفلاتر أعلاه.</p>
+          </div>
+        ) : (
+          <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {filteredCompanies.map((company) => {
+              const planName = planDisplayMap.get(company.subscription_plan) ?? company.subscription_plan;
+              return (
+                <Card
+                  key={company.id}
+                  className="flex flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/40 transition hover:shadow-lg hover:shadow-slate-300/50"
+                >
+                  <CardHeader className="space-y-3 p-5 pb-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <h2 className="line-clamp-2 text-lg font-bold leading-snug text-slate-900">{company.name}</h2>
+                      <CompanyStatusBadge value={company.status} />
+                    </div>
+                    <p className="font-mono text-xs text-slate-500" dir="ltr">
+                      /{company.slug}
+                    </p>
+                  </CardHeader>
+                  <CardContent className="flex flex-1 flex-col gap-3 px-5 pb-2 pt-0 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-slate-500">الاشتراك</span>
+                      <SubscriptionStatusBadge value={company.subscription_status ?? "active"} />
+                    </div>
+                    <div className="flex items-start gap-3 rounded-xl bg-slate-50/80 px-3 py-2.5">
+                      <Layers className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                      <div>
+                        <p className="text-[11px] font-medium text-slate-500">الباقة</p>
+                        <p className="font-semibold text-slate-800">{planName}</p>
+                        <p className="text-[10px] text-slate-400">{company.subscription_plan}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-slate-700">
+                      <Users className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                      <span className="text-sm">
+                        <span className="font-bold tabular-nums text-slate-900">{company.active_members}</span>
+                        <span className="mr-1 text-xs text-slate-500">عضو نشط</span>
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-100 pt-3 text-[11px] text-slate-500">
+                      <span className="inline-flex items-center gap-1">
+                        <CalendarClock className="h-3.5 w-3.5" />
+                        ينتهي:{" "}
+                        {company.subscription_expires_at
+                          ? new Date(company.subscription_expires_at).toLocaleDateString("ar-SA")
+                          : "—"}
+                      </span>
+                    </div>
+                  </CardContent>
+                  <CardFooter className="mt-auto flex flex-col gap-2 border-t border-slate-100 bg-slate-50/30 p-4">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                       <button
                         type="button"
                         disabled={enterCompany.isPending || quickSubscriptionMutation.isPending}
                         onClick={() => enterCompany.mutate(company.id)}
-                        className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                        className="inline-flex min-h-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-emerald-200/90 bg-emerald-50 px-1 py-2 text-[11px] font-semibold text-emerald-900 transition hover:bg-emerald-100 disabled:opacity-50 sm:text-xs"
+                        title="تبديل للوضع التشغيلي"
                       >
-                        <LogIn className="h-3.5 w-3.5" />
-                        تبديل للوضع التشغيلي
+                        <LogIn className="h-4 w-4 shrink-0" />
+                        <span className="leading-tight">تشغيل</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditing(company)}
+                        className="inline-flex min-h-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-slate-200 bg-white px-1 py-2 text-[11px] font-semibold text-slate-800 transition hover:bg-slate-50 sm:text-xs"
+                        title="تعديل"
+                      >
+                        <Pencil className="h-4 w-4 shrink-0" />
+                        <span className="leading-tight">تعديل</span>
                       </button>
                       <button
                         type="button"
                         disabled={quickSubscriptionMutation.isPending}
                         onClick={() => quickSubscriptionMutation.mutate({ companyId: company.id, action: "renew" })}
-                        className="inline-flex items-center gap-1 rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-900 hover:bg-sky-100 disabled:opacity-50"
+                        className="inline-flex min-h-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-sky-200 bg-sky-50 px-1 py-2 text-[11px] font-semibold text-sky-900 transition hover:bg-sky-100 disabled:opacity-50 sm:text-xs"
+                        title="تجديد الاشتراك"
                       >
-                        <RotateCcw className="h-3.5 w-3.5" />
-                        تجديد
+                        <RotateCcw className="h-4 w-4 shrink-0" />
+                        <span className="leading-tight">تجديد</span>
                       </button>
                       <button
                         type="button"
                         disabled={quickSubscriptionMutation.isPending}
                         onClick={() => quickSubscriptionMutation.mutate({ companyId: company.id, action: "suspend" })}
-                        className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                        className="inline-flex min-h-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-xl border border-amber-200 bg-amber-50 px-1 py-2 text-[11px] font-semibold text-amber-950 transition hover:bg-amber-100 disabled:opacity-50 sm:text-xs"
+                        title="تعليق"
                       >
-                        <PauseCircle className="h-3.5 w-3.5" />
-                        تعليق
+                        <PauseCircle className="h-4 w-4 shrink-0" />
+                        <span className="leading-tight">تعليق</span>
                       </button>
                     </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+                  </CardFooter>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <Sheet open={createOpen} onOpenChange={setCreateOpen}>
@@ -620,43 +673,25 @@ export function PlatformCompaniesContent() {
   );
 }
 
-function StatusBadge({ value, type }: { value: string; type: "company" | "subscription" }) {
+function CompanyStatusBadge({ value }: { value: string }) {
   const normalized = (value || "").toLowerCase();
-  let label = value;
-  let cls = "bg-slate-100 text-slate-700";
+  const entry = COMPANY_STATUSES.find((s) => s.value === normalized);
+  const label = entry?.label ?? value;
+  if (normalized === "active") return <Badge variant="green">{label}</Badge>;
+  if (normalized === "suspended") return <Badge variant="yellow">{label}</Badge>;
+  if (normalized === "cancelled") return <Badge variant="red">{label}</Badge>;
+  if (normalized === "trial") return <Badge className="border-sky-200 bg-sky-100 text-sky-900">{label}</Badge>;
+  return <Badge variant="muted">{label}</Badge>;
+}
 
-  if (type === "company") {
-    if (normalized === "active") {
-      label = "Active";
-      cls = "bg-emerald-100 text-emerald-800";
-    } else if (normalized === "suspended") {
-      label = "Suspended";
-      cls = "bg-amber-100 text-amber-800";
-    } else if (normalized === "cancelled") {
-      label = "Cancelled";
-      cls = "bg-rose-100 text-rose-800";
-    } else if (normalized === "trial") {
-      label = "Trial";
-      cls = "bg-sky-100 text-sky-800";
-    }
-  } else {
-    if (normalized === "active") {
-      label = "Active";
-      cls = "bg-emerald-100 text-emerald-800";
-    } else if (normalized === "expired") {
-      label = "Expired";
-      cls = "bg-rose-100 text-rose-800";
-    } else if (normalized === "past_due") {
-      label = "Past Due";
-      cls = "bg-amber-100 text-amber-800";
-    } else if (normalized === "cancelled") {
-      label = "Cancelled";
-      cls = "bg-slate-200 text-slate-800";
-    } else if (normalized === "trial") {
-      label = "Trial";
-      cls = "bg-sky-100 text-sky-800";
-    }
-  }
-
-  return <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{label}</span>;
+function SubscriptionStatusBadge({ value }: { value: string }) {
+  const normalized = (value || "").toLowerCase();
+  const entry = SUB_STATUSES.find((s) => s.value === normalized);
+  const label = entry?.label ?? value;
+  if (normalized === "active") return <Badge variant="green">{label}</Badge>;
+  if (normalized === "expired") return <Badge variant="red">{label}</Badge>;
+  if (normalized === "past_due") return <Badge variant="yellow">{label}</Badge>;
+  if (normalized === "cancelled") return <Badge variant="muted">{label}</Badge>;
+  if (normalized === "trial") return <Badge className="border-sky-200 bg-sky-100 text-sky-900">{label}</Badge>;
+  return <Badge variant="muted">{label}</Badge>;
 }

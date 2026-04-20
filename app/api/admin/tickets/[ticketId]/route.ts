@@ -4,13 +4,21 @@ import { getSessionProfile } from "@/lib/auth-guards";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 import { getTenantContext } from "@/lib/tenant-context";
 
-/** حذف بلاغ نهائياً — مسموح فقط لبريد المدير المحمي (Super Admin). */
+/** حذف بلاغ نهائياً — المدير المحمي بالبريد أو مدير المنصة (Platform Admin) ضمن سياق الشركة. */
 export async function DELETE(_request: Request, context: { params: Promise<{ ticketId: string }> }) {
   const { user } = await getSessionProfile();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!isProtectedSuperAdminEmail(user.email)) {
+
+  const tenant = await getTenantContext();
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+  }
+
+  const canDelete =
+    isProtectedSuperAdminEmail(user.email) || tenant.isPlatformAdmin;
+  if (!canDelete) {
     return NextResponse.json({ error: "غير مصرح بحذف البلاغات." }, { status: 403 });
   }
 
@@ -20,10 +28,6 @@ export async function DELETE(_request: Request, context: { params: Promise<{ tic
   }
 
   const admin = createSupabaseAdminClient();
-  const tenant = await getTenantContext();
-  if (!tenant.ok) {
-    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
-  }
   let deleteQuery = admin.from("tickets").delete().eq("id", ticketId);
   if (!tenant.isPlatformAdmin || tenant.activeCompanyId) {
     deleteQuery = deleteQuery.eq("company_id", tenant.activeCompanyId ?? "");

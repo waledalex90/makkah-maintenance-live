@@ -270,7 +270,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [nowTs, setNowTs] = useState(() => Date.now());
   const [headerRefreshing, setHeaderRefreshing] = useState(false);
   const openedTicketQueryRef = useRef<string | null>(null);
-  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  /** حذف نهائي من المودال: مدير المنصة أو البريد المحمي (يُطابق API DELETE). */
+  const [hardDeleteEligible, setHardDeleteEligible] = useState(false);
   const [ticketDeleteDialogOpen, setTicketDeleteDialogOpen] = useState(false);
   const [ticketDeleting, setTicketDeleting] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
@@ -286,7 +287,21 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   } | null>(null);
   const detailDragControls = useDragControls();
 
-  const isSuperAdminSession = isProtectedSuperAdminEmail(sessionEmail);
+  useEffect(() => {
+    void fetch("/api/me")
+      .then((r) => r.json())
+      .then((j: { ok?: boolean; is_platform_admin?: boolean }) => {
+        if (j?.ok && j.is_platform_admin) setHardDeleteEligible(true);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    void supabase.auth.getUser().then(({ data }) => {
+      const email = data.user?.email?.trim().toLowerCase() ?? null;
+      if (isProtectedSuperAdminEmail(email)) setHardDeleteEligible(true);
+    });
+  }, []);
 
   useEffect(() => {
     const lockBody = createModalOpen || detailModalOpen || ticketDeleteDialogOpen;
@@ -300,12 +315,6 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       document.body.style.overscrollBehavior = prevOverscroll;
     };
   }, [createModalOpen, detailModalOpen, ticketDeleteDialogOpen]);
-
-  useEffect(() => {
-    void supabase.auth.getUser().then(({ data }) => {
-      setSessionEmail(data.user?.email?.trim().toLowerCase() ?? null);
-    });
-  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia === "undefined") return;
@@ -1464,11 +1473,14 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-lg font-semibold">تفاصيل البلاغ</h3>
               <div className="flex flex-wrap items-center gap-2">
-                {isSuperAdminSession && selectedTicket ? (
+                {hardDeleteEligible && selectedTicket ? (
                   <button
                     type="button"
                     className="rounded-md border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-800 hover:bg-red-100"
-                    onClick={() => setTicketDeleteDialogOpen(true)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTicketDeleteDialogOpen(true);
+                    }}
                   >
                     حذف البلاغ نهائياً
                   </button>
@@ -1602,7 +1614,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       {mounted && ticketDeleteDialogOpen && selectedTicket
         ? createPortal(
             <div
-              className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 p-4"
+              className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/60 p-4"
               onClick={() => (ticketDeleting ? undefined : setTicketDeleteDialogOpen(false))}
             >
               <div

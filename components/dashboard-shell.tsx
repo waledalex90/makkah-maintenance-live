@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { clearPlatformClientContext } from "@/lib/platform-context";
 import { supabase } from "@/lib/supabase";
 import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
+import { UP_FLOW_DEFAULT_ACCENT, UP_FLOW_DEFAULT_PRIMARY } from "@/lib/upflow-brand";
 
 type MeResponse =
   | {
@@ -29,6 +30,8 @@ type MeResponse =
         name: string;
         slug: string;
         company_logo_url?: string | null;
+        branding_primary_hex?: string | null;
+        branding_accent_hex?: string | null;
       } | null;
       active_membership?: {
         company_id: string;
@@ -41,6 +44,8 @@ type MeResponse =
           name: string;
           slug: string;
           company_logo_url?: string | null;
+          branding_primary_hex?: string | null;
+          branding_accent_hex?: string | null;
         } | null;
       } | null;
       memberships?: Array<{
@@ -52,6 +57,8 @@ type MeResponse =
           name: string;
           slug: string;
           company_logo_url?: string | null;
+          branding_primary_hex?: string | null;
+          branding_accent_hex?: string | null;
         } | null;
       }>;
       is_platform_admin?: boolean;
@@ -106,7 +113,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     : null;
   const companyName = me?.ok
     ? me.is_platform_admin && !me.profile.active_company_id
-      ? "منصة التشغيل"
+      ? "UP FLOW"
       : (me.active_company?.name ?? "غرفة العمليات")
     : "غرفة العمليات";
   const companyLogoUrl = me?.ok ? me.active_company?.company_logo_url ?? null : null;
@@ -189,6 +196,18 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       toast.error("تعذر تصفير الجلسة حالياً.");
     }
   };
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const primary = me?.ok
+      ? (me.active_company?.branding_primary_hex?.trim() || UP_FLOW_DEFAULT_PRIMARY)
+      : UP_FLOW_DEFAULT_PRIMARY;
+    const accent = me?.ok
+      ? (me.active_company?.branding_accent_hex?.trim() || UP_FLOW_DEFAULT_ACCENT)
+      : UP_FLOW_DEFAULT_ACCENT;
+    root.style.setProperty("--brand-primary", primary);
+    root.style.setProperty("--brand-accent", accent);
+  }, [me]);
 
   useEffect(() => {
     if (!mobileSidebarOpen) return;

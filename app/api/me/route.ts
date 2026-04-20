@@ -20,6 +20,8 @@ type MembershipCompany = {
   company_logo_url: string | null;
   subscription_plan: string | null;
   status: string | null;
+  branding_primary_hex: string | null;
+  branding_accent_hex: string | null;
 };
 
 type MembershipRow = {
@@ -53,7 +55,9 @@ export async function GET() {
 
   const { data: memberships, error: membershipsError } = await supabase
     .from("company_memberships")
-    .select("company_id, role_id, status, is_owner, roles:role_id(role_key, display_name, permissions), companies:company_id(id, name, slug, company_logo_url, subscription_plan, status)")
+    .select(
+      "company_id, role_id, status, is_owner, roles:role_id(role_key, display_name, permissions), companies:company_id(id, name, slug, company_logo_url, subscription_plan, status, branding_primary_hex, branding_accent_hex)",
+    )
     .eq("user_id", user.id)
     .eq("status", "active");
 
@@ -108,7 +112,7 @@ export async function GET() {
     const admin = createSupabaseAdminClient();
     const { data: companyFetch } = await admin
       .from("companies")
-      .select("id, name, slug, company_logo_url, subscription_plan, status")
+      .select("id, name, slug, company_logo_url, subscription_plan, status, branding_primary_hex, branding_accent_hex")
       .eq("id", activeCompanyId)
       .maybeSingle();
     if (companyFetch) {
@@ -126,6 +130,8 @@ export async function GET() {
           company_logo_url: companyFetch.company_logo_url,
           subscription_plan: companyFetch.subscription_plan,
           status: companyFetch.status,
+          branding_primary_hex: companyFetch.branding_primary_hex ?? null,
+          branding_accent_hex: companyFetch.branding_accent_hex ?? null,
         },
       };
     }

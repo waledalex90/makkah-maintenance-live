@@ -7,6 +7,9 @@
 :root {
   --background: #f8fafc;
   --foreground: #0f172a;
+  /* UP FLOW — يُحدَّث من الجلسة عند اختيار شركة */
+  --brand-primary: #1e3a5f;
+  --brand-accent: #ea580c;
 }
 
 body {

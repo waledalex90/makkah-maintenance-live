@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Building2, LayoutDashboard, ListTodo, MapPinned, Settings, Shield, Ticket, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { UpFlowLogo } from "@/components/upflow-logo";
 import { LogoutButton } from "@/components/logout-button";
 import { LogoutIconButton } from "@/components/logout-icon-button";
 import type { AppPermissionKey } from "@/lib/permissions";
@@ -43,7 +44,7 @@ const OPERATIONAL_NAV_DEF: NavItem[] = [
 ];
 
 const PLATFORM_NAV_DEF: NavItem[] = [
-  { href: "/dashboard/admin/platform", label: "لوحة المنصة", icon: Building2, perm: "manage_users", platformAdminOnly: true },
+  { href: "/dashboard/admin/platform", label: "UP FLOW — لوحة المنصة", icon: Building2, perm: "manage_users", platformAdminOnly: true },
   { href: "/dashboard/admin/companies", label: "إدارة الشركات", icon: Users, perm: "manage_users", platformAdminOnly: true },
   { href: "/dashboard/admin/billing", label: "الفواتير", icon: BarChart3, perm: "manage_users", platformAdminOnly: true },
   { href: "/dashboard/admin/monitoring", label: "الأمان", icon: Shield, perm: "manage_users", platformAdminOnly: true },
@@ -126,11 +127,16 @@ export function DashboardSidebar({
                   "flex min-h-12 items-center rounded-xl px-3 py-3 text-sm font-medium transition duration-300 ease-in-out",
                   isCollapsed ? "justify-center px-2" : "gap-2",
                   active
-                    ? "border-s border-amber-500 bg-slate-100 text-slate-900"
+                    ? "border-s border-[color:var(--brand-accent)] bg-slate-100 text-slate-900"
                     : "text-slate-700 hover:bg-slate-100",
                 )}
               >
-                <Icon className={cn("h-5 w-5 shrink-0 transition-colors duration-300 ease-in-out", active ? "text-amber-500" : "text-slate-600")} />
+                <Icon
+                  className={cn(
+                    "h-5 w-5 shrink-0 transition-colors duration-300 ease-in-out",
+                    active ? "text-[color:var(--brand-accent)]" : "text-slate-600",
+                  )}
+                />
                 {!isCollapsed ? <span>{item.label}</span> : null}
               </Link>
             );
@@ -162,16 +168,22 @@ export function DashboardSidebar({
             mobileOpen ? "translate-x-0" : "translate-x-full",
           )}
         >
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <UpFlowLogo className="h-7 w-7 shrink-0 text-[color:var(--brand-primary)]" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">UP FLOW</p>
+                <p className="truncate text-sm font-bold text-slate-900">القائمة</p>
+              </div>
+            </div>
             <button
               type="button"
               aria-label="إغلاق"
-              className="rounded-xl border border-slate-200 p-2"
+              className="shrink-0 rounded-xl border border-slate-200 p-2"
               onClick={onCloseMobile}
             >
               <X className="h-4 w-4 text-slate-700" />
             </button>
-            <p className="text-sm font-semibold text-slate-900">القائمة</p>
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
             <p className="text-xs font-medium text-slate-700">المستخدم الحالي</p>
@@ -194,6 +206,15 @@ export function DashboardSidebar({
         dir="rtl"
         lang="ar"
       >
+        <div className={cn("mb-4 flex items-center gap-2", collapsed && "justify-center")}>
+          <UpFlowLogo className={cn("shrink-0 text-[color:var(--brand-primary)]", collapsed ? "h-8 w-8" : "h-7 w-7")} />
+          {!collapsed ? (
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">UP FLOW</p>
+              <p className="truncate text-sm font-bold text-slate-900">منصة التشغيل</p>
+            </div>
+          ) : null}
+        </div>
         <div className={cn("rounded-xl border border-slate-200 bg-slate-100 p-3", collapsed && "p-2 text-center")}>
           <p className="text-xs font-medium text-slate-700">{collapsed ? "المستخدم" : "المستخدم الحالي"}</p>
           {!collapsed ? (

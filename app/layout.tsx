@@ -7,19 +7,19 @@ import { PwaRegister } from "@/components/pwa-register";
 import { QueryClientProviderWrapper } from "@/components/query-client-provider";
 
 export const metadata: Metadata = {
-  title: "Makkah Operations Center",
-  description: "Hajj maintenance operations dashboard",
+  title: "UP FLOW",
+  description: "منصة تشغيل ميداني متعددة للشركات — بلاغات، خريطة، فريق.",
   manifest: "/manifest.webmanifest",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#ffffff",
+  themeColor: "#1e3a5f",
   userScalable: false,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="ar" suppressHydrationWarning>
       <body>
         <script
           dangerouslySetInnerHTML={{

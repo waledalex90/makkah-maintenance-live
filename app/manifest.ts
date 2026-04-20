@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "نظام عزام",
-    short_name: "عزام",
-    description: "نظام عزام لإدارة البلاغات والصيانة الميدانية",
+    name: "UP FLOW",
+    short_name: "UP FLOW",
+    description: "UP FLOW — منصة تشغيل ميداني متعددة للشركات",
     id: "/",
     categories: ["business", "productivity"],
     start_url: "/",
@@ -17,8 +17,8 @@ export default function manifest(): MetadataRoute.Manifest {
     orientation: "portrait",
     iarc_rating_id: "e9227092-2374-42f2-9599-f416629994c6",
     related_applications: [],
-    background_color: "#ffffff",
-    theme_color: "#ffffff",
+    background_color: "#f8fafc",
+    theme_color: "#1e3a5f",
     lang: "ar",
     dir: "rtl",
     icons: [

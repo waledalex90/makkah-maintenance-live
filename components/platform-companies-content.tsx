@@ -29,6 +29,8 @@ type CompanyRow = {
   subscription_status?: string;
   subscription_expires_at?: string | null;
   billing_email?: string | null;
+  branding_primary_hex?: string | null;
+  branding_accent_hex?: string | null;
   created_at: string;
   active_members: number;
 };
@@ -94,6 +96,8 @@ export function PlatformCompaniesContent() {
     subscription_status: "",
     subscription_expires_at: "",
     billing_email: "",
+    branding_primary_hex: "",
+    branding_accent_hex: "",
   });
 
   useEffect(() => {
@@ -108,6 +112,8 @@ export function PlatformCompaniesContent() {
       subscription_status: editing.subscription_status ?? "active",
       subscription_expires_at: exp,
       billing_email: editing.billing_email ?? "",
+      branding_primary_hex: editing.branding_primary_hex ?? "",
+      branding_accent_hex: editing.branding_accent_hex ?? "",
     });
   }, [editing]);
 
@@ -156,6 +162,8 @@ export function PlatformCompaniesContent() {
         status: form.status,
         subscription_status: form.subscription_status,
         billing_email: form.billing_email.trim() || null,
+        branding_primary_hex: form.branding_primary_hex.trim() || null,
+        branding_accent_hex: form.branding_accent_hex.trim() || null,
       };
       if (form.subscription_expires_at) {
         payload.subscription_expires_at = new Date(form.subscription_expires_at).toISOString();
@@ -569,7 +577,7 @@ export function PlatformCompaniesContent() {
         <SheetContent className="overflow-y-auto" dir="rtl">
           <SheetHeader>
             <SheetTitle>تعديل شركة</SheetTitle>
-            <SheetDescription>تحديث الباقة وحالة الحساب وتاريخ انتهاء الاشتراك.</SheetDescription>
+            <SheetDescription>تحديث الباقة وحالة الحساب وألوان واجهة UP FLOW للشركة.</SheetDescription>
           </SheetHeader>
           {editing ? (
             <form
@@ -653,6 +661,32 @@ export function PlatformCompaniesContent() {
                   placeholder="billing@company.com"
                 />
               </label>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                <p className="mb-2 text-xs font-semibold text-slate-800">ألوان الواجهة (UP FLOW)</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-xs font-medium text-slate-700">
+                    لون أساسي (مثال كحلي)
+                    <input
+                      type="text"
+                      className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 font-mono text-sm"
+                      value={form.branding_primary_hex}
+                      onChange={(e) => setForm((f) => ({ ...f, branding_primary_hex: e.target.value }))}
+                      placeholder="#1e3a5f"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-slate-700">
+                    لون تنبيه (برتقالي)
+                    <input
+                      type="text"
+                      className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 font-mono text-sm"
+                      value={form.branding_accent_hex}
+                      onChange={(e) => setForm((f) => ({ ...f, branding_accent_hex: e.target.value }))}
+                      placeholder="#ea580c"
+                    />
+                  </label>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-500">اترك الحقل فارغاً لاستخدام القيم الافتراضية للمنصة.</p>
+              </div>
               <div className="flex gap-2 pt-2">
                 <button
                   type="submit"

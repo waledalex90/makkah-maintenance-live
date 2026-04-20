@@ -74,7 +74,7 @@ export function DashboardBottomNav({
               prefetch={item.href === "/dashboard/map" ? false : undefined}
               className={cn(
                 "flex min-h-16 flex-col items-center justify-center gap-1 px-0.5 text-[11px] font-semibold leading-tight sm:text-xs",
-                active ? "text-emerald-800 dark:text-emerald-400" : "text-slate-800 dark:text-slate-200",
+                active ? "text-[color:var(--brand-accent)] dark:text-[color:var(--brand-accent)]" : "text-slate-800 dark:text-slate-200",
               )}
             >
               <Icon className="h-4 w-4 shrink-0" />

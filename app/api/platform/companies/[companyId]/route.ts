@@ -3,6 +3,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth-guards";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordSecurityEvent } from "@/lib/security-events";
+import { normalizeBrandHex } from "@/lib/upflow-brand";
 
 const COMPANY_STATUSES = new Set(["active", "trial", "suspended", "cancelled"]);
 const SUB_STATUSES = new Set(["active", "past_due", "expired", "trial", "cancelled"]);
@@ -14,6 +15,8 @@ type PatchBody = {
   subscription_status?: string;
   subscription_expires_at?: string | null;
   billing_email?: string | null;
+  branding_primary_hex?: string | null;
+  branding_accent_hex?: string | null;
 };
 
 export async function PATCH(request: Request, context: { params: Promise<{ companyId: string }> }) {
@@ -94,6 +97,30 @@ export async function PATCH(request: Request, context: { params: Promise<{ compa
     }
   }
 
+  if (body.branding_primary_hex !== undefined) {
+    if (body.branding_primary_hex === null || body.branding_primary_hex === "") {
+      patch.branding_primary_hex = null;
+    } else if (typeof body.branding_primary_hex === "string") {
+      const n = normalizeBrandHex(body.branding_primary_hex);
+      if (!n) return NextResponse.json({ error: "invalid branding_primary_hex" }, { status: 400 });
+      patch.branding_primary_hex = n;
+    } else {
+      return NextResponse.json({ error: "invalid branding_primary_hex" }, { status: 400 });
+    }
+  }
+
+  if (body.branding_accent_hex !== undefined) {
+    if (body.branding_accent_hex === null || body.branding_accent_hex === "") {
+      patch.branding_accent_hex = null;
+    } else if (typeof body.branding_accent_hex === "string") {
+      const n = normalizeBrandHex(body.branding_accent_hex);
+      if (!n) return NextResponse.json({ error: "invalid branding_accent_hex" }, { status: 400 });
+      patch.branding_accent_hex = n;
+    } else {
+      return NextResponse.json({ error: "invalid branding_accent_hex" }, { status: 400 });
+    }
+  }
+
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "no fields to update" }, { status: 400 });
   }
@@ -102,7 +129,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ compa
     .from("companies")
     .update(patch)
     .eq("id", companyId)
-    .select("id, name, slug, subscription_plan, status, subscription_status, subscription_expires_at, billing_email, created_at")
+    .select(
+      "id, name, slug, subscription_plan, status, subscription_status, subscription_expires_at, billing_email, branding_primary_hex, branding_accent_hex, created_at",
+    )
     .maybeSingle();
 
   if (error) {

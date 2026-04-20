@@ -200,6 +200,15 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(adminUrl);
     }
 
+    /**
+     * معاينة شركة (god mode): مدير المنصة يجب أن يصل لكل شاشات التشغيل والإدارة
+     * للدعم — لا نستخدم role المخزّن في profiles هنا لأنه قد يكون reporter/engineer
+     * فيُعاد توجيه كل المسارات إلى /dashboard.
+     */
+    if (isPlatformAdminSession && hasGodModeFlag) {
+      return supabaseResponse;
+    }
+
     if (typedProfile?.access_work_list || typedProfile?.role === "technician" || typedProfile?.role === "supervisor" || typedProfile?.role === "data_entry") {
       const url = request.nextUrl.clone();
       url.pathname = "/tasks/my-work";

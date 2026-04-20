@@ -36,7 +36,7 @@ export default async function DashboardHomePage() {
   }
 
   return (
-    <Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">جاري تحميل لوحة التحكم…</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">جاري تحميل غرفة العمليات…</div>}>
       <AdminDashboardContent role={profile.role} />
     </Suspense>
   );

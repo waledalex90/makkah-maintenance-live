@@ -41,6 +41,8 @@ import {
   getAgeMinutes,
   relativeAgeLabelSaudi,
 } from "@/lib/saudi-time";
+import { OperationsRoomZoneGrid } from "@/components/operations-room-zone-grid";
+import { aggregateTicketsByZone, playOperationsAlertSound } from "@/lib/operations-room-utils";
 
 type Zone = {
   id: string;
@@ -51,8 +53,8 @@ type Zone = {
   longitude?: number | null;
 };
 
-/** فلتر بطاقات الإحصاء: إجمالي، متأخر الاستلام، قيد التنفيذ، مكتمل */
-type StatFilter = "all" | "late_pickup" | "received" | "finished";
+/** فلتر بطاقات الإحصاء: إجمالي، متأخر الاستلام، قيد التنفيذ، مكتمل، مفتوح (نشط+جديد غير متأخر) */
+type StatFilter = "all" | "late_pickup" | "received" | "finished" | "open";
 type CategoryJoin = { name: string } | { name: string }[] | null;
 
 type TicketRow = {
@@ -258,6 +260,12 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const [ticketDeleting, setTicketDeleting] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [alertZoneIds, setAlertZoneIds] = useState<Set<string>>(() => new Set());
+  const monitorBaselineRef = useRef<{
+    globalLate: number;
+    globalNew: number;
+    byZoneDelayed: Record<string, number>;
+  } | null>(null);
   const detailDragControls = useDragControls();
 
   const isSuperAdminSession = isProtectedSuperAdminEmail(sessionEmail);
@@ -365,6 +373,36 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       };
     },
     staleTime: 15_000,
+    refetchInterval: 45_000,
+    placeholderData: (prev) => prev,
+  });
+
+  const zoneOpsStatsQuery = useQuery({
+    queryKey: ["operations-zone-stats", baseFilters, zones.map((z) => z.id).join("|")],
+    queryFn: async () => {
+      const nowMs = Date.now();
+      const bf = baseFilters;
+      const pageSize = 1000;
+      let from = 0;
+      const rows: { zone_id: string | null; status: string; created_at: string }[] = [];
+      while (true) {
+        const q = applyTicketDashboardFilters(
+          supabase.from("tickets").select("zone_id, status, created_at").range(from, from + pageSize - 1),
+          bf,
+        );
+        const { data, error } = await q;
+        if (error) throw new Error(arabicErrorMessage(error.message));
+        const batch = (data ?? []) as { zone_id: string | null; status: string; created_at: string }[];
+        rows.push(...batch);
+        if (batch.length < pageSize) break;
+        from += pageSize;
+        if (from > 100_000) break;
+      }
+      return aggregateTicketsByZone(rows, zones.map((z) => z.id), nowMs);
+    },
+    enabled: !tableOnly && zones.length > 0,
+    staleTime: 30_000,
+    refetchInterval: 45_000,
     placeholderData: (prev) => prev,
   });
 
@@ -405,7 +443,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         baseFilters,
       );
 
-      if (statFilter === "late_pickup") {
+      if (statFilter === "open") {
+        const thresholdIso = new Date(nowTs - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString();
+        query = query.or(`status.eq.received,and(status.eq.not_received,created_at.gt.${thresholdIso})`);
+      } else if (statFilter === "late_pickup") {
         query = query
           .eq("status", "not_received")
           .lte("created_at", new Date(nowTs - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString());
@@ -498,6 +539,55 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     zones.forEach((zone) => map.set(zone.id, zone.name));
     return map;
   }, [zones]);
+
+  useEffect(() => {
+    if (tableOnly || !statsQuery.data || !zoneOpsStatsQuery.data) return;
+    const late = statsQuery.data.latePickup;
+    const newN = statsQuery.data.notReceived;
+    const byZone = zoneOpsStatsQuery.data;
+    const byZoneDelayed: Record<string, number> = {};
+    byZone.forEach((v, k) => {
+      byZoneDelayed[k] = v.delayed;
+    });
+    if (!monitorBaselineRef.current) {
+      monitorBaselineRef.current = { globalLate: late, globalNew: newN, byZoneDelayed };
+      return;
+    }
+    const prev = monitorBaselineRef.current;
+    const messages: string[] = [];
+    const newAlerts = new Set<string>();
+    if (late > prev.globalLate) {
+      messages.push(`تنبيه: ${late - prev.globalLate} بلاغات متأخرة إضافية (لم يُستلم بعدها) على مستوى المنصة.`);
+    }
+    if (newN > prev.globalNew) {
+      messages.push(`تنبيه: ${newN - prev.globalNew} بلاغات جديدة لم يُستلم بعد.`);
+    }
+    for (const [zoneId, stats] of byZone) {
+      const pD = prev.byZoneDelayed[zoneId] ?? 0;
+      if (stats.delayed > pD) {
+        const zname = zoneNameMap.get(zoneId) ?? "منطقة";
+        newAlerts.add(zoneId);
+        messages.push(`تنبيه: ${stats.delayed - pD} بلاغات متأخرة إضافية في منطقة ${zname}`);
+      }
+    }
+    monitorBaselineRef.current = { globalLate: late, globalNew: newN, byZoneDelayed };
+    if (messages.length > 0) {
+      playOperationsAlertSound();
+      messages.forEach((m) => toast.info(m, { duration: 12_000 }));
+      setAlertZoneIds((prev) => {
+        const next = new Set(prev);
+        newAlerts.forEach((id) => next.add(id));
+        return next;
+      });
+      window.setTimeout(() => {
+        setAlertZoneIds((prev) => {
+          const next = new Set(prev);
+          newAlerts.forEach((id) => next.delete(id));
+          return next;
+        });
+      }, 120_000);
+    }
+  }, [tableOnly, statsQuery.data, zoneOpsStatsQuery.data, zoneNameMap]);
 
   useEffect(() => {
     try {
@@ -737,6 +827,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     try {
       await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
       await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
+      await queryClient.invalidateQueries({ queryKey: ["operations-zone-stats"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard-zones"] });
       await queryClient.invalidateQueries({ queryKey: ["ticket-categories-list"] });
       toast.success("تم تحديث البيانات.");
@@ -760,7 +851,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           {!tableOnly ? <UserIdentityHeader compact /> : null}
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-2xl font-bold text-slate-900">{tableOnly ? "مركز البلاغات" : "لوحة التحكم"}</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{tableOnly ? "مركز البلاغات" : "غرفة العمليات"}</h1>
           <div className="flex items-center justify-end gap-2">
             <Button
               type="button"
@@ -868,10 +959,23 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       </section>
       </div>
 
+      {!tableOnly ? (
+        <OperationsRoomZoneGrid
+          zones={zones}
+          zoneStats={zoneOpsStatsQuery.data ?? new Map()}
+          alertZoneIds={alertZoneIds}
+          loading={zoneOpsStatsQuery.isPending && !zoneOpsStatsQuery.data}
+        />
+      ) : null}
+
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold">جدول البلاغات الحالية</h2>
-          <p className="text-xs text-slate-500">يعرض أحدث البلاغات مع فلاتر مباشرة</p>
+          <p className="text-xs text-slate-500">
+            {tableOnly
+              ? "يعرض أحدث البلاغات مع فلاتر مباشرة"
+              : "تفاصيل إضافية — ركّز على مصفوفة المناطق أعلاه؛ يمكنك توسيع الفلاتر هنا عند الحاجة"}
+          </p>
         </div>
 
         <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
@@ -1149,6 +1253,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
                   onCreated={async () => {
                     await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
                     await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
+                    await queryClient.invalidateQueries({ queryKey: ["operations-zone-stats"] });
                     toast.success("تم حفظ البلاغ وتحديث الجدول.");
                   }}
                 />

@@ -1,17 +1,19 @@
-export type ZoneOpsCounts = { active: number; delayed: number; finished: number };
+export type ZoneOpsCounts = { active: number; warning: number; late: number; finished: number };
 
-const PICKUP_SLACK_MINUTES = 2;
+export const PICKUP_SLACK_MINUTES = 2;
 
-/** تجميع بلاغات المناطق: نشطة = قيد تنفيذ + جديد غير متأخر، متأخرة، منتهية */
+/** تجميع بلاغات المناطق: نشطة (قبل 75% من مهلة الاستلام)، أوشكت (75–100%)، متأخرة، منتهية */
 export function aggregateTicketsByZone(
   rows: { zone_id: string | null; status: string; created_at: string }[],
   zoneIds: string[],
   nowMs: number,
 ): Map<string, ZoneOpsCounts> {
-  const thresholdIso = new Date(nowMs - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString();
+  const slackMs = PICKUP_SLACK_MINUTES * 60 * 1000;
+  const warnIso = new Date(nowMs - 0.75 * slackMs).toISOString();
+  const lateIso = new Date(nowMs - slackMs).toISOString();
   const byZone = new Map<string, ZoneOpsCounts>();
   for (const id of zoneIds) {
-    byZone.set(id, { active: 0, delayed: 0, finished: 0 });
+    byZone.set(id, { active: 0, warning: 0, late: 0, finished: 0 });
   }
   for (const row of rows) {
     const zid = row.zone_id;
@@ -22,7 +24,8 @@ export function aggregateTicketsByZone(
     } else if (row.status === "received") {
       b.active++;
     } else if (row.status === "not_received") {
-      if (row.created_at <= thresholdIso) b.delayed++;
+      if (row.created_at <= lateIso) b.late++;
+      else if (row.created_at <= warnIso) b.warning++;
       else b.active++;
     }
   }
@@ -32,13 +35,16 @@ export function aggregateTicketsByZone(
 /** رابط صفحة البلاغات مع فلتر المنطقة وحالة البطاقة الإحصائية */
 export function buildTicketsFilteredHref(opts: {
   zoneId?: string | null;
-  /** sf: late_pickup | finished | received | open */
-  statCard: "late_pickup" | "finished" | "received" | "open";
+  /** sf: late_pickup | pickup_warning | finished | received | open */
+  statCard: "late_pickup" | "pickup_warning" | "finished" | "received" | "open";
 }): string {
   const p = new URLSearchParams();
   if (opts.zoneId && opts.zoneId !== "all") p.set("zf", opts.zoneId);
   if (opts.statCard === "late_pickup") {
     p.set("sf", "late_pickup");
+    p.set("tst", "all");
+  } else if (opts.statCard === "pickup_warning") {
+    p.set("sf", "pickup_warning");
     p.set("tst", "all");
   } else if (opts.statCard === "finished") {
     p.set("sf", "finished");

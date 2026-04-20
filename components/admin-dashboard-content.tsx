@@ -54,7 +54,7 @@ type Zone = {
 };
 
 /** فلتر بطاقات الإحصاء: إجمالي، متأخر الاستلام، قيد التنفيذ، مكتمل، مفتوح (نشط+جديد غير متأخر) */
-type StatFilter = "all" | "late_pickup" | "received" | "finished" | "open";
+type StatFilter = "all" | "late_pickup" | "pickup_warning" | "received" | "finished" | "open";
 type CategoryJoin = { name: string } | { name: string }[] | null;
 
 type TicketRow = {
@@ -264,7 +264,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const monitorBaselineRef = useRef<{
     globalLate: number;
     globalNew: number;
-    byZoneDelayed: Record<string, number>;
+    byZoneLate: Record<string, number>;
+    byZoneWarning: Record<string, number>;
   } | null>(null);
   const detailDragControls = useDragControls();
 
@@ -444,8 +445,14 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       );
 
       if (statFilter === "open") {
-        const thresholdIso = new Date(nowTs - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString();
-        query = query.or(`status.eq.received,and(status.eq.not_received,created_at.gt.${thresholdIso})`);
+        const slackMs = PICKUP_SLACK_MINUTES * 60 * 1000;
+        const warnIso = new Date(nowTs - 0.75 * slackMs).toISOString();
+        query = query.or(`status.eq.received,and(status.eq.not_received,created_at.gt.${warnIso})`);
+      } else if (statFilter === "pickup_warning") {
+        const slackMs = PICKUP_SLACK_MINUTES * 60 * 1000;
+        const warnIso = new Date(nowTs - 0.75 * slackMs).toISOString();
+        const lateIso = new Date(nowTs - slackMs).toISOString();
+        query = query.eq("status", "not_received").lte("created_at", warnIso).gt("created_at", lateIso);
       } else if (statFilter === "late_pickup") {
         query = query
           .eq("status", "not_received")
@@ -545,12 +552,14 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     const late = statsQuery.data.latePickup;
     const newN = statsQuery.data.notReceived;
     const byZone = zoneOpsStatsQuery.data;
-    const byZoneDelayed: Record<string, number> = {};
+    const byZoneLate: Record<string, number> = {};
+    const byZoneWarning: Record<string, number> = {};
     byZone.forEach((v, k) => {
-      byZoneDelayed[k] = v.delayed;
+      byZoneLate[k] = v.late;
+      byZoneWarning[k] = v.warning;
     });
     if (!monitorBaselineRef.current) {
-      monitorBaselineRef.current = { globalLate: late, globalNew: newN, byZoneDelayed };
+      monitorBaselineRef.current = { globalLate: late, globalNew: newN, byZoneLate, byZoneWarning };
       return;
     }
     const prev = monitorBaselineRef.current;
@@ -563,14 +572,19 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       messages.push(`تنبيه: ${newN - prev.globalNew} بلاغات جديدة لم يُستلم بعد.`);
     }
     for (const [zoneId, stats] of byZone) {
-      const pD = prev.byZoneDelayed[zoneId] ?? 0;
-      if (stats.delayed > pD) {
-        const zname = zoneNameMap.get(zoneId) ?? "منطقة";
+      const zname = zoneNameMap.get(zoneId) ?? "منطقة";
+      const pL = prev.byZoneLate[zoneId] ?? 0;
+      if (stats.late > pL) {
         newAlerts.add(zoneId);
-        messages.push(`تنبيه: ${stats.delayed - pD} بلاغات متأخرة إضافية في منطقة ${zname}`);
+        messages.push(`تنبيه: ${stats.late - pL} بلاغات متأخرة إضافية في منطقة ${zname}`);
+      }
+      const pW = prev.byZoneWarning[zoneId] ?? 0;
+      if (stats.warning > pW) {
+        newAlerts.add(zoneId);
+        messages.push(`تنبيه: ${stats.warning - pW} بلاغات أوشكت على التأخير في منطقة ${zname}`);
       }
     }
-    monitorBaselineRef.current = { globalLate: late, globalNew: newN, byZoneDelayed };
+    monitorBaselineRef.current = { globalLate: late, globalNew: newN, byZoneLate, byZoneWarning };
     if (messages.length > 0) {
       playOperationsAlertSound();
       messages.forEach((m) => toast.info(m, { duration: 12_000 }));

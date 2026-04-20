@@ -5,7 +5,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "icons": "node scripts/generate-upflow-icons.cjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -47,6 +48,7 @@
     "sharp": "^0.34.5",
     "supabase": "^2.90.1",
     "tailwindcss": "^4.2.2",
+    "to-ico": "^1.1.5",
     "typescript": "^6.0.2"
   }
 }

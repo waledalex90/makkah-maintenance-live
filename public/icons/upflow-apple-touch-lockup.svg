@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180" role="img" aria-label="UP FLOW">
+  <defs>
+    <linearGradient id="bg" x1="8%" y1="92%" x2="92%" y2="8%">
+      <stop offset="0%" stop-color="#050a14"/>
+      <stop offset="50%" stop-color="#15365c"/>
+      <stop offset="100%" stop-color="#1e3a5f"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ea580c"/>
+      <stop offset="55%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#fdba74"/>
+    </linearGradient>
+  </defs>
+  <rect width="180" height="180" rx="38" fill="url(#bg)"/>
+  <g transform="translate(90, 54) scale(0.27) translate(-278, -256)">
+    <path
+      fill="none"
+      stroke="url(#accent)"
+      stroke-width="40"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      d="M 108 384 V 196 Q 108 88 214 88 Q 320 88 320 196 V 384"
+    />
+    <path
+      fill="none"
+      stroke="url(#accent)"
+      stroke-width="40"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      d="M 364 88 V 424 M 364 88 H 448 M 364 228 H 432"
+    />
+    <circle cx="320" cy="196" r="16" fill="#fdba74"/>
+  </g>
+  <text
+    x="90"
+    y="164"
+    text-anchor="middle"
+    font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+    font-size="16"
+    font-weight="600"
+    letter-spacing="0.14em"
+    fill="#e2e8f0"
+  >
+    UP FLOW
+  </text>
+</svg>

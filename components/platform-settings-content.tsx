@@ -295,7 +295,7 @@ export function PlatformSettingsContent({ initialRows }: Props) {
           if (!open) setPurgePhrase("");
         }}
       >
-        <DialogContent className="dir-rtl" dir="rtl" lang="ar">
+        <DialogContent dir="rtl" lang="ar">
           <DialogHeader>
             <DialogTitle className="text-red-900">تأكيد التطهير</DialogTitle>
             <DialogDescription className="text-slate-700">

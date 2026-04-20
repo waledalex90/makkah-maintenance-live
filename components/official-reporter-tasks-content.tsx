@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { arabicErrorMessage } from "@/lib/arabic-errors";
@@ -19,8 +20,12 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TaskTicketDetailModal } from "@/components/task-ticket-detail-modal";
+import {
+  DEFAULT_TICKETING_SETTINGS,
+  RESOLVED_TICKETING_SETTINGS_QUERY_KEY,
+  type ResolvedTicketingSettings,
+} from "@/lib/resolved-settings";
 
-const PICKUP_SLACK_MINUTES = 2;
 const EXEC_DELAY_MINUTES = 40;
 
 type CategoryJoin = { name: string } | { name: string }[] | null;
@@ -77,6 +82,19 @@ export function OfficialReporterTasksContent() {
   const [openTicketId, setOpenTicketId] = useState<string | null>(null);
   const prevAlertSetsRef = useRef<{ t1: Set<string>; t2: Set<string> } | null>(null);
   const hydratedRef = useRef(false);
+
+  const ticketingSettingsQuery = useQuery({
+    queryKey: [...RESOLVED_TICKETING_SETTINGS_QUERY_KEY],
+    queryFn: async () => {
+      const res = await fetch("/api/me/resolved-settings");
+      if (!res.ok) throw new Error("تعذر تحميل الإعدادات.");
+      const json = (await res.json()) as { ok?: boolean; settings?: ResolvedTicketingSettings; error?: string };
+      if (!json.ok) throw new Error(json.error ?? "تعذر تحميل الإعدادات.");
+      return json.settings as ResolvedTicketingSettings;
+    },
+    staleTime: 60_000,
+  });
+  const pickupSlackMin = ticketingSettingsQuery.data?.pickup_threshold_minutes ?? DEFAULT_TICKETING_SETTINGS.pickup_threshold_minutes;
 
   const loadData = useCallback(async () => {
     const [tRes, fRes] = await Promise.all([
@@ -187,7 +205,7 @@ export function OfficialReporterTasksContent() {
   const { tabNotReceived, tabDelay, tabFinished } = useMemo(() => {
     const open = tickets.filter((t) => !dismissedIds.has(t.id));
     const t1 = sortOldestFirst(
-      open.filter((t) => t.status === "not_received" && getAgeMs(t.created_at, nowTs) > PICKUP_SLACK_MINUTES * 60_000),
+      open.filter((t) => t.status === "not_received" && getAgeMs(t.created_at, nowTs) > pickupSlackMin * 60_000),
     );
     const t2 = sortOldestFirst(
       open.filter((t) => {
@@ -199,7 +217,7 @@ export function OfficialReporterTasksContent() {
     );
     const t3 = sortOldestFirst(open.filter((t) => t.status === "finished"));
     return { tabNotReceived: t1, tabDelay: t2, tabFinished: t3 };
-  }, [tickets, dismissedIds, nowTs]);
+  }, [tickets, dismissedIds, nowTs, pickupSlackMin]);
 
   useEffect(() => {
     const s1 = new Set(tabNotReceived.map((t) => t.id));
@@ -217,7 +235,9 @@ export function OfficialReporterTasksContent() {
     for (const id of s1) {
       if (!prev.t1.has(id)) {
         playWorkNotificationSound();
-        toast.warning("تنبيه: بلاغ لم يُستلم وتجاوز دقيقتين.", { description: "راجع تبويب «لم يتم الاستلام»." });
+        toast.warning(`تنبيه: بلاغ لم يُستلم وتجاوز ${pickupSlackMin} دقيقة.`, {
+          description: "راجع تبويب «لم يتم الاستلام».",
+        });
         break;
       }
     }
@@ -231,7 +251,7 @@ export function OfficialReporterTasksContent() {
       }
     }
     prevAlertSetsRef.current = { t1: s1, t2: s2 };
-  }, [tabNotReceived, tabDelay]);
+  }, [tabNotReceived, tabDelay, pickupSlackMin]);
 
   const toggleWorking = async (ticketId: string) => {
     if (!myUserId) {
@@ -444,7 +464,7 @@ export function OfficialReporterTasksContent() {
           </div>
           <p className="text-xs text-slate-500">
             {tab === "not_received"
-              ? "بلاغات بحالة «لم يستلم» وعمرها أكثر من دقيقتين (مقابلة new في المخطط القديم)."
+              ? `بلاغات بحالة «لم يستلم» وعمرها أكثر من ${pickupSlackMin} دقيقة (مقابلة new في المخطط القديم).`
               : tab === "delay"
                 ? "بلاغات «تم الاستلام» ومضى على الاستلام أكثر من ٤٠ دقيقة (مقابلة assigned مع تأخير)."
                 : "بلاغات منتهية في النظام (مقابلة completed)."}

@@ -43,6 +43,11 @@ import {
 } from "@/lib/saudi-time";
 import { OperationsRoomZoneGrid } from "@/components/operations-room-zone-grid";
 import { aggregateTicketsByZone, playOperationsAlertSound } from "@/lib/operations-room-utils";
+import {
+  DEFAULT_TICKETING_SETTINGS,
+  RESOLVED_TICKETING_SETTINGS_QUERY_KEY,
+  type ResolvedTicketingSettings,
+} from "@/lib/resolved-settings";
 
 type Zone = {
   id: string;
@@ -122,7 +127,6 @@ type AdminDashboardContentProps = {
 
 const PAGE_SIZE = 20;
 const LAST_READ_STORAGE_KEY = "admin_ticket_last_read_map";
-const PICKUP_SLACK_MINUTES = 2;
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
 const NEARBY_RADIUS_METERS = 3000;
 
@@ -155,14 +159,14 @@ function normalizeCategoryName(category: CategoryJoin | undefined): string {
 }
 
 /** ترتيب مسؤول البلاغات: متأخر الاستلام أولاً، ثم قيد التنفيذ، ثم الباقي (الأحدث داخل كل مجموعة) */
-function sortReporterTickets(rows: TicketRow[], nowMs: number): TicketRow[] {
+function sortReporterTickets(rows: TicketRow[], nowMs: number, pickupThresholdMinutes: number): TicketRow[] {
   return [...rows].sort((a, b) => {
     const ca = new Date(a.created_at).getTime();
     const cb = new Date(b.created_at).getTime();
     const ageA = (nowMs - ca) / 60_000;
     const ageB = (nowMs - cb) / 60_000;
     const tier = (t: TicketRow, ageMin: number) => {
-      if (t.status === "not_received" && ageMin > PICKUP_SLACK_MINUTES) return 0;
+      if (t.status === "not_received" && ageMin > pickupThresholdMinutes) return 0;
       if (t.status === "received") return 1;
       if (t.status === "not_received") return 2;
       return 3;
@@ -328,10 +332,23 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   });
   const ticketCategories = categoriesQuery.data ?? [];
 
-  const statsQuery = useQuery({
-    queryKey: ["admin-dashboard-stats", baseFilters, nowTs],
+  const resolvedSettingsQuery = useQuery({
+    queryKey: [...RESOLVED_TICKETING_SETTINGS_QUERY_KEY],
     queryFn: async () => {
-      const thresholdIso = new Date(nowTs - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString();
+      const res = await fetch("/api/me/resolved-settings");
+      if (!res.ok) throw new Error("تعذر تحميل الإعدادات الزمنية.");
+      const json = (await res.json()) as { ok?: boolean; settings?: ResolvedTicketingSettings; error?: string };
+      if (!json.ok) throw new Error(json.error ?? "تعذر تحميل الإعدادات.");
+      return json.settings as ResolvedTicketingSettings;
+    },
+    staleTime: 60_000,
+  });
+  const timing = resolvedSettingsQuery.data ?? DEFAULT_TICKETING_SETTINGS;
+
+  const statsQuery = useQuery({
+    queryKey: ["admin-dashboard-stats", baseFilters, nowTs, timing.pickup_threshold_minutes],
+    queryFn: async () => {
+      const thresholdIso = new Date(nowTs - timing.pickup_threshold_minutes * 60 * 1000).toISOString();
       const bf = baseFilters;
       const totalQ = applyTicketDashboardFilters(supabase.from("tickets").select("id", { count: "exact", head: true }), bf);
       const receivedQ = applyTicketDashboardFilters(
@@ -379,7 +396,13 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   });
 
   const zoneOpsStatsQuery = useQuery({
-    queryKey: ["operations-zone-stats", baseFilters, zones.map((z) => z.id).join("|")],
+    queryKey: [
+      "operations-zone-stats",
+      baseFilters,
+      zones.map((z) => z.id).join("|"),
+      timing.pickup_threshold_minutes,
+      timing.warning_percentage,
+    ],
     queryFn: async () => {
       const nowMs = Date.now();
       const bf = baseFilters;
@@ -399,7 +422,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         from += pageSize;
         if (from > 100_000) break;
       }
-      return aggregateTicketsByZone(rows, zones.map((z) => z.id), nowMs);
+      return aggregateTicketsByZone(rows, zones.map((z) => z.id), nowMs, timing);
     },
     enabled: !tableOnly && zones.length > 0,
     staleTime: 30_000,
@@ -430,6 +453,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       currentPage,
       nowTs,
       isReporterDesk,
+      timing.pickup_threshold_minutes,
+      timing.warning_percentage,
     ],
     queryFn: async () => {
       const from = (currentPage - 1) * PAGE_SIZE;
@@ -445,18 +470,18 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       );
 
       if (statFilter === "open") {
-        const slackMs = PICKUP_SLACK_MINUTES * 60 * 1000;
-        const warnIso = new Date(nowTs - 0.75 * slackMs).toISOString();
+        const slackMs = timing.pickup_threshold_minutes * 60 * 1000;
+        const warnIso = new Date(nowTs - timing.warning_percentage * slackMs).toISOString();
         query = query.or(`status.eq.received,and(status.eq.not_received,created_at.gt.${warnIso})`);
       } else if (statFilter === "pickup_warning") {
-        const slackMs = PICKUP_SLACK_MINUTES * 60 * 1000;
-        const warnIso = new Date(nowTs - 0.75 * slackMs).toISOString();
+        const slackMs = timing.pickup_threshold_minutes * 60 * 1000;
+        const warnIso = new Date(nowTs - timing.warning_percentage * slackMs).toISOString();
         const lateIso = new Date(nowTs - slackMs).toISOString();
         query = query.eq("status", "not_received").lte("created_at", warnIso).gt("created_at", lateIso);
       } else if (statFilter === "late_pickup") {
         query = query
           .eq("status", "not_received")
-          .lte("created_at", new Date(nowTs - PICKUP_SLACK_MINUTES * 60 * 1000).toISOString());
+          .lte("created_at", new Date(nowTs - timing.pickup_threshold_minutes * 60 * 1000).toISOString());
       } else if (statFilter === "received") {
         query = query.eq("status", "received");
       } else if (statFilter === "finished") {
@@ -491,7 +516,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       }
 
       const rowsRaw = (data as unknown as TicketRow[]) ?? [];
-      const rows = isReporterDesk ? sortReporterTickets(rowsRaw, nowTs) : rowsRaw;
+      const rows = isReporterDesk ? sortReporterTickets(rowsRaw, nowTs, timing.pickup_threshold_minutes) : rowsRaw;
       return { rows, count: count ?? 0 };
     },
     placeholderData: (prev) => prev,
@@ -586,7 +611,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     }
     monitorBaselineRef.current = { globalLate: late, globalNew: newN, byZoneLate, byZoneWarning };
     if (messages.length > 0) {
-      playOperationsAlertSound();
+      playOperationsAlertSound(timing.enable_sound_alerts);
       messages.forEach((m) => toast.info(m, { duration: 12_000 }));
       setAlertZoneIds((prev) => {
         const next = new Set(prev);
@@ -601,7 +626,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         });
       }, 120_000);
     }
-  }, [tableOnly, statsQuery.data, zoneOpsStatsQuery.data, zoneNameMap]);
+  }, [tableOnly, statsQuery.data, zoneOpsStatsQuery.data, zoneNameMap, timing.enable_sound_alerts]);
 
   useEffect(() => {
     try {
@@ -979,6 +1004,8 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           zoneStats={zoneOpsStatsQuery.data ?? new Map()}
           alertZoneIds={alertZoneIds}
           loading={zoneOpsStatsQuery.isPending && !zoneOpsStatsQuery.data}
+          pickupThresholdMinutes={timing.pickup_threshold_minutes}
+          warningRatio={timing.warning_percentage}
         />
       ) : null}
 

@@ -29,6 +29,11 @@ import {
   type ReportTicketRow,
 } from "@/lib/reports-analytics";
 import {
+  DEFAULT_TICKETING_SETTINGS,
+  RESOLVED_TICKETING_SETTINGS_QUERY_KEY,
+  type ResolvedTicketingSettings,
+} from "@/lib/resolved-settings";
+import {
   REPORT_SHEET_IDS,
   REPORT_SHEET_LABELS_AR,
   defaultReportExportSelection,
@@ -235,6 +240,19 @@ export function ReportsAnalyticsDashboard() {
     staleTime: 60_000,
   });
 
+  const resolvedSettingsQuery = useQuery({
+    queryKey: [...RESOLVED_TICKETING_SETTINGS_QUERY_KEY],
+    queryFn: async () => {
+      const res = await fetch("/api/me/resolved-settings");
+      if (!res.ok) throw new Error("تعذر تحميل إعدادات التقارير.");
+      const json = (await res.json()) as { ok?: boolean; settings?: ResolvedTicketingSettings; error?: string };
+      if (!json.ok) throw new Error(json.error ?? "تعذر تحميل الإعدادات.");
+      return json.settings as ResolvedTicketingSettings;
+    },
+    staleTime: 60_000,
+  });
+  const reportTiming = resolvedSettingsQuery.data ?? DEFAULT_TICKETING_SETTINGS;
+
   const ticketsQuery = useQuery({
     queryKey: ["reports-analytics-tickets", filters],
     queryFn: async () => {
@@ -295,12 +313,16 @@ export function ReportsAnalyticsDashboard() {
     downloadPremiumReportsExcel(rows, exportSelection, exportMode, {
       dateFrom: filters.dateFrom,
       dateTo: filters.dateTo,
+      pickupSlackMinutes: reportTiming.pickup_threshold_minutes,
     });
-  }, [rows, exportSelection, exportMode, selectedCount, filters.dateFrom, filters.dateTo]);
+  }, [rows, exportSelection, exportMode, selectedCount, filters.dateFrom, filters.dateTo, reportTiming.pickup_threshold_minutes]);
 
   const loading = ticketsQuery.isFetching;
   const err = ticketsQuery.error ? (ticketsQuery.error as Error).message : null;
-  const previewRows = useMemo(() => buildEliteMainDetailsRows(rows).slice(0, 8), [rows]);
+  const previewRows = useMemo(
+    () => buildEliteMainDetailsRows(rows, Date.now(), reportTiming.pickup_threshold_minutes).slice(0, 8),
+    [rows, reportTiming.pickup_threshold_minutes],
+  );
   const customPreviewRows = useMemo(() => {
     return rows.filter((row) => {
       const zoneId = String((row as unknown as Record<string, unknown>).zone_id ?? "all");
@@ -361,7 +383,7 @@ export function ReportsAnalyticsDashboard() {
       case "repair_time":
         return row.closed_at ? formatTime12Mecca(row.closed_at) : "انتظار";
       case "final_status":
-        return exportFinalStatusLabel(row);
+        return exportFinalStatusLabel(row, Date.now(), reportTiming.pickup_threshold_minutes);
       default:
         return "-";
     }
@@ -383,7 +405,7 @@ export function ReportsAnalyticsDashboard() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "تقرير مخصص");
     XLSX.writeFile(wb, `custom_report_${new Date().toISOString().slice(0, 10)}.xlsx`, { cellStyles: true });
-  }, [customFields, customPreviewRows]);
+  }, [customFields, customPreviewRows, reportTiming.pickup_threshold_minutes]);
 
   const saveCurrentTemplate = useCallback(() => {
     const name = templateName.trim();
@@ -418,10 +440,14 @@ export function ReportsAnalyticsDashboard() {
         scopedRows,
         { main: true, technicians: false, zones: false, recurring: false, monthly_density: false, sla: false },
         "single_workbook",
-        { dateFrom: filters.dateFrom, dateTo: filters.dateTo },
+        {
+          dateFrom: filters.dateFrom,
+          dateTo: filters.dateTo,
+          pickupSlackMinutes: reportTiming.pickup_threshold_minutes,
+        },
       );
     },
-    [filters.dateFrom, filters.dateTo],
+    [filters.dateFrom, filters.dateTo, reportTiming.pickup_threshold_minutes],
   );
 
   const exportFastestTech = useCallback(() => {

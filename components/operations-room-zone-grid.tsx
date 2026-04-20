@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { buildTicketsFilteredHref, PICKUP_SLACK_MINUTES, type ZoneOpsCounts } from "@/lib/operations-room-utils";
+import { buildTicketsFilteredHref, type ZoneOpsCounts } from "@/lib/operations-room-utils";
 
 type Zone = { id: string; name: string };
 
@@ -14,13 +14,24 @@ type OperationsRoomZoneGridProps = {
   zoneStats: Map<string, ZoneOpsCounts>;
   alertZoneIds: Set<string>;
   loading?: boolean;
+  /** مهلة الاستلام بالدقائق (للنص التوضيحي) */
+  pickupThresholdMinutes: number;
+  /** نسبة التحذير 0–1 (مثلاً 0.75 = 75%) */
+  warningRatio: number;
 };
 
 function emptyStats(): ZoneOpsCounts {
   return { active: 0, warning: 0, late: 0, finished: 0 };
 }
 
-export function OperationsRoomZoneGrid({ zones, zoneStats, alertZoneIds, loading }: OperationsRoomZoneGridProps) {
+export function OperationsRoomZoneGrid({
+  zones,
+  zoneStats,
+  alertZoneIds,
+  loading,
+  pickupThresholdMinutes,
+  warningRatio,
+}: OperationsRoomZoneGridProps) {
   const router = useRouter();
 
   const sortedZones = useMemo(() => {
@@ -146,7 +157,7 @@ export function OperationsRoomZoneGrid({ zones, zoneStats, alertZoneIds, loading
         })}
       </div>
       <p className="mt-3 text-[11px] text-slate-500">
-        مهلة الاستلام المرجعية: {PICKUP_SLACK_MINUTES} دقيقة — «أوشك» = مرّ 75% من المهلة ولم يُستلم بعد؛ «متأخرة» = تجاوزت المهلة بالكامل.
+        مهلة الاستلام المرجعية: {pickupThresholdMinutes} دقيقة — «أوشك» = مرّ {Math.round(warningRatio * 100)}% من المهلة ولم يُستلم بعد؛ «متأخرة» = تجاوزت المهلة بالكامل.
       </p>
     </section>
   );

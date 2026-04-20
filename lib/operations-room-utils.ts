@@ -1,15 +1,22 @@
+import type { ResolvedTicketingSettings } from "@/lib/resolved-settings";
+
 export type ZoneOpsCounts = { active: number; warning: number; late: number; finished: number };
 
-export const PICKUP_SLACK_MINUTES = 2;
+/** قيم احتياطية متوافقة مع الداتابيز عند عدم توفر الإعدادات */
+export const FALLBACK_TICKET_TIMING: Pick<ResolvedTicketingSettings, "pickup_threshold_minutes" | "warning_percentage"> = {
+  pickup_threshold_minutes: 2,
+  warning_percentage: 0.75,
+};
 
-/** تجميع بلاغات المناطق: نشطة (قبل 75% من مهلة الاستلام)، أوشكت (75–100%)، متأخرة، منتهية */
+/** تجميع بلاغات المناطق حسب مهلة الاستلام ونسبة التحذير من الإعدادات المحلولة */
 export function aggregateTicketsByZone(
   rows: { zone_id: string | null; status: string; created_at: string }[],
   zoneIds: string[],
   nowMs: number,
+  timing: Pick<ResolvedTicketingSettings, "pickup_threshold_minutes" | "warning_percentage">,
 ): Map<string, ZoneOpsCounts> {
-  const slackMs = PICKUP_SLACK_MINUTES * 60 * 1000;
-  const warnIso = new Date(nowMs - 0.75 * slackMs).toISOString();
+  const slackMs = timing.pickup_threshold_minutes * 60 * 1000;
+  const warnIso = new Date(nowMs - timing.warning_percentage * slackMs).toISOString();
   const lateIso = new Date(nowMs - slackMs).toISOString();
   const byZone = new Map<string, ZoneOpsCounts>();
   for (const id of zoneIds) {
@@ -60,7 +67,8 @@ export function buildTicketsFilteredHref(opts: {
   return qs ? `/dashboard/tickets?${qs}` : "/dashboard/tickets";
 }
 
-export function playOperationsAlertSound(): void {
+export function playOperationsAlertSound(enabled = true): void {
+  if (!enabled) return;
   try {
     const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctx) return;

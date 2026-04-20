@@ -1,7 +1,8 @@
 import type { TicketStatus } from "@/lib/ticket-status";
+import { DEFAULT_TICKETING_SETTINGS } from "@/lib/resolved-settings";
 
-/** يتماشى مع لوحة البلاغات: بعد هذه الدقائق يُعتبر «لم يستلم» متأخراً */
-export const REPORTS_PICKUP_SLACK_MINUTES = 2;
+/** @deprecated استخدم الإعدادات المحلولة؛ يبقى للتوافق مع استيرادات قديمة */
+export const REPORTS_PICKUP_SLACK_MINUTES = DEFAULT_TICKETING_SETTINGS.pickup_threshold_minutes;
 
 /** عتبة «التنفيذ السريع» في ورقة الالتزام (دقيقة من الإنشاء حتى الإغلاق) */
 export const REPORTS_FAST_CLOSE_SLA_MINUTES = 120;
@@ -365,13 +366,17 @@ function avgSecondsOrDash(values: number[]): string {
 }
 
 /** مكتمل / قيد التنفيذ / متأخر / انتظار */
-export function exportFinalStatusLabel(row: ReportTicketRow, nowMs: number = Date.now()): string {
+export function exportFinalStatusLabel(
+  row: ReportTicketRow,
+  nowMs: number = Date.now(),
+  pickupSlackMinutes: number = DEFAULT_TICKETING_SETTINGS.pickup_threshold_minutes,
+): string {
   if (row.status === "finished") return "مكتمل";
   if (row.status === "received") return "قيد التنفيذ";
   const created = new Date(row.created_at).getTime();
   if (!Number.isFinite(created)) return "—";
   const ageMin = (nowMs - created) / 60_000;
-  if (ageMin > REPORTS_PICKUP_SLACK_MINUTES) return "متأخر";
+  if (ageMin > pickupSlackMinutes) return "متأخر";
   return "انتظار";
 }
 
@@ -392,7 +397,11 @@ export type EliteMainDetailRow = {
   finalStatus: string;
 };
 
-export function buildEliteMainDetailsRows(rows: ReportTicketRow[], nowMs: number = Date.now()): EliteMainDetailRow[] {
+export function buildEliteMainDetailsRows(
+  rows: ReportTicketRow[],
+  nowMs: number = Date.now(),
+  pickupSlackMinutes: number = DEFAULT_TICKETING_SETTINGS.pickup_threshold_minutes,
+): EliteMainDetailRow[] {
   const sorted = [...rows].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const nowIso = new Date(nowMs).toISOString();
   return sorted.map((r) => {
@@ -418,7 +427,7 @@ export function buildEliteMainDetailsRows(rows: ReportTicketRow[], nowMs: number
       closeTime: close ? formatTime12Mecca(close) : r.status === "finished" ? "—" : "انتظار",
       faultHms,
       responseHms,
-      finalStatus: exportFinalStatusLabel(r, nowMs),
+      finalStatus: exportFinalStatusLabel(r, nowMs, pickupSlackMinutes),
     };
   });
 }
@@ -577,9 +586,14 @@ export type PremiumExportRow = {
   finalStatus: string;
 };
 
-export function buildPremiumExportRows(rows: ReportTicketRow[], nowMs?: number): PremiumExportRow[] {
+export function buildPremiumExportRows(
+  rows: ReportTicketRow[],
+  nowMs?: number,
+  pickupSlackMinutes?: number,
+): PremiumExportRow[] {
   const t = nowMs ?? Date.now();
-  return buildEliteMainDetailsRows(rows, t).map((e) => ({
+  const slack = pickupSlackMinutes ?? DEFAULT_TICKETING_SETTINGS.pickup_threshold_minutes;
+  return buildEliteMainDetailsRows(rows, t, slack).map((e) => ({
     ticketNumber: e.ticketNumber,
     zone: e.zone,
     technician: e.technician,

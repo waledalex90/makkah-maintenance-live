@@ -195,6 +195,8 @@ const REPORT_FILE_SLUG: Record<ReportSheetId, string> = {
 export type ReportExportContext = {
   dateFrom?: string;
   dateTo?: string;
+  /** مهلة الاستلام بالدقائق لعمود «الحالة النهائية» وورقة التفاصيل */
+  pickupSlackMinutes?: number;
 };
 
 function appendSheetsForSelection(
@@ -219,7 +221,7 @@ function appendSheetsForSelection(
       "زمن الاستجابة (HH:mm:ss)",
       "الحالة النهائية",
     ];
-    const elite = buildEliteMainDetailsRows(rows);
+    const elite = buildEliteMainDetailsRows(rows, Date.now(), ctx.pickupSlackMinutes);
     const mainAoa: string[][] = [
       mainHeaders,
       ...elite.map((e) => [

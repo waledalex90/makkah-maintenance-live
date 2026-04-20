@@ -830,22 +830,66 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     }
   };
 
+  const applyOptimisticTicketRemoval = (ticketId: string) => {
+    queryClient.setQueriesData(
+      { predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "admin-dashboard-tickets" },
+      (old: unknown) => {
+        if (!old || typeof old !== "object") return old;
+        const o = old as { rows: TicketRow[]; count: number };
+        if (!Array.isArray(o.rows)) return old;
+        const nextRows = o.rows.filter((t) => t.id !== ticketId);
+        const removed = o.rows.length - nextRows.length;
+        return { ...o, rows: nextRows, count: Math.max(0, o.count - removed) };
+      },
+    );
+    queryClient.setQueriesData(
+      { predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "operations-zone-drilldown" },
+      (old: unknown) => {
+        if (!Array.isArray(old)) return old;
+        return (old as { id: string }[]).filter((t) => t.id !== ticketId);
+      },
+    );
+  };
+
+  const invalidateAllTicketDashboardQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] }),
+      queryClient.invalidateQueries({ queryKey: ["operations-zone-stats"] }),
+      queryClient.invalidateQueries({ queryKey: ["operations-zone-drilldown"] }),
+    ]);
+  };
+
   const confirmDeleteTicket = async () => {
     if (!selectedTicket) return;
+    const ticketId = selectedTicket.id;
     setTicketDeleting(true);
+
+    await queryClient.cancelQueries({
+      predicate: (q) =>
+        Array.isArray(q.queryKey) &&
+        (q.queryKey[0] === "admin-dashboard-tickets" || q.queryKey[0] === "operations-zone-drilldown"),
+    });
+
+    applyOptimisticTicketRemoval(ticketId);
+    setTicketDeleteDialogOpen(false);
+    setDetailModalOpen(false);
+    setSelectedTicket(null);
+
     try {
-      const res = await fetch(`/api/admin/tickets/${selectedTicket.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/tickets/${ticketId}`, { method: "DELETE" });
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !data.ok) {
+        await invalidateAllTicketDashboardQueries();
         toast.error(data.error ?? "تعذر حذف البلاغ.");
         return;
       }
+
+      await invalidateAllTicketDashboardQueries();
       toast.success("تم حذف البلاغ نهائياً من النظام.");
-      setTicketDeleteDialogOpen(false);
-      setDetailModalOpen(false);
-      setSelectedTicket(null);
-      await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-stats"] });
-      await queryClient.invalidateQueries({ queryKey: ["admin-dashboard-tickets"] });
+    } catch {
+      await invalidateAllTicketDashboardQueries();
+      toast.error("تعذر حذف البلاغ.");
     } finally {
       setTicketDeleting(false);
     }

@@ -12,6 +12,8 @@ function defaultValueForKey(key: GlobalSettingKey): string {
       return String(DEFAULT_TICKETING_SETTINGS.pickup_threshold_minutes);
     case SETTINGS_KEYS.WARNING_PERCENTAGE:
       return String(DEFAULT_TICKETING_SETTINGS.warning_percentage);
+    case SETTINGS_KEYS.COMPLETION_DEADLINE_MINUTES:
+      return String(DEFAULT_TICKETING_SETTINGS.completion_deadline_minutes);
     case SETTINGS_KEYS.ENABLE_SOUND_ALERTS:
       return DEFAULT_TICKETING_SETTINGS.enable_sound_alerts ? "true" : "false";
     default:
@@ -45,6 +47,7 @@ export async function resetGlobalSettingsToDefaultsAction(): Promise<{ ok: true 
   const keys: GlobalSettingKey[] = [
     SETTINGS_KEYS.PICKUP_THRESHOLD_MINUTES,
     SETTINGS_KEYS.WARNING_PERCENTAGE,
+    SETTINGS_KEYS.COMPLETION_DEADLINE_MINUTES,
     SETTINGS_KEYS.ENABLE_SOUND_ALERTS,
   ];
 

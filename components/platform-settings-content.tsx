@@ -28,10 +28,13 @@ export function PlatformSettingsContent({ initialRows }: Props) {
 
   const pickupRow = byKey.get(SETTINGS_KEYS.PICKUP_THRESHOLD_MINUTES);
   const warnRow = byKey.get(SETTINGS_KEYS.WARNING_PERCENTAGE);
+  const completionRow = byKey.get(SETTINGS_KEYS.COMPLETION_DEADLINE_MINUTES);
   const soundRow = byKey.get(SETTINGS_KEYS.ENABLE_SOUND_ALERTS);
 
   const initialPickup = pickupRow ? parseFloat(pickupRow.value) || DEFAULT_TICKETING_SETTINGS.pickup_threshold_minutes : DEFAULT_TICKETING_SETTINGS.pickup_threshold_minutes;
   const initialWarnRatio = warnRow ? parseFloat(warnRow.value) || DEFAULT_TICKETING_SETTINGS.warning_percentage : DEFAULT_TICKETING_SETTINGS.warning_percentage;
+  const initialCompletion =
+    completionRow ? parseFloat(completionRow.value) || DEFAULT_TICKETING_SETTINGS.completion_deadline_minutes : DEFAULT_TICKETING_SETTINGS.completion_deadline_minutes;
   const initialSound =
     soundRow?.value === undefined || soundRow.value === ""
       ? DEFAULT_TICKETING_SETTINGS.enable_sound_alerts
@@ -39,6 +42,7 @@ export function PlatformSettingsContent({ initialRows }: Props) {
 
   const [pickupMin, setPickupMin] = useState(String(initialPickup));
   const [warnPercent, setWarnPercent] = useState(String(Math.round(initialWarnRatio * 100)));
+  const [completionMin, setCompletionMin] = useState(String(initialCompletion));
   const [sound, setSound] = useState(initialSound);
 
   const invalidateResolved = () => {
@@ -76,6 +80,15 @@ export function PlatformSettingsContent({ initialRows }: Props) {
     saveKey(SETTINGS_KEYS.WARNING_PERCENTAGE, String(ratio));
   };
 
+  const onSaveCompletion = () => {
+    const n = parseFloat(completionMin.replace(",", "."));
+    if (!Number.isFinite(n) || n < 5 || n > 480) {
+      toast.error("أدخل مهلة إنجاز بين 5 و 480 دقيقة.");
+      return;
+    }
+    saveKey(SETTINGS_KEYS.COMPLETION_DEADLINE_MINUTES, String(n));
+  };
+
   const onToggleSound = (checked: boolean) => {
     setSound(checked);
     saveKey(SETTINGS_KEYS.ENABLE_SOUND_ALERTS, checked ? "true" : "false");
@@ -91,6 +104,7 @@ export function PlatformSettingsContent({ initialRows }: Props) {
       toast.success("تمت استعادة القيم الافتراضية.");
       setPickupMin(String(DEFAULT_TICKETING_SETTINGS.pickup_threshold_minutes));
       setWarnPercent(String(Math.round(DEFAULT_TICKETING_SETTINGS.warning_percentage * 100)));
+      setCompletionMin(String(DEFAULT_TICKETING_SETTINGS.completion_deadline_minutes));
       setSound(DEFAULT_TICKETING_SETTINGS.enable_sound_alerts);
       invalidateResolved();
     });
@@ -102,8 +116,8 @@ export function PlatformSettingsContent({ initialRows }: Props) {
         <div>
           <h1 className="text-xl font-semibold text-slate-900">الإعدادات العالمية</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-600">
-            قيم افتراضية للمنصة؛ يمكن لكل شركة لاحقاً تجاوزها من إعدادات الشركة. أي حفظ لمهلة الاستلام أو لنسبة «أوشك على
-            التأخير» يُحدّث مصفوفة المناطق وتنبيهات غرفة العمليات فوراً (بعد الضغط على حفظ).
+            قيم افتراضية للمنصة؛ يمكن لكل شركة لاحقاً تجاوزها من إعدادات الشركة.             أي حفظ لمهلة الاستلام أو الإنجاز أو لنسبة «أوشك على التأخير» يُحدّث مصفوفة المناطق وتنبيهات غرفة العمليات فوراً
+            (بعد الضغط على حفظ).
           </p>
         </div>
         <Button type="button" variant="outline" className="gap-2" disabled={pending} onClick={onReset}>
@@ -158,8 +172,33 @@ export function PlatformSettingsContent({ initialRows }: Props) {
               <p id="warning_pct_hint" className="text-[11px] text-slate-600">
                 يتم احتساب التنبيه بناءً على مهلة الاستلام المحددة أعلاه.
               </p>
+              <p className="text-[11px] text-slate-500">
+                نفس النسبة تُطبَّق على مسار الإنجاز مع «مهلة الإنجاز الافتراضية» أدناه (منذ وقت الاستلام).
+              </p>
             </div>
             <Button type="button" className="gap-2 sm:w-fit" disabled={pending} onClick={onSaveWarn}>
+              <Save className="h-4 w-4" />
+              حفظ
+            </Button>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 sm:items-end">
+            <div className="space-y-2">
+              <Label htmlFor="completion_deadline">مهلة الإنجاز الافتراضية (بالدقائق)</Label>
+              <p className="text-[11px] font-medium text-slate-600">Default Completion Deadline Minutes</p>
+              <p className="text-xs text-slate-500">
+                {completionRow?.description ??
+                  "منذ استلام البلاغ لاعتبار التنفيذ متأخراً؛ تُضرب نسبة التحذير أعلاه في هذه المهلة لحالة «أوشك إنجاز»."}
+              </p>
+              <Input
+                id="completion_deadline"
+                inputMode="numeric"
+                value={completionMin}
+                onChange={(e) => setCompletionMin(e.target.value)}
+                className="max-w-xs"
+              />
+            </div>
+            <Button type="button" className="gap-2 sm:w-fit" disabled={pending} onClick={onSaveCompletion}>
               <Save className="h-4 w-4" />
               حفظ
             </Button>

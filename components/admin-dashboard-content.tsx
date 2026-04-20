@@ -58,8 +58,18 @@ type Zone = {
   longitude?: number | null;
 };
 
-/** فلتر بطاقات الإحصاء: إجمالي، متأخر الاستلام، قيد التنفيذ، مكتمل، مفتوح (نشط+جديد غير متأخر) */
-type StatFilter = "all" | "late_pickup" | "pickup_warning" | "received" | "finished" | "open";
+/** فلتر بطاقات الإحصاء + مسارات الاستلام/الإنجاز في مصفوفة المناطق */
+type StatFilter =
+  | "all"
+  | "late_pickup"
+  | "pickup_warning"
+  | "pickup_open"
+  | "completion_late"
+  | "completion_warning"
+  | "completion_open"
+  | "received"
+  | "finished"
+  | "open";
 type CategoryJoin = { name: string } | { name: string }[] | null;
 
 type TicketRow = {
@@ -268,8 +278,10 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
   const monitorBaselineRef = useRef<{
     globalLate: number;
     globalNew: number;
-    byZoneLate: Record<string, number>;
-    byZoneWarning: Record<string, number>;
+    byZonePickupLate: Record<string, number>;
+    byZonePickupWarning: Record<string, number>;
+    byZoneCompletionLate: Record<string, number>;
+    byZoneCompletionWarning: Record<string, number>;
   } | null>(null);
   const detailDragControls = useDragControls();
 
@@ -402,21 +414,37 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       zones.map((z) => z.id).join("|"),
       timing.pickup_threshold_minutes,
       timing.warning_percentage,
+      timing.completion_deadline_minutes,
     ],
     queryFn: async () => {
       const nowMs = Date.now();
       const bf = baseFilters;
       const pageSize = 1000;
       let from = 0;
-      const rows: { zone_id: string | null; status: string; created_at: string }[] = [];
+      const rows: {
+        zone_id: string | null;
+        status: string;
+        created_at: string;
+        received_at: string | null;
+        updated_at: string | null;
+      }[] = [];
       while (true) {
         const q = applyTicketDashboardFilters(
-          supabase.from("tickets").select("zone_id, status, created_at").range(from, from + pageSize - 1),
+          supabase
+            .from("tickets")
+            .select("zone_id, status, created_at, received_at, updated_at")
+            .range(from, from + pageSize - 1),
           bf,
         );
         const { data, error } = await q;
         if (error) throw new Error(arabicErrorMessage(error.message));
-        const batch = (data ?? []) as { zone_id: string | null; status: string; created_at: string }[];
+        const batch = (data ?? []) as {
+          zone_id: string | null;
+          status: string;
+          created_at: string;
+          received_at: string | null;
+          updated_at: string | null;
+        }[];
         rows.push(...batch);
         if (batch.length < pageSize) break;
         from += pageSize;
@@ -455,6 +483,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       isReporterDesk,
       timing.pickup_threshold_minutes,
       timing.warning_percentage,
+      timing.completion_deadline_minutes,
     ],
     queryFn: async () => {
       const from = (currentPage - 1) * PAGE_SIZE;
@@ -470,9 +499,17 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
       );
 
       if (statFilter === "open") {
-        const slackMs = timing.pickup_threshold_minutes * 60 * 1000;
-        const warnIso = new Date(nowTs - timing.warning_percentage * slackMs).toISOString();
-        query = query.or(`status.eq.received,and(status.eq.not_received,created_at.gt.${warnIso})`);
+        const pickupSlackMs = timing.pickup_threshold_minutes * 60 * 1000;
+        const pickupWarnIso = new Date(nowTs - timing.warning_percentage * pickupSlackMs).toISOString();
+        const compSlackMs = timing.completion_deadline_minutes * 60 * 1000;
+        const compWarnIso = new Date(nowTs - timing.warning_percentage * compSlackMs).toISOString();
+        query = query.or(
+          `and(status.eq.not_received,created_at.gt.${pickupWarnIso}),and(status.eq.received,received_at.gt.${compWarnIso}),and(status.eq.received,received_at.is.null)`,
+        );
+      } else if (statFilter === "pickup_open") {
+        const pickupSlackMs = timing.pickup_threshold_minutes * 60 * 1000;
+        const pickupWarnIso = new Date(nowTs - timing.warning_percentage * pickupSlackMs).toISOString();
+        query = query.eq("status", "not_received").gt("created_at", pickupWarnIso);
       } else if (statFilter === "pickup_warning") {
         const slackMs = timing.pickup_threshold_minutes * 60 * 1000;
         const warnIso = new Date(nowTs - timing.warning_percentage * slackMs).toISOString();
@@ -482,6 +519,20 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
         query = query
           .eq("status", "not_received")
           .lte("created_at", new Date(nowTs - timing.pickup_threshold_minutes * 60 * 1000).toISOString());
+      } else if (statFilter === "completion_open") {
+        const compSlackMs = timing.completion_deadline_minutes * 60 * 1000;
+        const compWarnIso = new Date(nowTs - timing.warning_percentage * compSlackMs).toISOString();
+        query = query.eq("status", "received").gt("received_at", compWarnIso);
+      } else if (statFilter === "completion_warning") {
+        const compSlackMs = timing.completion_deadline_minutes * 60 * 1000;
+        const warnIso = new Date(nowTs - timing.warning_percentage * compSlackMs).toISOString();
+        const lateIso = new Date(nowTs - compSlackMs).toISOString();
+        query = query.eq("status", "received").lte("received_at", warnIso).gt("received_at", lateIso);
+      } else if (statFilter === "completion_late") {
+        const compSlackMs = timing.completion_deadline_minutes * 60 * 1000;
+        query = query
+          .eq("status", "received")
+          .lte("received_at", new Date(nowTs - compSlackMs).toISOString());
       } else if (statFilter === "received") {
         query = query.eq("status", "received");
       } else if (statFilter === "finished") {
@@ -577,14 +628,25 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     const late = statsQuery.data.latePickup;
     const newN = statsQuery.data.notReceived;
     const byZone = zoneOpsStatsQuery.data;
-    const byZoneLate: Record<string, number> = {};
-    const byZoneWarning: Record<string, number> = {};
+    const byZonePickupLate: Record<string, number> = {};
+    const byZonePickupWarning: Record<string, number> = {};
+    const byZoneCompletionLate: Record<string, number> = {};
+    const byZoneCompletionWarning: Record<string, number> = {};
     byZone.forEach((v, k) => {
-      byZoneLate[k] = v.late;
-      byZoneWarning[k] = v.warning;
+      byZonePickupLate[k] = v.pickup_late;
+      byZonePickupWarning[k] = v.pickup_warning;
+      byZoneCompletionLate[k] = v.completion_late;
+      byZoneCompletionWarning[k] = v.completion_warning;
     });
     if (!monitorBaselineRef.current) {
-      monitorBaselineRef.current = { globalLate: late, globalNew: newN, byZoneLate, byZoneWarning };
+      monitorBaselineRef.current = {
+        globalLate: late,
+        globalNew: newN,
+        byZonePickupLate,
+        byZonePickupWarning,
+        byZoneCompletionLate,
+        byZoneCompletionWarning,
+      };
       return;
     }
     const prev = monitorBaselineRef.current;
@@ -598,18 +660,35 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
     }
     for (const [zoneId, stats] of byZone) {
       const zname = zoneNameMap.get(zoneId) ?? "منطقة";
-      const pL = prev.byZoneLate[zoneId] ?? 0;
-      if (stats.late > pL) {
+      const pPL = prev.byZonePickupLate[zoneId] ?? 0;
+      if (stats.pickup_late > pPL) {
         newAlerts.add(zoneId);
-        messages.push(`تنبيه: ${stats.late - pL} بلاغات متأخرة إضافية في منطقة ${zname}`);
+        messages.push(`تنبيه (استلام): ${stats.pickup_late - pPL} بلاغات متأخرة إضافية في منطقة ${zname}`);
       }
-      const pW = prev.byZoneWarning[zoneId] ?? 0;
-      if (stats.warning > pW) {
+      const pPW = prev.byZonePickupWarning[zoneId] ?? 0;
+      if (stats.pickup_warning > pPW) {
         newAlerts.add(zoneId);
-        messages.push(`تنبيه: ${stats.warning - pW} بلاغات أوشكت على التأخير في منطقة ${zname}`);
+        messages.push(`تنبيه (استلام): ${stats.pickup_warning - pPW} بلاغات أوشكت على التأخير في منطقة ${zname}`);
+      }
+      const pCL = prev.byZoneCompletionLate[zoneId] ?? 0;
+      if (stats.completion_late > pCL) {
+        newAlerts.add(zoneId);
+        messages.push(`تنبيه (إنجاز): ${stats.completion_late - pCL} بلاغات تأخير تنفيذ إضافية في منطقة ${zname}`);
+      }
+      const pCW = prev.byZoneCompletionWarning[zoneId] ?? 0;
+      if (stats.completion_warning > pCW) {
+        newAlerts.add(zoneId);
+        messages.push(`تنبيه (إنجاز): ${stats.completion_warning - pCW} بلاغات أوشكت على انتهاء مهلة التنفيذ في منطقة ${zname}`);
       }
     }
-    monitorBaselineRef.current = { globalLate: late, globalNew: newN, byZoneLate, byZoneWarning };
+    monitorBaselineRef.current = {
+      globalLate: late,
+      globalNew: newN,
+      byZonePickupLate,
+      byZonePickupWarning,
+      byZoneCompletionLate,
+      byZoneCompletionWarning,
+    };
     if (messages.length > 0) {
       playOperationsAlertSound(timing.enable_sound_alerts);
       messages.forEach((m) => toast.info(m, { duration: 12_000 }));
@@ -1005,6 +1084,7 @@ export function AdminDashboardContent({ role = "admin", tableOnly = false }: Adm
           alertZoneIds={alertZoneIds}
           loading={zoneOpsStatsQuery.isPending && !zoneOpsStatsQuery.data}
           pickupThresholdMinutes={timing.pickup_threshold_minutes}
+          completionDeadlineMinutes={timing.completion_deadline_minutes}
           warningRatio={timing.warning_percentage}
         />
       ) : null}

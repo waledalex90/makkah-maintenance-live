@@ -4,12 +4,14 @@ import { SETTINGS_KEYS, type GlobalSettingRow } from "@/lib/settings-keys";
 export type ResolvedTicketingSettings = {
   pickup_threshold_minutes: number;
   warning_percentage: number;
+  completion_deadline_minutes: number;
   enable_sound_alerts: boolean;
 };
 
 export const DEFAULT_TICKETING_SETTINGS: ResolvedTicketingSettings = {
   pickup_threshold_minutes: 2,
   warning_percentage: 0.75,
+  completion_deadline_minutes: 40,
   enable_sound_alerts: true,
 };
 
@@ -25,10 +27,12 @@ function clamp(n: number, min: number, max: number, fallback: number): number {
 export function parseTicketingSettingsFromMap(raw: Record<string, string | undefined>): ResolvedTicketingSettings {
   const pickup = parseFloat(raw[SETTINGS_KEYS.PICKUP_THRESHOLD_MINUTES] ?? "");
   const warn = parseFloat(raw[SETTINGS_KEYS.WARNING_PERCENTAGE] ?? "");
+  const completion = parseFloat(raw[SETTINGS_KEYS.COMPLETION_DEADLINE_MINUTES] ?? "");
   const soundRaw = raw[SETTINGS_KEYS.ENABLE_SOUND_ALERTS];
   return {
     pickup_threshold_minutes: clamp(pickup, 0.5, 120, DEFAULT_TICKETING_SETTINGS.pickup_threshold_minutes),
     warning_percentage: clamp(warn, 0.05, 0.99, DEFAULT_TICKETING_SETTINGS.warning_percentage),
+    completion_deadline_minutes: clamp(completion, 5, 480, DEFAULT_TICKETING_SETTINGS.completion_deadline_minutes),
     enable_sound_alerts:
       soundRaw === undefined || soundRaw === ""
         ? DEFAULT_TICKETING_SETTINGS.enable_sound_alerts

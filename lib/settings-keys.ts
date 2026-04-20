@@ -4,7 +4,10 @@
  */
 export const SETTINGS_KEYS = {
   PICKUP_THRESHOLD_MINUTES: "pickup_threshold_minutes",
+  /** نسبة التحذير لمساري الاستلام والإنجاز (من المهلة المعنية) */
   WARNING_PERCENTAGE: "warning_percentage",
+  /** مهلة الإنجاز منذ الاستلام (دقائق) لبلاغات «تم الاستلام» */
+  COMPLETION_DEADLINE_MINUTES: "completion_deadline_minutes",
   ENABLE_SOUND_ALERTS: "enable_sound_alerts",
 } as const;
 

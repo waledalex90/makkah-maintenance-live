@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { MapPin } from "lucide-react";
+import { Clock, MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { buildTicketsFilteredHref, type ZoneOpsCounts } from "@/lib/operations-room-utils";
@@ -14,14 +14,30 @@ type OperationsRoomZoneGridProps = {
   zoneStats: Map<string, ZoneOpsCounts>;
   alertZoneIds: Set<string>;
   loading?: boolean;
-  /** مهلة الاستلام بالدقائق (للنص التوضيحي) */
   pickupThresholdMinutes: number;
-  /** نسبة التحذير 0–1 (مثلاً 0.75 = 75%) */
+  completionDeadlineMinutes: number;
   warningRatio: number;
 };
 
 function emptyStats(): ZoneOpsCounts {
-  return { active: 0, warning: 0, late: 0, finished: 0 };
+  return {
+    pickup_active: 0,
+    pickup_warning: 0,
+    pickup_late: 0,
+    completion_active: 0,
+    completion_warning: 0,
+    completion_late: 0,
+    finished: 0,
+  };
+}
+
+/** أولوية العرض: متأخر استلام → متأخر إنجاز → تحذيرات */
+function zonePriority(s: ZoneOpsCounts): number {
+  if (s.pickup_late > 0) return 8;
+  if (s.completion_late > 0) return 7;
+  if (s.pickup_warning > 0) return 4;
+  if (s.completion_warning > 0) return 3;
+  return 0;
 }
 
 export function OperationsRoomZoneGrid({
@@ -30,6 +46,7 @@ export function OperationsRoomZoneGrid({
   alertZoneIds,
   loading,
   pickupThresholdMinutes,
+  completionDeadlineMinutes,
   warningRatio,
 }: OperationsRoomZoneGridProps) {
   const router = useRouter();
@@ -38,9 +55,7 @@ export function OperationsRoomZoneGrid({
     return [...zones].sort((a, b) => {
       const sa = zoneStats.get(a.id) ?? emptyStats();
       const sb = zoneStats.get(b.id) ?? emptyStats();
-      /** أولوية: متأخرة ثم أوشك على التأخير ثم الباقي أبجدياً */
-      const pri = (s: ZoneOpsCounts) => (s.late > 0 ? 4 : s.warning > 0 ? 2 : 0);
-      const d = pri(sb) - pri(sa);
+      const d = zonePriority(sb) - zonePriority(sa);
       if (d !== 0) return d;
       return a.name.localeCompare(b.name, "ar");
     });
@@ -72,24 +87,42 @@ export function OperationsRoomZoneGrid({
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-slate-900">مصفوفة المناطق</h2>
-        <p className="text-xs text-slate-500">مرتبة حسب الأولوية (متأخرة → أوشك على التأخير) — تتحدث مع المراقبة كل ~45 ثانية</p>
+        <p className="text-xs text-slate-500">
+          مساران: الاستلام (لم يُستلم) والإنجاز (تم الاستلام) — تتحدث كل ~45 ثانية
+        </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {sortedZones.map((zone) => {
           const s = zoneStats.get(zone.id) ?? emptyStats();
           const pollingAlert = alertZoneIds.has(zone.id);
-          const critical = s.late > 0;
-          const warnState = !critical && s.warning > 0;
+          const hasPickupLate = s.pickup_late > 0;
+          const hasPickupWarn = s.pickup_warning > 0;
+          const hasCompLate = s.completion_late > 0;
+          const hasCompWarn = s.completion_warning > 0;
+          const showCompletionClock = hasCompLate || hasCompWarn;
+
+          /* تدرج أصفر → أحمر داكن لمسار الاستلام عند التأخر */
+          const pickupGradient =
+            hasPickupLate &&
+            "border-red-950 bg-gradient-to-br from-amber-200/95 via-red-800/95 to-red-950 text-white shadow-lg";
+          const pickupAmberOnly =
+            !hasPickupLate && hasPickupWarn && "border-amber-500 bg-amber-50/95 shadow-sm";
+          /* إنجاز: متوهج عند التأخر، برتقالي عند التحذير */
+          const completionGlow =
+            hasCompLate &&
+            "shadow-[0_0_0_2px_rgba(220,38,38,0.9),0_0_26px_rgba(251,146,60,0.65)] ring-2 ring-red-500/90";
+          const completionWarnRing =
+            !hasCompLate && hasCompWarn && "ring-2 ring-orange-400 shadow-md shadow-orange-200/50";
 
           return (
             <Card
               key={zone.id}
               className={cn(
                 "relative overflow-hidden border-2 transition-colors duration-300",
-                critical &&
-                  "border-red-500 bg-red-50/95 shadow-md ring-2 ring-red-400/90 animate-pulse [animation-duration:1.8s]",
-                warnState && "border-amber-400 bg-amber-50/90 shadow-sm",
-                !critical && !warnState && "border-slate-200 bg-white",
+                pickupGradient || pickupAmberOnly || "border-slate-200 bg-white",
+                completionGlow,
+                completionWarnRing && !completionGlow,
+                !pickupGradient && !pickupAmberOnly && !completionGlow && !completionWarnRing && "border-slate-200",
               )}
             >
               {pollingAlert ? (
@@ -99,65 +132,161 @@ export function OperationsRoomZoneGrid({
                   aria-hidden
                 />
               ) : null}
+              {showCompletionClock ? (
+                <span
+                  className={cn(
+                    "absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full",
+                    hasCompLate ? "bg-red-600/90 text-white shadow-[0_0_12px_rgba(248,113,113,0.9)]" : "bg-orange-500/90 text-white",
+                  )}
+                  title="تأخير أو تحذير في التنفيذ (بعد الاستلام)"
+                  aria-hidden
+                >
+                  <Clock className="h-4 w-4" strokeWidth={2.5} />
+                </span>
+              ) : null}
               <CardHeader className="space-y-1 pb-2">
-                <div className="flex items-start gap-2">
+                <div className="flex items-start gap-2 pr-8">
                   <MapPin
                     className={cn(
                       "mt-0.5 h-4 w-4 shrink-0",
-                      critical ? "text-red-600" : warnState ? "text-amber-600" : "text-sky-600",
+                      hasPickupLate ? "text-red-200" : hasPickupWarn ? "text-amber-700" : hasCompLate ? "text-red-400" : "text-sky-600",
                     )}
                   />
-                  <CardTitle className="text-base leading-snug">{zone.name}</CardTitle>
+                  <CardTitle className={cn("text-base leading-snug", hasPickupLate && "text-white drop-shadow-sm")}>
+                    {zone.name}
+                  </CardTitle>
                 </div>
+                <p className={cn("text-[10px] font-medium", hasPickupLate ? "text-amber-100" : "text-slate-500")}>
+                  مسار الاستلام
+                </p>
               </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-2 pt-0 sm:grid-cols-4">
+              <CardContent className="grid grid-cols-3 gap-1.5 pt-0">
                 <div>
-                  <p className="text-[10px] font-medium text-slate-500">نشطة</p>
+                  <p className={cn("text-[9px] font-medium", hasPickupLate ? "text-amber-100" : "text-slate-500")}>
+                    نشطة
+                  </p>
                   <button
                     type="button"
-                    className="mt-1 w-full rounded-lg bg-emerald-50 py-2 text-lg font-bold text-emerald-800 hover:bg-emerald-100"
-                    onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "open" }))}
+                    className={cn(
+                      "mt-0.5 w-full rounded-md py-1.5 text-sm font-bold hover:opacity-90",
+                      hasPickupLate
+                        ? "bg-white/15 text-white"
+                        : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                    )}
+                    onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "pickup_open" }))}
                   >
-                    {s.active}
+                    {s.pickup_active}
                   </button>
                 </div>
                 <div>
-                  <p className="text-[10px] font-medium text-amber-700">أوشك على التأخير</p>
+                  <p className={cn("text-[9px] font-medium", hasPickupLate ? "text-amber-100" : "text-amber-700")}>
+                    أوشك
+                  </p>
                   <button
                     type="button"
-                    className="mt-1 w-full rounded-lg bg-amber-100/90 py-2 text-lg font-bold text-amber-800 hover:bg-amber-200"
+                    className={cn(
+                      "mt-0.5 w-full rounded-md py-1.5 text-sm font-bold hover:opacity-90",
+                      hasPickupLate ? "bg-amber-500/30 text-white" : "bg-amber-100/90 text-amber-900 hover:bg-amber-200",
+                    )}
                     onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "pickup_warning" }))}
                   >
-                    {s.warning}
+                    {s.pickup_warning}
                   </button>
                 </div>
                 <div>
-                  <p className="text-[10px] font-medium text-red-700">متأخرة</p>
+                  <p className={cn("text-[9px] font-medium", hasPickupLate ? "text-red-100" : "text-red-800")}>
+                    متأخّر
+                  </p>
                   <button
                     type="button"
-                    className="mt-1 w-full rounded-lg bg-red-50 py-2 text-xl font-black text-red-600 hover:bg-red-100"
+                    className={cn(
+                      "mt-0.5 w-full rounded-md py-1.5 text-base font-black hover:opacity-90",
+                      hasPickupLate ? "bg-red-950/80 text-white" : "bg-red-50 text-red-700 hover:bg-red-100",
+                    )}
                     onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "late_pickup" }))}
                   >
-                    {s.late}
-                  </button>
-                </div>
-                <div>
-                  <p className="text-[10px] font-medium text-slate-500">منتهية</p>
-                  <button
-                    type="button"
-                    className="mt-1 w-full rounded-lg bg-slate-100 py-2 text-lg font-semibold text-slate-700 hover:bg-slate-200"
-                    onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "finished" }))}
-                  >
-                    {s.finished}
+                    {s.pickup_late}
                   </button>
                 </div>
               </CardContent>
+
+              <div
+                className={cn(
+                  "border-t px-4 pb-3 pt-2",
+                  hasPickupLate ? "border-white/15 bg-black/15" : "border-slate-200/80",
+                )}
+              >
+                <p
+                  className={cn(
+                    "mb-1.5 text-[10px] font-medium",
+                    hasPickupLate ? "text-amber-100/90" : "text-slate-500",
+                  )}
+                >
+                  مسار الإنجاز
+                </p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div>
+                    <p className={cn("text-[9px]", hasPickupLate ? "text-sky-100" : "text-slate-500")}>قيد التنفيذ</p>
+                    <button
+                      type="button"
+                      className={cn(
+                        "mt-0.5 w-full rounded-md py-1.5 text-sm font-bold hover:opacity-95",
+                        hasPickupLate
+                          ? "bg-sky-500/25 text-white ring-1 ring-white/20"
+                          : "bg-sky-50 text-sky-900 hover:bg-sky-100",
+                      )}
+                      onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "completion_open" }))}
+                    >
+                      {s.completion_active}
+                    </button>
+                  </div>
+                  <div>
+                    <p className="text-[9px] text-orange-300">أوشك إنجاز</p>
+                    <button
+                      type="button"
+                      className="mt-0.5 w-full rounded-md bg-orange-400/90 py-1.5 text-sm font-bold text-orange-950 hover:bg-orange-400"
+                      onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "completion_warning" }))}
+                    >
+                      {s.completion_warning}
+                    </button>
+                  </div>
+                  <div>
+                    <p className="text-[9px] text-red-200">متأخّر إنجاز</p>
+                    <button
+                      type="button"
+                      className="mt-0.5 w-full rounded-md bg-gradient-to-br from-orange-400 to-red-500 py-1.5 text-sm font-black text-white shadow-[0_0_14px_rgba(251,146,60,0.7)] hover:brightness-110"
+                      onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "completion_late" }))}
+                    >
+                      {s.completion_late}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={cn("border-t px-4 pb-3", hasPickupLate ? "border-white/15" : "border-slate-200/80")}
+              >
+                <p className={cn("mb-1 text-[9px]", hasPickupLate ? "text-amber-100/80" : "text-slate-500")}>منتهية</p>
+                <button
+                  type="button"
+                  className={cn(
+                    "w-full rounded-md py-2 text-sm font-semibold",
+                    hasPickupLate
+                      ? "bg-white/10 text-white hover:bg-white/20"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200",
+                  )}
+                  onClick={() => go(buildTicketsFilteredHref({ zoneId: zone.id, statCard: "finished" }))}
+                >
+                  {s.finished}
+                </button>
+              </div>
             </Card>
           );
         })}
       </div>
       <p className="mt-3 text-[11px] text-slate-500">
-        مهلة الاستلام المرجعية: {pickupThresholdMinutes} دقيقة — «أوشك» = مرّ {Math.round(warningRatio * 100)}% من المهلة ولم يُستلم بعد؛ «متأخرة» = تجاوزت المهلة بالكامل.
+        الاستلام: مهلة {pickupThresholdMinutes} دقيقة — «أوشك» بعد {Math.round(warningRatio * 100)}% من المهلة. الإنجاز: مهلة{" "}
+        {completionDeadlineMinutes} دقيقة منذ الاستلام — أحمر داكن = تأخير استلام؛ أحمر متوهج وساعة = تأخير إنجاز.
       </p>
     </section>
   );

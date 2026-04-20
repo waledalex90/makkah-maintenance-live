@@ -84,7 +84,7 @@ export function PlatformCompaniesContent() {
   const [createForm, setCreateForm] = useState({
     name: "",
     slug: "",
-    subscription_plan: "basic",
+    subscription_plan: "enterprise",
     status: "trial",
     subscription_status: "trial",
     billing_email: "",
@@ -117,6 +117,16 @@ export function PlatformCompaniesContent() {
     });
   }, [editing]);
 
+  useEffect(() => {
+    const plans = plansQuery.data ?? [];
+    if (plans.length === 0) return;
+    const keys = new Set(plans.map((p) => p.plan_key));
+    setCreateForm((f) => {
+      if (keys.has(f.subscription_plan)) return f;
+      return { ...f, subscription_plan: plans[0]!.plan_key };
+    });
+  }, [plansQuery.data]);
+
   const createMutation = useMutation({
     mutationFn: async () => {
       const payload: Record<string, unknown> = {
@@ -139,10 +149,12 @@ export function PlatformCompaniesContent() {
     onSuccess: () => {
       toast.success("تم إنشاء الشركة.");
       setCreateOpen(false);
+      const plans = queryClient.getQueryData<PlanRow[]>(["platform-subscription-plans"]) ?? [];
+      const defaultPlan = plans[0]?.plan_key ?? "enterprise";
       setCreateForm({
         name: "",
         slug: "",
-        subscription_plan: "basic",
+        subscription_plan: defaultPlan,
         status: "trial",
         subscription_status: "trial",
         billing_email: "",

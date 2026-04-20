@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getActivePlatformAdminUserIds } from "@/lib/platform-admin-ids";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -29,8 +30,18 @@ export async function getCompanyBillingSummary(admin: AdminClient, companyId: st
   const plan = Array.isArray(company.subscription_plans) ? company.subscription_plans[0] : company.subscription_plans;
   if (!plan) return null;
 
+  const platformAdminIds = await getActivePlatformAdminUserIds(admin);
+  let techCountQuery = admin
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .in("role", ["technician", "engineer", "supervisor"]);
+  if (platformAdminIds.length > 0) {
+    techCountQuery = techCountQuery.not("id", "in", `(${platformAdminIds.join(",")})`);
+  }
+
   const [techRows, zoneRows, ticketRows] = await Promise.all([
-    admin.from("profiles").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("role", ["technician", "engineer", "supervisor"]),
+    techCountQuery,
     admin.from("zones").select("id", { count: "exact", head: true }).eq("company_id", companyId),
     admin
       .from("tickets")

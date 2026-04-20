@@ -2,7 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, LayoutDashboard, ListTodo, MapPinned, Settings, Shield, Ticket, Users, X } from "lucide-react";
+import {
+  BarChart3,
+  Building2,
+  CreditCard,
+  LayoutDashboard,
+  ListTodo,
+  MapPinned,
+  Settings,
+  Shield,
+  Ticket,
+  Users,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ASSET_VERSION } from "@/lib/asset-version";
 import { LogoutButton } from "@/components/logout-button";
@@ -48,6 +60,7 @@ const PLATFORM_DASHBOARD_HREF = "/dashboard/admin/platform";
 const PLATFORM_NAV_DEF: NavItem[] = [
   { href: PLATFORM_DASHBOARD_HREF, label: "UP FLOW — لوحة المنصة", icon: Building2, perm: "manage_users", platformAdminOnly: true },
   { href: "/dashboard/admin/companies", label: "إدارة الشركات", icon: Users, perm: "manage_users", platformAdminOnly: true },
+  { href: "/dashboard/admin/subscriptions", label: "الباقات", icon: CreditCard, perm: "manage_users", platformAdminOnly: true },
   { href: "/dashboard/admin/billing", label: "الفواتير", icon: BarChart3, perm: "manage_users", platformAdminOnly: true },
   { href: "/dashboard/admin/monitoring", label: "الأمان", icon: Shield, perm: "manage_users", platformAdminOnly: true },
 ];

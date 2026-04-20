@@ -3,6 +3,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth-guards";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordSecurityEvent } from "@/lib/security-events";
+import { getActivePlatformAdminUserIds } from "@/lib/platform-admin-ids";
 
 const COMPANY_STATUSES = new Set(["active", "trial", "suspended", "cancelled"]);
 const SUB_STATUSES = new Set(["active", "past_due", "expired", "trial", "cancelled"]);
@@ -133,15 +134,17 @@ export async function GET() {
   const companyIds = (companies ?? []).map((c) => c.id as string);
   let memberCounts = new Map<string, number>();
   if (companyIds.length > 0) {
+    const platformAdminIds = new Set(await getActivePlatformAdminUserIds(admin));
     const { data: memberships, error: countError } = await admin
       .from("company_memberships")
-      .select("company_id")
+      .select("company_id, user_id")
       .in("company_id", companyIds)
       .eq("status", "active");
     if (countError) {
       return NextResponse.json({ error: countError.message }, { status: 400 });
     }
     memberCounts = (memberships ?? []).reduce((acc, row) => {
+      if (platformAdminIds.has(row.user_id as string)) return acc;
       const companyId = row.company_id as string;
       acc.set(companyId, (acc.get(companyId) ?? 0) + 1);
       return acc;

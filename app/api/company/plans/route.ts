@@ -11,7 +11,7 @@ export async function GET() {
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin
     .from("subscription_plans")
-    .select("plan_key, display_name, price_monthly, max_technicians, max_tickets_per_month, max_zones")
+    .select("plan_key, display_name, price_monthly, max_technicians, max_tickets_per_month, max_zones, features, limits")
     .eq("is_active", true)
     .order("price_monthly", { ascending: true });
   if (error) {

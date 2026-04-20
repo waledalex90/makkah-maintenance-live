@@ -9,6 +9,7 @@ import { isProtectedSuperAdminEmail } from "@/lib/protected-super-admin";
 import { defaultAccessWorkListForRole } from "@/lib/access-work-list-defaults";
 import { isDynamicRolesEnabled } from "@/lib/feature-flags";
 import { getTenantContext } from "@/lib/tenant-context";
+import { getActivePlatformAdminUserIds } from "@/lib/platform-admin-ids";
 import { listVisibleRoles, resolveRoleForTenant } from "@/lib/server/tenant-roles";
 import { assertWithinTechnicianLimit } from "@/lib/billing-limits";
 import {
@@ -168,7 +169,8 @@ export async function GET() {
       return NextResponse.json({ error: profilesError.message }, { status: 400 });
     }
 
-    const list = ((profiles as ProfileRow[]) ?? []) as ProfileRow[];
+    const platformAdminIds = new Set(await getActivePlatformAdminUserIds(adminSupabase));
+    const list = (((profiles as ProfileRow[]) ?? []) as ProfileRow[]).filter((p) => !platformAdminIds.has(p.id));
     const profileIds = list.map((p) => p.id);
     const zoneMap = await buildZoneMapForProfiles(adminSupabase, profileIds, tenant.activeCompanyId, tenant.isPlatformAdmin);
     const rows = await mapProfilesToUserRows(adminSupabase, list, zoneMap);

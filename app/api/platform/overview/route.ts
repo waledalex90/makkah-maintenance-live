@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth-guards";
+import { getActivePlatformAdminUserIds } from "@/lib/platform-admin-ids";
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 
@@ -41,15 +42,16 @@ export async function GET() {
   const companyIds = list.map((c) => c.id as string);
   let totalActiveMembers = 0;
   if (companyIds.length > 0) {
+    const platformAdminIds = new Set(await getActivePlatformAdminUserIds(admin));
     const { data: memberships, error: mErr } = await admin
       .from("company_memberships")
-      .select("id")
+      .select("user_id")
       .in("company_id", companyIds)
       .eq("status", "active");
     if (mErr) {
       return NextResponse.json({ error: mErr.message }, { status: 400 });
     }
-    totalActiveMembers = (memberships ?? []).length;
+    totalActiveMembers = (memberships ?? []).filter((m) => !platformAdminIds.has(m.user_id as string)).length;
   }
 
   let dueInvoices = 0;

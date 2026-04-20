@@ -8,7 +8,11 @@ export const FALLBACK_TICKET_TIMING: Pick<ResolvedTicketingSettings, "pickup_thr
   warning_percentage: 0.75,
 };
 
-/** تجميع بلاغات المناطق حسب مهلة الاستلام ونسبة التحذير من الإعدادات المحلولة */
+/**
+ * تجميع بلاغات المناطق حسب الإعدادات المحلولة.
+ * مهلة الاستلام الكاملة = pickup_threshold_minutes؛ يبدأ لون التحذير (أصفر/أوشك) بعد مرور
+ * (warning_percentage × المهلة بالزمن) من عمر البلاغ دون استلام، والمتأخر بعد انتهاء المهلة كاملة.
+ */
 export function aggregateTicketsByZone(
   rows: { zone_id: string | null; status: string; created_at: string }[],
   zoneIds: string[],

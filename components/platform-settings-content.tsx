@@ -102,8 +102,8 @@ export function PlatformSettingsContent({ initialRows }: Props) {
         <div>
           <h1 className="text-xl font-semibold text-slate-900">الإعدادات العالمية</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-600">
-            قيم افتراضية للمنصة؛ يمكن لكل شركة لاحقاً تجاوزها من إعدادات الشركة. التغييرات تُطبّق فور الحفظ على لوحات التحكم
-            والتقارير المرتبطة.
+            قيم افتراضية للمنصة؛ يمكن لكل شركة لاحقاً تجاوزها من إعدادات الشركة. أي حفظ لمهلة الاستلام أو لنسبة «أوشك على
+            التأخير» يُحدّث مصفوفة المناطق وتنبيهات غرفة العمليات فوراً (بعد الضغط على حفظ).
           </p>
         </div>
         <Button type="button" variant="outline" className="gap-2" disabled={pending} onClick={onReset}>
@@ -120,15 +120,22 @@ export function PlatformSettingsContent({ initialRows }: Props) {
         <CardContent className="space-y-8">
           <div className="grid gap-4 sm:grid-cols-2 sm:items-end">
             <div className="space-y-2">
-              <Label htmlFor="pickup_threshold">مهلة الاستلام (دقائق)</Label>
-              <p className="text-xs text-slate-500">{pickupRow?.description ?? "قبل اعتبار البلاغ متأخراً في الاستلام."}</p>
+              <Label htmlFor="pickup_threshold">مهلة الاستلام الافتراضية (بالدقائق)</Label>
+              <p className="text-[11px] font-medium text-slate-600">Default Pickup Threshold Minutes</p>
+              <p className="text-xs text-slate-500">
+                {pickupRow?.description ?? "الحد الزمني قبل اعتبار البلاغ متأخراً في الاستلام؛ يُضرب في نسبة التحذير أدناه لتحديد بداية حالة «أوشك»."}
+              </p>
               <Input
                 id="pickup_threshold"
                 inputMode="decimal"
                 value={pickupMin}
                 onChange={(e) => setPickupMin(e.target.value)}
                 className="max-w-xs"
+                aria-describedby="pickup_threshold_help"
               />
+              <p id="pickup_threshold_help" className="text-[11px] text-slate-500">
+                في غرفة العمليات: زمن بداية التنبيه الأصفر = نسبة «أوشك» × هذه المهلة (بالدقائق).
+              </p>
             </div>
             <Button type="button" className="gap-2 sm:w-fit" disabled={pending} onClick={onSavePickup}>
               <Save className="h-4 w-4" />
@@ -146,7 +153,11 @@ export function PlatformSettingsContent({ initialRows }: Props) {
                 value={warnPercent}
                 onChange={(e) => setWarnPercent(e.target.value)}
                 className="max-w-xs"
+                aria-describedby="warning_pct_hint"
               />
+              <p id="warning_pct_hint" className="text-[11px] text-slate-600">
+                يتم احتساب التنبيه بناءً على مهلة الاستلام المحددة أعلاه.
+              </p>
             </div>
             <Button type="button" className="gap-2 sm:w-fit" disabled={pending} onClick={onSaveWarn}>
               <Save className="h-4 w-4" />
